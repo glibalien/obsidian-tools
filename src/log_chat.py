@@ -128,16 +128,17 @@ def log_chat(
     summary: str,
     files: list[str] | None = None,
     full_response: str | None = None
-) -> None:
-    """Log an interaction to today's daily note."""
+) -> str:
+    """Log an interaction to today's daily note. Returns the daily note path."""
     daily_note_path = get_daily_note_path()
     content = ensure_daily_note_exists(daily_note_path)
-    
+
     entry = format_entry(task_description, query, summary, files, full_response)
     content = insert_entry(content, entry)
-    
+
     daily_note_path.write_text(content)
     print(f"Logged to {daily_note_path}")
+    return str(daily_note_path)
 
 
 if __name__ == "__main__":

@@ -7,19 +7,30 @@ import chromadb
 from config import CHROMA_PATH
 
 
-def search(query: str, n_results: int = 5) -> None:
-    """Search the vault and print results."""
+def search_results(query: str, n_results: int = 5) -> list[dict[str, str]]:
+    """Search the vault and return structured results.
+
+    Returns a list of dicts with 'source' and 'content' keys.
+    """
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     collection = client.get_collection("obsidian_vault")
-    
+
     results = collection.query(
         query_texts=[query],
         n_results=n_results
     )
-    
-    for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
-        print(f"\n--- {metadata['source']} ---")
-        print(doc[:500])
+
+    return [
+        {"source": metadata["source"], "content": doc[:500]}
+        for doc, metadata in zip(results["documents"][0], results["metadatas"][0])
+    ]
+
+
+def search(query: str, n_results: int = 5) -> None:
+    """Search the vault and print results."""
+    for result in search_results(query, n_results):
+        print(f"\n--- {result['source']} ---")
+        print(result["content"])
 
 
 if __name__ == "__main__":
