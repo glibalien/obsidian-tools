@@ -11,7 +11,6 @@ The vault location is configured via environment variable (see `.env`).
 |--------|---------|-------|
 | `src/search_vault.py` | Semantic search via ChromaDB | `python src/search_vault.py "query"` |
 | `src/log_chat.py` | Log interactions to daily note | `python src/log_chat.py "task" "query" "summary" "files" ["full_response"]` |
-| `src/index_vault.py` | Update/prune vector index | `python src/index_vault.py` or `--full` for full reindex |
 
 ## Usage
 
@@ -24,18 +23,12 @@ python src/log_chat.py "task description" "query" "summary" "file1.md,file2.md"
 
 # Log conversational response (includes full text)
 python src/log_chat.py "task description" "query" "n/a" "file1.md,file2.md" "full response text"
-
-# Update index (run hourly or manually)
-python src/index_vault.py
-
-# Full reindex
-python src/index_vault.py --full
 ```
 
 ## Conventions
 
 - Daily notes are in `Daily Notes/YYYY-MM-DD.md` within the vault
-- The vault's "tags" frontmatter field describes content types: task, project, meeting, recipe
+- The vault's "tags" frontmatter field describes content types: task, project, meeting, recipe, etc.
 - When summarizing search results, cite which files the information came from
 - Use `search_vault.py` for searching - don't grep or find by filename
 
