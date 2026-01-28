@@ -20,7 +20,9 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── read_file (full note content)
         │                       ├── list_files_by_frontmatter (metadata queries)
         │                       ├── update_frontmatter (modify metadata)
+        │                       ├── batch_update_frontmatter (bulk metadata)
         │                       ├── move_file (relocate files)
+        │                       ├── batch_move_files (bulk relocate)
         │                       ├── create_file (new notes)
         │                       └── log_interaction (daily notes)
         │
@@ -43,7 +45,9 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `read_file` | Read full content of a vault note | `path` (string: relative to vault or absolute) |
 | `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains") |
 | `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
+| `batch_update_frontmatter` | Apply frontmatter update to multiple files | `paths` (list[str]), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `move_file` | Relocate a file within the vault | `source` (string), `destination` (string) |
+| `batch_move_files` | Move multiple files to new locations | `moves` (list[dict] with "source" and "destination" keys) |
 | `create_file` | Create a new markdown note | `path` (string), `content` (string, default ""), `frontmatter` (JSON string, optional) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
@@ -74,12 +78,27 @@ Updates frontmatter on a vault file, preserving body content.
 - `value`: For complex values (lists), use JSON: `'["tag1", "tag2"]'`
 - Append creates the list if field doesn't exist, and skips duplicates
 
+### batch_update_frontmatter
+
+Applies the same frontmatter update to multiple files. Useful for bulk operations like archiving projects or adding tags to a group of files.
+- Same field/value/operation semantics as `update_frontmatter`
+- Continues processing after individual failures
+- Returns summary showing successes and failures
+
 ### move_file
 
 Moves a vault file to a different location within the vault.
 - Creates target directory if it doesn't exist
 - Prevents moves outside the vault (both paths validated)
 - Prevents overwriting existing files
+
+### batch_move_files
+
+Moves multiple files to new locations in a single operation.
+- `moves`: List of objects like `{"source": "old/path.md", "destination": "new/path.md"}`
+- Creates destination directories if needed
+- Continues processing after individual failures
+- Returns summary showing successes and failures
 
 ### create_file
 
