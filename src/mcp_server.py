@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -80,6 +81,37 @@ def _extract_frontmatter(file_path: Path) -> dict:
         return yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
         return {}
+
+
+def _parse_frontmatter_date(date_value: any) -> datetime | None:
+    """Parse a frontmatter Date field into a datetime object."""
+    if date_value is None:
+        return None
+
+    date_str = str(date_value).strip()
+
+    # Strip wikilink brackets if present: [[2023-08-11]] -> 2023-08-11
+    if date_str.startswith("[[") and date_str.endswith("]]"):
+        date_str = date_str[2:-2]
+
+    # Try parsing as ISO date
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _get_file_creation_time(file_path: Path) -> datetime | None:
+    """Get file creation time, falling back to ctime if birthtime unavailable."""
+    try:
+        stat_result = file_path.stat()
+        # Try birthtime first (available on macOS, some filesystems)
+        if hasattr(stat_result, "st_birthtime"):
+            return datetime.fromtimestamp(stat_result.st_birthtime)
+        # Fall back to ctime (inode change time on Linux)
+        return datetime.fromtimestamp(stat_result.st_ctime)
+    except OSError:
+        return None
 
 
 def _update_file_frontmatter(
@@ -629,6 +661,75 @@ def find_backlinks(note_name: str) -> str:
         return f"No backlinks found to [[{note_name}]]"
 
     return "\n".join(sorted(backlinks))
+
+
+@mcp.tool()
+def search_by_date_range(
+    start_date: str,
+    end_date: str,
+    date_type: str = "modified",
+) -> str:
+    """Find vault files within a date range.
+
+    Args:
+        start_date: Start of date range (inclusive), format: YYYY-MM-DD.
+        end_date: End of date range (inclusive), format: YYYY-MM-DD.
+        date_type: Which date to check - "created" (frontmatter Date field,
+                   falls back to filesystem creation time) or "modified"
+                   (filesystem modification time). Default: "modified".
+
+    Returns:
+        Newline-separated list of matching file paths (relative to vault),
+        or a message if no files found.
+    """
+    if date_type not in ("created", "modified"):
+        return f"Error: date_type must be 'created' or 'modified', got '{date_type}'"
+
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+    except ValueError:
+        return f"Error: Invalid start_date format. Use YYYY-MM-DD, got '{start_date}'"
+
+    try:
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        return f"Error: Invalid end_date format. Use YYYY-MM-DD, got '{end_date}'"
+
+    if start > end:
+        return f"Error: start_date ({start_date}) is after end_date ({end_date})"
+
+    matching = []
+    vault_resolved = VAULT_PATH.resolve()
+
+    for md_file in _get_vault_files():
+        file_date = None
+
+        if date_type == "created":
+            # Try frontmatter Date first, fall back to filesystem creation time
+            frontmatter = _extract_frontmatter(md_file)
+            file_date = _parse_frontmatter_date(frontmatter.get("Date"))
+            if file_date is None:
+                file_date = _get_file_creation_time(md_file)
+        else:  # modified
+            try:
+                mtime = md_file.stat().st_mtime
+                file_date = datetime.fromtimestamp(mtime)
+            except OSError:
+                continue
+
+        if file_date is None:
+            continue
+
+        # Compare date only (ignore time component)
+        file_date_only = file_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        if start <= file_date_only <= end:
+            rel_path = md_file.relative_to(vault_resolved)
+            matching.append(str(rel_path))
+
+    if not matching:
+        return f"No files found with {date_type} date between {start_date} and {end_date}"
+
+    return "\n".join(sorted(matching))
 
 
 if __name__ == "__main__":
