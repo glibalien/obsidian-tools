@@ -17,6 +17,7 @@ This project provides semantic search and interaction logging for an Obsidian va
 └─────────────────┘     └─────────────────┘     └─────────────────┘
         │                       │
         │                       ├── search_vault (hybrid search)
+        │                       ├── read_file (full note content)
         │                       └── log_interaction (daily notes)
         │
         └── Fireworks API (Qwen 3 235B)
@@ -35,6 +36,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | MCP Tool | Purpose | Parameters |
 |----------|---------|------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
+| `read_file` | Read full content of a vault note | `path` (string: relative to vault or absolute) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
 ### search_vault
@@ -43,6 +45,12 @@ Searches the Obsidian vault using hybrid search (semantic + keyword by default).
 - `"hybrid"` (default): Runs both semantic and keyword search, merges results using Reciprocal Rank Fusion.
 - `"semantic"`: Vector similarity search only.
 - `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
+
+### read_file
+
+Reads the full content of a vault note. Accepts either a relative path (from vault root) or an absolute path. Security measures:
+- Rejects paths that escape the vault (path traversal protection)
+- Blocks access to excluded directories (`.obsidian`, `.git`, etc.)
 
 ### log_interaction
 
