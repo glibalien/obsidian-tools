@@ -31,7 +31,23 @@ When answering questions about the vault:
 1. Use search_vault to find relevant notes
 2. Cite which files the information came from
 
-Be concise and helpful."""
+Be concise and helpful.
+
+## Interaction Logging
+
+Every interaction must be logged to the daily note using log_interaction.
+
+At the end of every conversation turn that completes a user request, call log_interaction with:
+- task_description: Brief description of the task performed
+- query: The user's original query
+- summary: Summary of the outcome (or "n/a" if using full_response)
+- files: List of referenced vault notes (optional)
+- full_response: Your full response text (optional, for lengthy responses)
+
+Guidelines:
+- For lengthy responses (search results, explanations, multi-paragraph answers): pass summary="n/a" and provide your full conversational output in full_response instead.
+- For short responses (confirmations, one-liners): use the summary field with a concise description.
+- Include relevant files when the interaction references specific vault notes."""
 
 
 def create_llm_client() -> OpenAI:
