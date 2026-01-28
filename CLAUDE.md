@@ -2,12 +2,35 @@
 
 ## Project Overview
 
-This is a tooling project for semantic search and interaction logging against an Obsidian vault.
-The vault location is configured via environment variable (see `.env`).
+This project provides semantic search and interaction logging for an Obsidian vault. It has two operational modes:
 
-## Tools
+**Development (Claude Code)**: Use Claude Code to develop and maintain the vault tools themselves—adding features, fixing bugs, refactoring code. Claude Code does not interact with vault content directly.
 
-These are exposed as MCP tools and should be called directly (not via shell commands).
+**Vault Interaction (Qwen Agent)**: The Qwen agent (`src/qwen_agent.py`) handles user queries about vault content. It connects to the MCP server, searches the vault, and logs interactions to daily notes.
+
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Qwen Agent    │────▶│   MCP Server    │────▶│  ChromaDB +     │
+│ (qwen_agent.py) │     │ (mcp_server.py) │     │  Obsidian Vault │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                       │
+        │                       ├── search_vault (hybrid search)
+        │                       └── log_interaction (daily notes)
+        │
+        └── Fireworks API (Qwen 3 235B)
+```
+
+- **qwen_agent.py**: CLI chat client that connects Qwen (via Fireworks) to the MCP server
+- **mcp_server.py**: FastMCP server exposing vault tools
+- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
+- **index_vault.py**: Indexes vault content into ChromaDB (runs via systemd, not manually)
+- **log_chat.py**: Appends interaction logs to daily notes
+
+## MCP Tools
+
+These tools are exposed by the MCP server. Documentation here is for development reference.
 
 | MCP Tool | Purpose | Parameters |
 |----------|---------|------------|
@@ -18,25 +41,19 @@ These are exposed as MCP tools and should be called directly (not via shell comm
 
 Searches the Obsidian vault using hybrid search (semantic + keyword by default). The `mode` parameter controls the search strategy:
 - `"hybrid"` (default): Runs both semantic and keyword search, merges results using Reciprocal Rank Fusion.
-- `"semantic"`: Vector similarity search only (original behavior).
+- `"semantic"`: Vector similarity search only.
 - `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
 
 ### log_interaction
 
-Logs a Claude interaction to today's daily note. For conversational logs, pass `summary: "n/a"` and provide the `full_response` parameter instead.
-
-## Conventions
-
-- Daily notes are in `Daily Notes/YYYY-MM-DD.md` within the vault
-- The vault's "tags" frontmatter field describes content types: task, project, meeting, recipe, etc.
-- When summarizing search results, cite which files the information came from
-- Use the `search_vault` MCP tool for searching - don't grep or find by filename
+Logs an interaction to today's daily note. For conversational logs, pass `summary: "n/a"` and provide the `full_response` parameter instead.
 
 ## Configuration
 
 All paths are configured via `.env`:
 - `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/archvault2026`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
+- `FIREWORKS_API_KEY`: API key for Fireworks (used by Qwen agent)
 
 ---
 
@@ -156,17 +173,8 @@ def process(p):  # unclear name, no types, no docstring
 
 ---
 
-## Interaction Logging
-
-**Every interaction must be logged** to the daily note using the `log_interaction` MCP tool.
-
-- At the end of every conversation turn that completes a user request, call `log_interaction` with a concise `task_description`, the user's `query`, and a `summary` of the outcome.
-- **Lengthy responses**: If your response includes substantial text output (e.g. search results, explanations, analysis, multi-paragraph answers), pass `summary: "n/a"` and provide your full conversational output in the `full_response` parameter instead.
-- **Short responses**: For brief or action-only responses (e.g. "Done", a one-liner confirmation), use the `summary` field with a concise description of what was done.
-- Include relevant `files` when the interaction references specific vault notes or project files.
-
 ## Notes
 
 - The `.venv/` and `.chroma_db/` directories are tooling, not content
-- When asked about a topic in the vault, use the `search_vault` MCP tool first
-- When citing information, reference the source files
+- Daily notes are in `Daily Notes/YYYY-MM-DD.md` within the vault
+- The vault's "tags" frontmatter field describes content types: task, project, meeting, recipe, etc.
