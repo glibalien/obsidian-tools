@@ -19,6 +19,7 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── search_vault (hybrid search)
         │                       ├── read_file (full note content)
         │                       ├── list_files_by_frontmatter (metadata queries)
+        │                       ├── update_frontmatter (modify metadata)
         │                       └── log_interaction (daily notes)
         │
         └── Fireworks API (Qwen 3 235B)
@@ -39,6 +40,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
 | `read_file` | Read full content of a vault note | `path` (string: relative to vault or absolute) |
 | `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains") |
+| `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
 ### search_vault
@@ -60,6 +62,13 @@ Finds vault files matching frontmatter criteria. Useful for queries like "find a
 - `field`: The frontmatter field to check (e.g., `tags`, `company`, `project`)
 - `value`: The value to match
 - `match_type`: `"contains"` checks if value is in a list or substring of a string; `"equals"` requires exact match
+
+### update_frontmatter
+
+Updates frontmatter on a vault file, preserving body content.
+- `operation`: `"set"` to add/modify a field, `"remove"` to delete, `"append"` to add to a list
+- `value`: For complex values (lists), use JSON: `'["tag1", "tag2"]'`
+- Append creates the list if field doesn't exist, and skips duplicates
 
 ### log_interaction
 
