@@ -219,6 +219,12 @@ def _do_move_file(
     except ValueError as e:
         return False, str(e)
 
+    # Handle same source and destination
+    if source_path == dest_path:
+        vault_resolved = VAULT_PATH.resolve()
+        rel_path = source_path.relative_to(vault_resolved)
+        return True, f"Already at destination: {rel_path}"
+
     if dest_path.exists():
         return False, f"Destination already exists: {destination}"
 
