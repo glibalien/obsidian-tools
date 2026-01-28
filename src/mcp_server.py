@@ -141,6 +141,123 @@ def _update_file_frontmatter(
     file_path.write_text(new_content, encoding="utf-8")
 
 
+def _do_update_frontmatter(
+    path: str,
+    field: str,
+    parsed_value: any,
+    operation: str,
+) -> tuple[bool, str]:
+    """Execute a single frontmatter update.
+
+    Args:
+        path: File path (relative or absolute).
+        field: Frontmatter field to update.
+        parsed_value: Already-parsed value to set.
+        operation: "set", "remove", or "append".
+
+    Returns:
+        Tuple of (success, message).
+    """
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return False, str(e)
+
+    if not file_path.exists():
+        return False, f"File not found: {path}"
+
+    if not file_path.is_file():
+        return False, f"Not a file: {path}"
+
+    try:
+        _update_file_frontmatter(
+            file_path,
+            field,
+            parsed_value,
+            remove=(operation == "remove"),
+            append=(operation == "append"),
+        )
+    except ValueError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Update failed: {e}"
+
+    if operation == "remove":
+        return True, f"Removed '{field}' from {path}"
+    elif operation == "append":
+        return True, f"Appended to '{field}' in {path}"
+    else:
+        return True, f"Set '{field}' in {path}"
+
+
+def _do_move_file(
+    source: str,
+    destination: str,
+) -> tuple[bool, str]:
+    """Execute a single file move.
+
+    Args:
+        source: Source file path.
+        destination: Destination file path.
+
+    Returns:
+        Tuple of (success, message).
+    """
+    try:
+        source_path = _resolve_vault_path(source)
+    except ValueError as e:
+        return False, str(e)
+
+    if not source_path.exists():
+        return False, f"Source file not found: {source}"
+
+    if not source_path.is_file():
+        return False, f"Source is not a file: {source}"
+
+    try:
+        dest_path = _resolve_vault_path(destination)
+    except ValueError as e:
+        return False, str(e)
+
+    if dest_path.exists():
+        return False, f"Destination already exists: {destination}"
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        shutil.move(str(source_path), str(dest_path))
+    except Exception as e:
+        return False, f"Move failed: {e}"
+
+    vault_resolved = VAULT_PATH.resolve()
+    src_rel = source_path.relative_to(vault_resolved)
+    dest_rel = dest_path.relative_to(vault_resolved)
+    return True, f"Moved {src_rel} to {dest_rel}"
+
+
+def _format_batch_result(
+    operation_name: str,
+    results: list[tuple[bool, str]],
+) -> str:
+    """Format batch operation results into a summary string."""
+    succeeded = [msg for success, msg in results if success]
+    failed = [msg for success, msg in results if not success]
+
+    parts = [f"Batch {operation_name}: {len(succeeded)} succeeded, {len(failed)} failed"]
+
+    if succeeded:
+        parts.append("\nSucceeded:")
+        for msg in succeeded:
+            parts.append(f"- {msg}")
+
+    if failed:
+        parts.append("\nFailed:")
+        for msg in failed:
+            parts.append(f"- {msg}")
+
+    return "\n".join(parts)
+
+
 @mcp.tool()
 def search_vault(query: str, n_results: int = 5, mode: str = "hybrid") -> str:
     """Search the Obsidian vault using hybrid search (semantic + keyword).
@@ -294,17 +411,6 @@ def update_frontmatter(
     if operation in ("set", "append") and value is None:
         return f"Error: value is required for '{operation}' operation"
 
-    try:
-        file_path = _resolve_vault_path(path)
-    except ValueError as e:
-        return f"Error: {e}"
-
-    if not file_path.exists():
-        return f"Error: File not found: {path}"
-
-    if not file_path.is_file():
-        return f"Error: Not a file: {path}"
-
     # Parse value - try JSON first, fall back to string
     parsed_value = value
     if value is not None:
@@ -313,25 +419,8 @@ def update_frontmatter(
         except (json.JSONDecodeError, TypeError):
             parsed_value = value  # Keep as string
 
-    try:
-        _update_file_frontmatter(
-            file_path,
-            field,
-            parsed_value,
-            remove=(operation == "remove"),
-            append=(operation == "append"),
-        )
-    except ValueError as e:
-        return f"Error: {e}"
-    except Exception as e:
-        return f"Error updating frontmatter: {e}"
-
-    if operation == "remove":
-        return f"Removed '{field}' from {path}"
-    elif operation == "append":
-        return f"Appended {value!r} to '{field}' in {path}"
-    else:
-        return f"Set '{field}' to {value!r} in {path}"
+    success, message = _do_update_frontmatter(path, field, parsed_value, operation)
+    return message if success else f"Error: {message}"
 
 
 @mcp.tool()
@@ -349,41 +438,90 @@ def move_file(
     Returns:
         Confirmation message or error.
     """
-    # Validate source path
-    try:
-        source_path = _resolve_vault_path(source)
-    except ValueError as e:
-        return f"Error: {e}"
+    success, message = _do_move_file(source, destination)
+    return message if success else f"Error: {message}"
 
-    if not source_path.exists():
-        return f"Error: Source file not found: {source}"
 
-    if not source_path.is_file():
-        return f"Error: Source is not a file: {source}"
+@mcp.tool()
+def batch_update_frontmatter(
+    paths: list[str],
+    field: str,
+    value: str | None = None,
+    operation: str = "set",
+) -> str:
+    """Apply a frontmatter update to multiple vault files.
 
-    # Validate destination path
-    try:
-        dest_path = _resolve_vault_path(destination)
-    except ValueError as e:
-        return f"Error: {e}"
+    Args:
+        paths: List of file paths (relative to vault or absolute).
+        field: Frontmatter field name to update.
+        value: Value to set. For lists, use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
+        operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
 
-    if dest_path.exists():
-        return f"Error: Destination already exists: {destination}"
+    Returns:
+        Summary of successes and failures.
+    """
+    if operation not in ("set", "remove", "append"):
+        return f"Error: operation must be 'set', 'remove', or 'append', got '{operation}'"
 
-    # Create parent directories if needed
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    if operation in ("set", "append") and value is None:
+        return f"Error: value is required for '{operation}' operation"
 
-    # Move the file
-    try:
-        shutil.move(str(source_path), str(dest_path))
-    except Exception as e:
-        return f"Error moving file: {e}"
+    if not paths:
+        return "Error: paths list is empty"
 
-    # Return relative paths for cleaner output
-    vault_resolved = VAULT_PATH.resolve()
-    src_rel = source_path.relative_to(vault_resolved)
-    dest_rel = dest_path.relative_to(vault_resolved)
-    return f"Moved {src_rel} to {dest_rel}"
+    # Parse value once (same for all files)
+    parsed_value = value
+    if value is not None:
+        try:
+            parsed_value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            parsed_value = value
+
+    # Process each file
+    results = []
+    for path in paths:
+        success, message = _do_update_frontmatter(path, field, parsed_value, operation)
+        results.append((success, message))
+
+    return _format_batch_result("update", results)
+
+
+@mcp.tool()
+def batch_move_files(
+    moves: list[dict],
+) -> str:
+    """Move multiple vault files to new locations.
+
+    Args:
+        moves: List of move operations, each a dict with 'source' and 'destination' keys.
+               Example: [{"source": "old/path.md", "destination": "new/path.md"}]
+
+    Returns:
+        Summary of successes and failures.
+    """
+    if not moves:
+        return "Error: moves list is empty"
+
+    results = []
+    for i, move in enumerate(moves):
+        if not isinstance(move, dict):
+            results.append((False, f"Item {i}: expected dict, got {type(move).__name__}"))
+            continue
+
+        source = move.get("source")
+        destination = move.get("destination")
+
+        if not source:
+            results.append((False, f"Item {i}: missing 'source' key"))
+            continue
+        if not destination:
+            results.append((False, f"Item {i}: missing 'destination' key"))
+            continue
+
+        success, message = _do_move_file(source, destination)
+        results.append((success, message))
+
+    return _format_batch_result("move", results)
 
 
 @mcp.tool()
