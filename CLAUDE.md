@@ -21,6 +21,7 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── list_files_by_frontmatter (metadata queries)
         │                       ├── update_frontmatter (modify metadata)
         │                       ├── move_file (relocate files)
+        │                       ├── create_file (new notes)
         │                       └── log_interaction (daily notes)
         │
         └── Fireworks API (Qwen 3 235B)
@@ -43,6 +44,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains") |
 | `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `move_file` | Relocate a file within the vault | `source` (string), `destination` (string) |
+| `create_file` | Create a new markdown note | `path` (string), `content` (string, default ""), `frontmatter` (JSON string, optional) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
 ### search_vault
@@ -77,6 +79,13 @@ Updates frontmatter on a vault file, preserving body content.
 Moves a vault file to a different location within the vault.
 - Creates target directory if it doesn't exist
 - Prevents moves outside the vault (both paths validated)
+- Prevents overwriting existing files
+
+### create_file
+
+Creates a new markdown note in the vault.
+- `frontmatter`: Pass as JSON string (e.g., `'{"tags": ["meeting"]}'`), auto-converted to YAML
+- Creates parent directories if needed
 - Prevents overwriting existing files
 
 ### log_interaction
