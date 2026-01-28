@@ -27,6 +27,7 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── find_backlinks (wikilink discovery)
         │                       ├── search_by_date_range (date filtering)
         │                       ├── find_outlinks (extract wikilinks)
+        │                       ├── search_by_folder (list folder contents)
         │                       └── log_interaction (daily notes)
         │
         └── Fireworks API (Qwen 3 235B)
@@ -55,6 +56,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `find_backlinks` | Find files linking to a note | `note_name` (string: note name without brackets or .md) |
 | `search_by_date_range` | Find files by date range | `start_date` (YYYY-MM-DD), `end_date` (YYYY-MM-DD), `date_type` ("created"\|"modified", default "modified") |
 | `find_outlinks` | Extract wikilinks from a file | `path` (string: relative to vault or absolute) |
+| `search_by_folder` | List files in a folder | `folder` (string), `recursive` (bool, default false) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
 ### search_vault
@@ -135,6 +137,13 @@ Extracts all wikilinks from a given vault file.
 - `path`: Path to the note to analyze
 - Returns deduplicated, sorted list of linked note names
 - Handles aliased links: `[[note|alias]]` returns just "note"
+
+### search_by_folder
+
+Lists all markdown files in a vault folder.
+- `folder`: Path to the folder to list
+- `recursive`: If `true`, include files in subfolders (default: `false`)
+- Returns sorted list of relative file paths
 
 ### log_interaction
 

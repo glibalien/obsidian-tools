@@ -771,5 +771,50 @@ def find_outlinks(path: str) -> str:
     return "\n".join(unique_links)
 
 
+@mcp.tool()
+def search_by_folder(
+    folder: str,
+    recursive: bool = False,
+) -> str:
+    """List all markdown files in a vault folder.
+
+    Args:
+        folder: Path to the folder (relative to vault or absolute).
+        recursive: If True, include files in subfolders. Default: False.
+
+    Returns:
+        Newline-separated list of file paths (relative to vault),
+        or a message if no files found.
+    """
+    try:
+        folder_path = _resolve_vault_path(folder)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if not folder_path.exists():
+        return f"Error: Folder not found: {folder}"
+
+    if not folder_path.is_dir():
+        return f"Error: Not a folder: {folder}"
+
+    # Use rglob for recursive, glob for non-recursive
+    pattern_func = folder_path.rglob if recursive else folder_path.glob
+
+    files = []
+    vault_resolved = VAULT_PATH.resolve()
+
+    for md_file in pattern_func("*.md"):
+        if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
+            continue
+        rel_path = md_file.relative_to(vault_resolved)
+        files.append(str(rel_path))
+
+    if not files:
+        mode = "recursively " if recursive else ""
+        return f"No markdown files found {mode}in {folder}"
+
+    return "\n".join(sorted(files))
+
+
 if __name__ == "__main__":
     mcp.run()
