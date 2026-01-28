@@ -386,5 +386,61 @@ def move_file(
     return f"Moved {src_rel} to {dest_rel}"
 
 
+@mcp.tool()
+def create_file(
+    path: str,
+    content: str = "",
+    frontmatter: str | None = None,
+) -> str:
+    """Create a new markdown note in the vault.
+
+    Args:
+        path: Path for the new file (relative to vault or absolute).
+              Parent directories will be created if they don't exist.
+        content: The body content of the note (markdown).
+        frontmatter: Optional YAML frontmatter as JSON string, e.g., '{"tags": ["meeting"]}'.
+                    Will be converted to YAML and wrapped in --- delimiters.
+
+    Returns:
+        Confirmation message or error.
+    """
+    # Validate path
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if file_path.exists():
+        return f"Error: File already exists: {path}"
+
+    # Parse frontmatter if provided
+    frontmatter_yaml = ""
+    if frontmatter:
+        try:
+            fm_dict = json.loads(frontmatter)
+            frontmatter_yaml = yaml.dump(fm_dict, default_flow_style=False, allow_unicode=True)
+        except json.JSONDecodeError as e:
+            return f"Error: Invalid frontmatter JSON: {e}"
+
+    # Build file content
+    if frontmatter_yaml:
+        file_content = f"---\n{frontmatter_yaml}---\n\n{content}"
+    else:
+        file_content = content
+
+    # Create parent directories if needed
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write the file
+    try:
+        file_path.write_text(file_content, encoding="utf-8")
+    except Exception as e:
+        return f"Error writing file: {e}"
+
+    vault_resolved = VAULT_PATH.resolve()
+    rel_path = file_path.relative_to(vault_resolved)
+    return f"Created {rel_path}"
+
+
 if __name__ == "__main__":
     mcp.run()
