@@ -732,5 +732,44 @@ def search_by_date_range(
     return "\n".join(sorted(matching))
 
 
+@mcp.tool()
+def find_outlinks(path: str) -> str:
+    """Extract all wikilinks from a vault file.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+
+    Returns:
+        Newline-separated list of linked note names (without brackets),
+        or a message if no outlinks found.
+    """
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if not file_path.exists():
+        return f"Error: File not found: {path}"
+
+    if not file_path.is_file():
+        return f"Error: Not a file: {path}"
+
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+    # Pattern captures note name before optional |alias
+    pattern = r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]"
+    matches = re.findall(pattern, content)
+
+    if not matches:
+        return f"No outlinks found in {path}"
+
+    # Deduplicate and sort
+    unique_links = sorted(set(matches))
+    return "\n".join(unique_links)
+
+
 if __name__ == "__main__":
     mcp.run()

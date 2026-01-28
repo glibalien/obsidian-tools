@@ -26,6 +26,7 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── create_file (new notes)
         │                       ├── find_backlinks (wikilink discovery)
         │                       ├── search_by_date_range (date filtering)
+        │                       ├── find_outlinks (extract wikilinks)
         │                       └── log_interaction (daily notes)
         │
         └── Fireworks API (Qwen 3 235B)
@@ -53,6 +54,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `create_file` | Create a new markdown note | `path` (string), `content` (string, default ""), `frontmatter` (JSON string, optional) |
 | `find_backlinks` | Find files linking to a note | `note_name` (string: note name without brackets or .md) |
 | `search_by_date_range` | Find files by date range | `start_date` (YYYY-MM-DD), `end_date` (YYYY-MM-DD), `date_type` ("created"\|"modified", default "modified") |
+| `find_outlinks` | Extract wikilinks from a file | `path` (string: relative to vault or absolute) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
 ### search_vault
@@ -126,6 +128,13 @@ Finds vault files within a specified date range.
 - `date_type`: `"created"` uses frontmatter `Date` field (falls back to filesystem creation time), `"modified"` uses filesystem mtime
 - Handles wikilink date format in frontmatter (`[[2023-08-11]]`)
 - Returns sorted list of relative file paths
+
+### find_outlinks
+
+Extracts all wikilinks from a given vault file.
+- `path`: Path to the note to analyze
+- Returns deduplicated, sorted list of linked note names
+- Handles aliased links: `[[note|alias]]` returns just "note"
 
 ### log_interaction
 
