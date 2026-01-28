@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """MCP server exposing Obsidian vault tools."""
 
+import re
 import sys
 from pathlib import Path
+
+import yaml
 
 # Ensure src/ is on the import path when run from project root
 sys.path.insert(0, str(Path(__file__).parent))
@@ -44,6 +47,37 @@ def _resolve_vault_path(path: str) -> Path:
         raise ValueError("Cannot access excluded directory")
 
     return resolved
+
+
+def _get_vault_files() -> list[Path]:
+    """Get all markdown files in vault, excluding tooling directories."""
+    files = []
+    for md_file in VAULT_PATH.rglob("*.md"):
+        if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
+            continue
+        files.append(md_file)
+    return files
+
+
+def _extract_frontmatter(file_path: Path) -> dict:
+    """Extract YAML frontmatter from a markdown file.
+
+    Returns:
+        Dictionary of frontmatter fields, or empty dict if none/invalid.
+    """
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return {}
+
+    match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+    if not match:
+        return {}
+
+    try:
+        return yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
 
 
 @mcp.tool()
@@ -125,6 +159,54 @@ def read_file(path: str) -> str:
         return file_path.read_text()
     except Exception as e:
         return f"Error reading file: {e}"
+
+
+@mcp.tool()
+def list_files_by_frontmatter(
+    field: str,
+    value: str,
+    match_type: str = "contains",
+) -> str:
+    """Find vault files matching frontmatter criteria.
+
+    Args:
+        field: Frontmatter field name (e.g., 'tags', 'company', 'project').
+        value: Value to match against.
+        match_type: How to match - 'contains' (value in list), 'equals' (exact match).
+
+    Returns:
+        Newline-separated list of matching file paths (relative to vault).
+    """
+    if match_type not in ("contains", "equals"):
+        return f"Error: match_type must be 'contains' or 'equals', got '{match_type}'"
+
+    matching = []
+    vault_resolved = VAULT_PATH.resolve()
+
+    for md_file in _get_vault_files():
+        frontmatter = _extract_frontmatter(md_file)
+        field_value = frontmatter.get(field)
+
+        if field_value is None:
+            continue
+
+        matches = False
+        if match_type == "contains":
+            if isinstance(field_value, list):
+                matches = value in field_value
+            elif isinstance(field_value, str):
+                matches = value in field_value
+        elif match_type == "equals":
+            matches = field_value == value
+
+        if matches:
+            rel_path = md_file.resolve().relative_to(vault_resolved)
+            matching.append(str(rel_path))
+
+    if not matching:
+        return f"No files found where {field} {match_type} '{value}'"
+
+    return "\n".join(sorted(matching))
 
 
 if __name__ == "__main__":
