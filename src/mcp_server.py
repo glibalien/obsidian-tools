@@ -3,6 +3,7 @@
 
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -331,6 +332,58 @@ def update_frontmatter(
         return f"Appended {value!r} to '{field}' in {path}"
     else:
         return f"Set '{field}' to {value!r} in {path}"
+
+
+@mcp.tool()
+def move_file(
+    source: str,
+    destination: str,
+) -> str:
+    """Move a vault file to a different location within the vault.
+
+    Args:
+        source: Current path of the file (relative to vault or absolute).
+        destination: New path for the file (relative to vault or absolute).
+                    Parent directories will be created if they don't exist.
+
+    Returns:
+        Confirmation message or error.
+    """
+    # Validate source path
+    try:
+        source_path = _resolve_vault_path(source)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if not source_path.exists():
+        return f"Error: Source file not found: {source}"
+
+    if not source_path.is_file():
+        return f"Error: Source is not a file: {source}"
+
+    # Validate destination path
+    try:
+        dest_path = _resolve_vault_path(destination)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if dest_path.exists():
+        return f"Error: Destination already exists: {destination}"
+
+    # Create parent directories if needed
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Move the file
+    try:
+        shutil.move(str(source_path), str(dest_path))
+    except Exception as e:
+        return f"Error moving file: {e}"
+
+    # Return relative paths for cleaner output
+    vault_resolved = VAULT_PATH.resolve()
+    src_rel = source_path.relative_to(vault_resolved)
+    dest_rel = dest_path.relative_to(vault_resolved)
+    return f"Moved {src_rel} to {dest_rel}"
 
 
 if __name__ == "__main__":
