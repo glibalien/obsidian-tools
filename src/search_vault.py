@@ -1,40 +1,57 @@
 #!/usr/bin/env python3
-"""Semantic search against the Obsidian vault using ChromaDB."""
+"""Search interface for the Obsidian vault."""
 
 import sys
-import chromadb
 
-from config import CHROMA_PATH
+from hybrid_search import hybrid_search, keyword_search, semantic_search
+
+VALID_MODES = {"hybrid", "semantic", "keyword"}
 
 
-def search_results(query: str, n_results: int = 5) -> list[dict[str, str]]:
+def search_results(
+    query: str, n_results: int = 5, mode: str = "hybrid"
+) -> list[dict[str, str]]:
     """Search the vault and return structured results.
 
-    Returns a list of dicts with 'source' and 'content' keys.
+    Args:
+        query: Search query string.
+        n_results: Maximum number of results to return.
+        mode: Search strategy -- "hybrid" (default), "semantic", or "keyword".
+
+    Returns:
+        List of dicts with 'source' and 'content' keys.
+
+    Raises:
+        ValueError: If mode is not one of the valid options.
     """
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    collection = client.get_collection("obsidian_vault")
+    if mode not in VALID_MODES:
+        raise ValueError(f"Invalid search mode '{mode}'. Must be one of: {VALID_MODES}")
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=n_results
-    )
-
-    return [
-        {"source": metadata["source"], "content": doc[:500]}
-        for doc, metadata in zip(results["documents"][0], results["metadatas"][0])
-    ]
+    if mode == "hybrid":
+        return hybrid_search(query, n_results)
+    elif mode == "semantic":
+        return semantic_search(query, n_results)
+    else:
+        return keyword_search(query, n_results)
 
 
-def search(query: str, n_results: int = 5) -> None:
+def search(query: str, n_results: int = 5, mode: str = "hybrid") -> None:
     """Search the vault and print results."""
-    for result in search_results(query, n_results):
+    for result in search_results(query, n_results, mode):
         print(f"\n--- {result['source']} ---")
         print(result["content"])
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python search_vault.py 'query'")
+        print("Usage: python search_vault.py 'query' [--mode hybrid|semantic|keyword]")
         sys.exit(1)
-    search(" ".join(sys.argv[1:]))
+
+    mode = "hybrid"
+    args = sys.argv[1:]
+    if "--mode" in args:
+        idx = args.index("--mode")
+        mode = args[idx + 1]
+        args = args[:idx] + args[idx + 2:]
+
+    search(" ".join(args), mode=mode)
