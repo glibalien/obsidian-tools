@@ -16,18 +16,19 @@ mcp = FastMCP("obsidian-tools")
 
 
 @mcp.tool()
-def search_vault(query: str, n_results: int = 5) -> str:
-    """Search the Obsidian vault using semantic search.
+def search_vault(query: str, n_results: int = 5, mode: str = "hybrid") -> str:
+    """Search the Obsidian vault using hybrid search (semantic + keyword).
 
     Args:
         query: Natural language search query.
         n_results: Number of results to return (default 5).
+        mode: Search mode - "hybrid" (default), "semantic", or "keyword".
 
     Returns:
         Formatted search results with source file and content excerpt.
     """
     try:
-        results = search_results(query, n_results)
+        results = search_results(query, n_results, mode)
     except Exception as e:
         return f"Search failed: {e}\nIs the vault indexed? Run: python src/index_vault.py"
 

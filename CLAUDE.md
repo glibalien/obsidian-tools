@@ -7,30 +7,30 @@ The vault location is configured via environment variable (see `.env`).
 
 ## Tools
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `src/search_vault.py` | Semantic search via ChromaDB | `python src/search_vault.py "query"` |
-| `src/log_chat.py` | Log interactions to daily note | `python src/log_chat.py "task" "query" "summary" "files" ["full_response"]` |
+These are exposed as MCP tools and should be called directly (not via shell commands).
 
-## Usage
+| MCP Tool | Purpose | Parameters |
+|----------|---------|------------|
+| `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
+| `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
-```bash
-# Semantic search
-python src/search_vault.py "query here"
+### search_vault
 
-# Log a task completion
-python src/log_chat.py "task description" "query" "summary" "file1.md,file2.md"
+Searches the Obsidian vault using hybrid search (semantic + keyword by default). The `mode` parameter controls the search strategy:
+- `"hybrid"` (default): Runs both semantic and keyword search, merges results using Reciprocal Rank Fusion.
+- `"semantic"`: Vector similarity search only (original behavior).
+- `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
 
-# Log conversational response (includes full text)
-python src/log_chat.py "task description" "query" "n/a" "file1.md,file2.md" "full response text"
-```
+### log_interaction
+
+Logs a Claude interaction to today's daily note. For conversational logs, pass `summary: "n/a"` and provide the `full_response` parameter instead.
 
 ## Conventions
 
 - Daily notes are in `Daily Notes/YYYY-MM-DD.md` within the vault
 - The vault's "tags" frontmatter field describes content types: task, project, meeting, recipe, etc.
 - When summarizing search results, cite which files the information came from
-- Use `search_vault.py` for searching - don't grep or find by filename
+- Use the `search_vault` MCP tool for searching - don't grep or find by filename
 
 ## Configuration
 
@@ -156,8 +156,17 @@ def process(p):  # unclear name, no types, no docstring
 
 ---
 
+## Interaction Logging
+
+**Every interaction must be logged** to the daily note using the `log_interaction` MCP tool.
+
+- At the end of every conversation turn that completes a user request, call `log_interaction` with a concise `task_description`, the user's `query`, and a `summary` of the outcome.
+- **Lengthy responses**: If your response includes substantial text output (e.g. search results, explanations, analysis, multi-paragraph answers), pass `summary: "n/a"` and provide your full conversational output in the `full_response` parameter instead.
+- **Short responses**: For brief or action-only responses (e.g. "Done", a one-liner confirmation), use the `summary` field with a concise description of what was done.
+- Include relevant `files` when the interaction references specific vault notes or project files.
+
 ## Notes
 
 - The `.venv/` and `.chroma_db/` directories are tooling, not content
-- When asked about a topic in the vault, use `search_vault.py` first
+- When asked about a topic in the vault, use the `search_vault` MCP tool first
 - When citing information, reference the source files
