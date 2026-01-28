@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """MCP server exposing Obsidian vault tools."""
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -78,6 +79,65 @@ def _extract_frontmatter(file_path: Path) -> dict:
         return yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
         return {}
+
+
+def _update_file_frontmatter(
+    file_path: Path,
+    field: str,
+    value: any,
+    remove: bool = False,
+    append: bool = False,
+) -> None:
+    """Update frontmatter in a file, preserving body content.
+
+    Args:
+        file_path: Path to the markdown file.
+        field: Frontmatter field to update.
+        value: Value to set (ignored if remove=True).
+        remove: If True, remove the field instead of setting it.
+        append: If True, append value to existing list field.
+
+    Raises:
+        ValueError: If file has no frontmatter and remove=True.
+        ValueError: If append=True but field is not a list.
+    """
+    content = file_path.read_text(encoding="utf-8")
+
+    # Parse existing frontmatter and body
+    match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+    if match:
+        frontmatter = yaml.safe_load(match.group(1)) or {}
+        body = content[match.end():]
+    else:
+        if remove:
+            raise ValueError("File has no frontmatter")
+        frontmatter = {}
+        body = content
+
+    # Update frontmatter
+    if remove:
+        if field not in frontmatter:
+            raise ValueError(f"Field '{field}' not found in frontmatter")
+        del frontmatter[field]
+    elif append:
+        existing = frontmatter.get(field, [])
+        if not isinstance(existing, list):
+            raise ValueError(f"Cannot append to non-list field '{field}'")
+        if value not in existing:
+            existing.append(value)
+        frontmatter[field] = existing
+    else:
+        frontmatter[field] = value
+
+    # Rebuild file
+    if frontmatter:
+        new_yaml = yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)
+        new_content = f"---\n{new_yaml}---\n{body}"
+    else:
+        # All fields removed, no frontmatter needed
+        new_content = body
+
+    file_path.write_text(new_content, encoding="utf-8")
 
 
 @mcp.tool()
@@ -207,6 +267,70 @@ def list_files_by_frontmatter(
         return f"No files found where {field} {match_type} '{value}'"
 
     return "\n".join(sorted(matching))
+
+
+@mcp.tool()
+def update_frontmatter(
+    path: str,
+    field: str,
+    value: str | None = None,
+    operation: str = "set",
+) -> str:
+    """Update frontmatter on a vault file.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+        field: Frontmatter field name to update.
+        value: Value to set. For lists, use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
+        operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
+
+    Returns:
+        Confirmation message or error.
+    """
+    if operation not in ("set", "remove", "append"):
+        return f"Error: operation must be 'set', 'remove', or 'append', got '{operation}'"
+
+    if operation in ("set", "append") and value is None:
+        return f"Error: value is required for '{operation}' operation"
+
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if not file_path.exists():
+        return f"Error: File not found: {path}"
+
+    if not file_path.is_file():
+        return f"Error: Not a file: {path}"
+
+    # Parse value - try JSON first, fall back to string
+    parsed_value = value
+    if value is not None:
+        try:
+            parsed_value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            parsed_value = value  # Keep as string
+
+    try:
+        _update_file_frontmatter(
+            file_path,
+            field,
+            parsed_value,
+            remove=(operation == "remove"),
+            append=(operation == "append"),
+        )
+    except ValueError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        return f"Error updating frontmatter: {e}"
+
+    if operation == "remove":
+        return f"Removed '{field}' from {path}"
+    elif operation == "append":
+        return f"Appended {value!r} to '{field}' in {path}"
+    else:
+        return f"Set '{field}' to {value!r} in {path}"
 
 
 if __name__ == "__main__":
