@@ -586,5 +586,50 @@ def create_file(
     return f"Created {rel_path}"
 
 
+@mcp.tool()
+def find_backlinks(note_name: str) -> str:
+    """Find all vault files that contain wikilinks to a given note.
+
+    Searches for both [[note_name]] and [[note_name|alias]] patterns.
+
+    Args:
+        note_name: The note name to search for (without brackets or .md extension).
+                   Example: "CNP MVP" to find links like [[CNP MVP]] or [[CNP MVP|alias]].
+
+    Returns:
+        Newline-separated list of file paths (relative to vault) that link to the note,
+        or a message if no backlinks found.
+    """
+    if not note_name or not note_name.strip():
+        return "Error: note_name cannot be empty"
+
+    note_name = note_name.strip()
+
+    # Remove .md extension if provided
+    if note_name.endswith(".md"):
+        note_name = note_name[:-3]
+
+    # Pattern: [[note_name]] or [[note_name|alias]]
+    pattern = rf"\[\[{re.escape(note_name)}(?:\|[^\]]+)?\]\]"
+
+    backlinks = []
+    vault_resolved = VAULT_PATH.resolve()
+
+    for md_file in _get_vault_files():
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        if re.search(pattern, content, re.IGNORECASE):
+            rel_path = md_file.relative_to(vault_resolved)
+            backlinks.append(str(rel_path))
+
+    if not backlinks:
+        return f"No backlinks found to [[{note_name}]]"
+
+    return "\n".join(sorted(backlinks))
+
+
 if __name__ == "__main__":
     mcp.run()

@@ -24,6 +24,7 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── move_file (relocate files)
         │                       ├── batch_move_files (bulk relocate)
         │                       ├── create_file (new notes)
+        │                       ├── find_backlinks (wikilink discovery)
         │                       └── log_interaction (daily notes)
         │
         └── Fireworks API (Qwen 3 235B)
@@ -49,6 +50,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `move_file` | Relocate a file within the vault | `source` (string), `destination` (string) |
 | `batch_move_files` | Move multiple files to new locations | `moves` (list[dict] with "source" and "destination" keys) |
 | `create_file` | Create a new markdown note | `path` (string), `content` (string, default ""), `frontmatter` (JSON string, optional) |
+| `find_backlinks` | Find files linking to a note | `note_name` (string: note name without brackets or .md) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 
 ### search_vault
@@ -106,6 +108,14 @@ Creates a new markdown note in the vault.
 - `frontmatter`: Pass as JSON string (e.g., `'{"tags": ["meeting"]}'`), auto-converted to YAML
 - Creates parent directories if needed
 - Prevents overwriting existing files
+
+### find_backlinks
+
+Finds all vault files containing wikilinks to a given note name.
+- `note_name`: The note name to search for (without `[[]]` brackets or `.md` extension)
+- Matches both `[[note_name]]` and `[[note_name|alias]]` patterns
+- Case-insensitive matching (matches Obsidian behavior)
+- Returns sorted list of relative file paths
 
 ### log_interaction
 
