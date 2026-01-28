@@ -47,7 +47,14 @@ At the end of every conversation turn that completes a user request, call log_in
 Guidelines:
 - For lengthy responses (search results, explanations, multi-paragraph answers): pass summary="n/a" and provide your full conversational output in full_response instead.
 - For short responses (confirmations, one-liners): use the summary field with a concise description.
-- Include relevant files when the interaction references specific vault notes."""
+- Include relevant files when the interaction references specific vault notes.
+
+## Tool Orchestration
+
+- Always use exact file paths returned by tools. Never invent or guess filenames.
+- When performing multi-step operations, complete each step fully before moving to the next.
+- For batch operations, pass the actual paths from previous tool results, not examples.
+- If a tool returns an error, report it accurately - don't claim success."""
 
 
 def create_llm_client() -> OpenAI:
