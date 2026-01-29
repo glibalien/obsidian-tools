@@ -4,22 +4,30 @@ Semantic search and vault management tools for Obsidian, exposed via MCP (Model 
 
 ## Features
 
+- **Obsidian plugin**: Chat sidebar for interacting with your vault directly in Obsidian
 - **Hybrid search**: Combines semantic (vector) and keyword search with Reciprocal Rank Fusion
 - **Vault management**: Read, create, and move files; update frontmatter
 - **Link discovery**: Find backlinks and outlinks between notes
 - **Query by metadata**: Search by frontmatter fields, date ranges, or folder
 - **Interaction logging**: Log AI conversations to daily notes
+- **HTTP API**: REST endpoint for programmatic access
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   MCP Client    │────▶│   MCP Server    │────▶│  ChromaDB +     │
-│ (Claude, etc.)  │     │ (mcp_server.py) │     │  Obsidian Vault │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+│ Obsidian Plugin │────▶│   API Server    │────▶│   MCP Server    │
+│   (plugin/)     │     │ (api_server.py) │     │ (mcp_server.py) │
+└─────────────────┘     └─────────────────┘     └────────┬────────┘
+                                                         │
+                                                         ▼
+                                                ┌─────────────────┐
+                                                │  ChromaDB +     │
+                                                │  Obsidian Vault │
+                                                └─────────────────┘
 ```
 
-The MCP server exposes tools that any MCP-compatible client can use to interact with your Obsidian vault.
+The Obsidian plugin provides a chat sidebar that connects to the API server. The API server wraps the Qwen agent, which uses MCP tools to search and manage your vault.
 
 ## Installation
 
@@ -98,6 +106,28 @@ curl -X POST http://127.0.0.1:8000/chat \
   -d '{"message": "Tell me more", "session_id": "<uuid>"}'
 ```
 
+### Install the Obsidian plugin
+
+The `plugin/` directory contains an Obsidian plugin with a chat sidebar.
+
+```bash
+# Build the plugin
+cd plugin
+npm install
+npm run build
+
+# Install to your vault (adjust path as needed)
+mkdir -p ~/Documents/your-vault/.obsidian/plugins/vault-chat
+cp manifest.json main.js styles.css ~/Documents/your-vault/.obsidian/plugins/vault-chat/
+```
+
+Then in Obsidian:
+1. Go to Settings → Community Plugins
+2. Enable "Vault Chat"
+3. Click the message icon in the ribbon to open the chat sidebar
+
+**Note:** The API server must be running for the plugin to work.
+
 ## MCP Tools
 
 | Tool | Description |
@@ -154,7 +184,14 @@ src/
 ├── index_vault.py    # Vault indexer for ChromaDB
 ├── log_chat.py       # Daily note logging
 ├── config.py         # Shared configuration
-└── qwen_agent.py     # CLI chat agent (optional)
+└── qwen_agent.py     # CLI chat agent
+
+plugin/
+├── src/
+│   ├── main.ts       # Plugin entry point
+│   └── ChatView.ts   # Chat sidebar view
+├── styles.css        # Chat UI styling
+└── manifest.json     # Plugin metadata
 ```
 
 ## Dependencies

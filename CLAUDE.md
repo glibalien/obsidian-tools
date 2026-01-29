@@ -11,35 +11,27 @@ This project provides semantic search and interaction logging for an Obsidian va
 ## Architecture
 
 ```
-                        ┌─────────────────┐
-                        │   HTTP Client   │
-                        │  (curl, apps)   │
-                        └────────┬────────┘
-                                 │ POST /chat
-                                 ▼
+┌─────────────────┐
+│ Obsidian Plugin │ ◀── Chat sidebar in Obsidian
+│  (plugin/)      │
+└────────┬────────┘
+         │ POST /chat
+         ▼
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Qwen Agent    │────▶│   MCP Server    │────▶│  ChromaDB +     │
-│ (qwen_agent.py) │     │ (mcp_server.py) │     │  Obsidian Vault │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        ▲                       │
-        │                       ├── search_vault (hybrid search)
-┌───────┴───────┐               ├── read_file (full note content)
-│  API Server   │               ├── list_files_by_frontmatter (metadata queries)
-│(api_server.py)│               ├── update_frontmatter (modify metadata)
-└───────────────┘               ├── batch_update_frontmatter (bulk metadata)
-                                ├── move_file (relocate files)
-                                ├── batch_move_files (bulk relocate)
-                                ├── create_file (new notes)
-                                ├── find_backlinks (wikilink discovery)
-                                ├── search_by_date_range (date filtering)
-                                ├── find_outlinks (extract wikilinks)
-                                ├── search_by_folder (list folder contents)
-                                ├── log_interaction (daily notes)
-                                ├── save_preference (store user prefs)
-                                ├── list_preferences (view prefs)
-                                └── remove_preference (delete pref)
+│   API Server    │────▶│   Qwen Agent    │────▶│   MCP Server    │
+│ (api_server.py) │     │ (qwen_agent.py) │     │ (mcp_server.py) │
+└─────────────────┘     └─────────────────┘     └────────┬────────┘
+                                                         │
+                                                         ▼
+                                                ┌─────────────────┐
+                                                │  ChromaDB +     │
+                                                │  Obsidian Vault │
+                                                └─────────────────┘
 ```
 
+**Components:**
+
+- **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper exposing the agent via REST API
 - **qwen_agent.py**: CLI chat client that connects Qwen (via Fireworks) to the MCP server
 - **mcp_server.py**: FastMCP server exposing vault tools
@@ -224,6 +216,46 @@ Send a message and receive the agent's response.
 - Sessions are stored in-memory (lost on server restart)
 - Each session maintains full conversation history
 - The MCP connection is shared across all sessions
+
+## Obsidian Plugin
+
+The `plugin/` directory contains an Obsidian plugin that provides a chat sidebar for interacting with the vault agent.
+
+### Plugin Structure
+
+```
+plugin/
+├── src/
+│   ├── main.ts        # Plugin entry point
+│   └── ChatView.ts    # Sidebar view component
+├── styles.css         # Chat UI styling
+├── manifest.json      # Plugin metadata
+├── package.json       # Dependencies
+├── tsconfig.json      # TypeScript config
+└── esbuild.config.mjs # Build script
+```
+
+### Building the Plugin
+
+```bash
+cd plugin
+npm install
+npm run build
+```
+
+### Installing in Obsidian
+
+1. Copy `manifest.json`, `main.js`, and `styles.css` to your vault's `.obsidian/plugins/vault-chat/` directory
+2. Enable "Vault Chat" in Obsidian Settings → Community Plugins
+3. Ensure the API server is running (`python src/api_server.py`)
+
+### Features
+
+- Ribbon icon to open/close chat sidebar
+- Command palette: "Open Vault Chat"
+- Session continuity across messages
+- Loading indicator during API calls
+- Error handling when server is unavailable
 
 ---
 
