@@ -91,6 +91,7 @@ Or configure it in your MCP client's settings.
 | `search_by_date_range` | Find files by created or modified date |
 | `search_by_folder` | List files in a folder |
 | `log_interaction` | Log an interaction to today's daily note |
+| `web_search` | Search the web using DuckDuckGo |
 
 ### Example: search_vault
 

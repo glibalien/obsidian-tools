@@ -4,3 +4,4 @@ python-dotenv>=1.0.0
 mcp[cli]>=1.0.0
 openai>=1.0.0
 PyYAML>=6.0
+ddgs>=7.0.0
