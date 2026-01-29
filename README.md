@@ -49,10 +49,12 @@ Edit `.env`:
 ```
 VAULT_PATH=~/Documents/your-vault-name
 CHROMA_PATH=./.chroma_db
+FIREWORKS_API_KEY=your-api-key-here
 ```
 
 - `VAULT_PATH`: Path to your Obsidian vault
 - `CHROMA_PATH`: Where to store the ChromaDB database (relative or absolute)
+- `FIREWORKS_API_KEY`: API key from [Fireworks AI](https://fireworks.ai/) (required for the chat agent and HTTP API)
 
 ## Usage
 
