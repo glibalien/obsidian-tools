@@ -4,7 +4,7 @@ Semantic search and vault management tools for Obsidian, exposed via MCP (Model 
 
 ## Features
 
-- **Obsidian plugin**: Chat sidebar for interacting with your vault directly in Obsidian
+- **Obsidian plugin** (optional): Chat sidebar for interacting with your vault directly in Obsidian
 - **Hybrid search**: Combines semantic (vector) and keyword search with Reciprocal Rank Fusion
 - **Vault management**: Read, create, and move files; update frontmatter
 - **Link discovery**: Find backlinks and outlinks between notes
@@ -106,9 +106,9 @@ curl -X POST http://127.0.0.1:8000/chat \
   -d '{"message": "Tell me more", "session_id": "<uuid>"}'
 ```
 
-### Install the Obsidian plugin
+### Install the Obsidian plugin (optional)
 
-The `plugin/` directory contains an Obsidian plugin with a chat sidebar.
+The `plugin/` directory contains an optional Obsidian plugin with a chat sidebar. You can use the MCP server and HTTP API without installing the plugin.
 
 ```bash
 # Build the plugin
