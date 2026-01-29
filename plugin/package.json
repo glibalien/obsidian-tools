@@ -1,0 +1,19 @@
+{
+	"name": "vault-chat",
+	"version": "1.0.0",
+	"description": "Chat sidebar for interacting with your vault agent",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "node esbuild.config.mjs production"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"esbuild": "^0.20.0",
+		"obsidian": "latest",
+		"typescript": "^5.0.0"
+	}
+}

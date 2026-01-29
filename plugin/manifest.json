@@ -1,0 +1,9 @@
+{
+	"id": "vault-chat",
+	"name": "Vault Chat",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Chat sidebar for interacting with your vault agent",
+	"author": "obsidian-tools",
+	"isDesktopOnly": false
+}
