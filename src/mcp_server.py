@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+from ddgs import DDGS
 
 # Ensure src/ is on the import path when run from project root
 sys.path.insert(0, str(Path(__file__).parent))
@@ -814,6 +815,37 @@ def search_by_folder(
         return f"No markdown files found {mode}in {folder}"
 
     return "\n".join(sorted(files))
+
+
+@mcp.tool()
+def web_search(query: str) -> str:
+    """Search the web using DuckDuckGo.
+
+    Args:
+        query: Search query string.
+
+    Returns:
+        Formatted search results with title, URL, and snippet.
+    """
+    if not query or not query.strip():
+        return "Error: query cannot be empty"
+
+    try:
+        results = DDGS().text(query, max_results=5)
+    except Exception as e:
+        return f"Search failed: {e}"
+
+    if not results:
+        return "No results found."
+
+    parts = []
+    for r in results:
+        title = r.get("title", "No title")
+        url = r.get("href", "")
+        snippet = r.get("body", "")
+        parts.append(f"**{title}**\n{url}\n{snippet}")
+
+    return "\n\n".join(parts)
 
 
 if __name__ == "__main__":
