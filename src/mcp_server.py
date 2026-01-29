@@ -818,6 +818,39 @@ def search_by_folder(
 
 
 @mcp.tool()
+def append_to_file(path: str, content: str) -> str:
+    """Append content to the end of an existing vault file.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+        content: Content to append to the file.
+
+    Returns:
+        Confirmation message or error.
+    """
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if not file_path.exists():
+        return f"Error: File not found: {path}"
+
+    if not file_path.is_file():
+        return f"Error: Not a file: {path}"
+
+    try:
+        with file_path.open("a", encoding="utf-8") as f:
+            f.write("\n" + content)
+    except Exception as e:
+        return f"Error appending to file: {e}"
+
+    vault_resolved = VAULT_PATH.resolve()
+    rel_path = file_path.relative_to(vault_resolved)
+    return f"Appended to {rel_path}"
+
+
+@mcp.tool()
 def web_search(query: str) -> str:
     """Search the web using DuckDuckGo.
 
