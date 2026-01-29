@@ -11,31 +11,36 @@ This project provides semantic search and interaction logging for an Obsidian va
 ## Architecture
 
 ```
+                        ┌─────────────────┐
+                        │   HTTP Client   │
+                        │  (curl, apps)   │
+                        └────────┬────────┘
+                                 │ POST /chat
+                                 ▼
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   Qwen Agent    │────▶│   MCP Server    │────▶│  ChromaDB +     │
 │ (qwen_agent.py) │     │ (mcp_server.py) │     │  Obsidian Vault │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                       │
+        ▲                       │
         │                       ├── search_vault (hybrid search)
-        │                       ├── read_file (full note content)
-        │                       ├── list_files_by_frontmatter (metadata queries)
-        │                       ├── update_frontmatter (modify metadata)
-        │                       ├── batch_update_frontmatter (bulk metadata)
-        │                       ├── move_file (relocate files)
-        │                       ├── batch_move_files (bulk relocate)
-        │                       ├── create_file (new notes)
-        │                       ├── find_backlinks (wikilink discovery)
-        │                       ├── search_by_date_range (date filtering)
-        │                       ├── find_outlinks (extract wikilinks)
-        │                       ├── search_by_folder (list folder contents)
-        │                       ├── log_interaction (daily notes)
-        │                       ├── save_preference (store user prefs)
-        │                       ├── list_preferences (view prefs)
-        │                       └── remove_preference (delete pref)
-        │
-        └── Fireworks API (Qwen 3 235B)
+┌───────┴───────┐               ├── read_file (full note content)
+│  API Server   │               ├── list_files_by_frontmatter (metadata queries)
+│(api_server.py)│               ├── update_frontmatter (modify metadata)
+└───────────────┘               ├── batch_update_frontmatter (bulk metadata)
+                                ├── move_file (relocate files)
+                                ├── batch_move_files (bulk relocate)
+                                ├── create_file (new notes)
+                                ├── find_backlinks (wikilink discovery)
+                                ├── search_by_date_range (date filtering)
+                                ├── find_outlinks (extract wikilinks)
+                                ├── search_by_folder (list folder contents)
+                                ├── log_interaction (daily notes)
+                                ├── save_preference (store user prefs)
+                                ├── list_preferences (view prefs)
+                                └── remove_preference (delete pref)
 ```
 
+- **api_server.py**: FastAPI HTTP wrapper exposing the agent via REST API
 - **qwen_agent.py**: CLI chat client that connects Qwen (via Fireworks) to the MCP server
 - **mcp_server.py**: FastMCP server exposing vault tools
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
@@ -179,6 +184,46 @@ All paths are configured via `.env`:
 - `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/archvault2026`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
 - `FIREWORKS_API_KEY`: API key for Fireworks (used by Qwen agent)
+
+## HTTP API
+
+The API server (`src/api_server.py`) provides HTTP access to the Qwen agent. It binds to `127.0.0.1:8000` only (localhost) for security.
+
+### Running the Server
+
+```bash
+python src/api_server.py
+```
+
+### POST /chat
+
+Send a message and receive the agent's response.
+
+**Request:**
+```json
+{
+  "message": "Find notes about projects",
+  "session_id": "optional-uuid"
+}
+```
+
+**Response:**
+```json
+{
+  "response": "I found 3 notes about projects...",
+  "session_id": "abc123-uuid"
+}
+```
+
+**Behavior:**
+- Omit `session_id` to start a new conversation (returns a new UUID)
+- Include `session_id` to continue an existing conversation
+- Invalid `session_id` returns HTTP 404
+
+**Session Management:**
+- Sessions are stored in-memory (lost on server restart)
+- Each session maintains full conversation history
+- The MCP connection is shared across all sessions
 
 ---
 
