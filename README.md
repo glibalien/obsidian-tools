@@ -92,6 +92,7 @@ Or configure it in your MCP client's settings.
 | `search_by_folder` | List files in a folder |
 | `log_interaction` | Log an interaction to today's daily note |
 | `web_search` | Search the web using DuckDuckGo |
+| `append_to_file` | Append content to an existing file |
 
 ### Example: search_vault
 
