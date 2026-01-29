@@ -5,3 +5,5 @@ mcp[cli]>=1.0.0
 openai>=1.0.0
 PyYAML>=6.0
 ddgs>=7.0.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
