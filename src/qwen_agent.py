@@ -13,8 +13,12 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
+from config import VAULT_PATH
+
 # Configuration
 load_dotenv()
+
+PREFERENCES_FILE = VAULT_PATH / "Preferences.md"
 
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
@@ -59,6 +63,28 @@ Guidelines:
 - When performing multi-step operations, complete each step fully before moving to the next.
 - For batch operations, pass the actual paths from previous tool results, not examples.
 - If a tool returns an error, report it accurately - don't claim success."""
+
+
+def load_preferences() -> str | None:
+    """Load user preferences from Preferences.md if it exists.
+
+    Returns:
+        Preferences section to append to system prompt, or None if no preferences.
+    """
+    if not PREFERENCES_FILE.exists():
+        return None
+
+    content = PREFERENCES_FILE.read_text(encoding="utf-8").strip()
+    if not content:
+        return None
+
+    return f"""
+
+## User Preferences
+
+The following are user preferences and corrections. Always follow these:
+
+{content}"""
 
 
 def create_llm_client() -> OpenAI:
@@ -173,8 +199,15 @@ async def chat_loop():
         # Set up LLM client
         client = create_llm_client()
 
+        # Build system prompt with preferences if available
+        system_prompt = SYSTEM_PROMPT
+        preferences = load_preferences()
+        if preferences:
+            system_prompt += preferences
+            print("Loaded user preferences from Preferences.md")
+
         # Conversation history
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt}]
 
         while True:
             try:

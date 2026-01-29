@@ -28,7 +28,10 @@ This project provides semantic search and interaction logging for an Obsidian va
         │                       ├── search_by_date_range (date filtering)
         │                       ├── find_outlinks (extract wikilinks)
         │                       ├── search_by_folder (list folder contents)
-        │                       └── log_interaction (daily notes)
+        │                       ├── log_interaction (daily notes)
+        │                       ├── save_preference (store user prefs)
+        │                       ├── list_preferences (view prefs)
+        │                       └── remove_preference (delete pref)
         │
         └── Fireworks API (Qwen 3 235B)
 ```
@@ -58,6 +61,9 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `find_outlinks` | Extract wikilinks from a file | `path` (string: relative to vault or absolute) |
 | `search_by_folder` | List files in a folder | `folder` (string), `recursive` (bool, default false) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
+| `save_preference` | Save a user preference | `preference` (string) |
+| `list_preferences` | List all saved preferences | (none) |
+| `remove_preference` | Remove a preference by line number | `line_number` (int, 1-indexed) |
 
 ### search_vault
 
@@ -148,6 +154,24 @@ Lists all markdown files in a vault folder.
 ### log_interaction
 
 Logs an interaction to today's daily note. For conversational logs, pass `summary: "n/a"` and provide the `full_response` parameter instead.
+
+### save_preference
+
+Saves a user preference to `Preferences.md` at the vault root. Preferences are stored as bullet points.
+- Creates the file if it doesn't exist
+- Use for user corrections, preferences, or instructions the agent should remember
+
+### list_preferences
+
+Returns all saved preferences with line numbers (1-indexed). Use this to show users what preferences are saved.
+
+### remove_preference
+
+Removes a preference by its line number.
+- `line_number`: 1-indexed line number from `list_preferences` output
+- Returns error if line number is out of range
+
+**Note**: The Qwen agent automatically loads `Preferences.md` into its system prompt at startup. Preferences are appended as a "User Preferences" section that the agent follows.
 
 ## Configuration
 
