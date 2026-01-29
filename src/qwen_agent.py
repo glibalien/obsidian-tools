@@ -23,9 +23,13 @@ MODEL = "accounts/fireworks/models/deepseek-v3p2"
 
 SYSTEM_PROMPT = """You are a helpful assistant with access to an Obsidian vault.
 
-Available tools:
-- search_vault: Search the vault using semantic + keyword hybrid search
-- log_interaction: Log this conversation to the daily note
+You have tools for:
+- Searching the vault (semantic, keyword, by date, by folder)
+- Reading and creating files
+- Modifying frontmatter (single and batch)
+- Moving files (single and batch)
+- Finding backlinks and outlinks between notes
+- Logging interactions to daily notes
 
 When answering questions about the vault:
 1. Use search_vault to find relevant notes
