@@ -74,6 +74,28 @@ python src/mcp_server.py
 
 Or configure it in your MCP client's settings.
 
+### Run the HTTP API server
+
+For programmatic access via HTTP:
+
+```bash
+python src/api_server.py
+```
+
+The server binds to `127.0.0.1:8000` (localhost only). Send chat messages via POST:
+
+```bash
+# Start a new conversation
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Find notes about projects"}'
+
+# Continue a conversation (use session_id from previous response)
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Tell me more", "session_id": "<uuid>"}'
+```
+
 ## MCP Tools
 
 | Tool | Description |
@@ -124,6 +146,7 @@ Operations: `"set"`, `"remove"`, `"append"`
 ```
 src/
 ├── mcp_server.py     # FastMCP server exposing vault tools
+├── api_server.py     # FastAPI HTTP wrapper for the agent
 ├── hybrid_search.py  # Semantic + keyword search with RRF
 ├── search_vault.py   # Search interface
 ├── index_vault.py    # Vault indexer for ChromaDB
@@ -137,6 +160,7 @@ src/
 - [ChromaDB](https://www.trychroma.com/) - Vector database for embeddings
 - [sentence-transformers](https://www.sbert.net/) - Embedding model
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
+- [FastAPI](https://fastapi.tiangolo.com/) - HTTP API framework
 - [PyYAML](https://pyyaml.org/) - YAML parsing for frontmatter
 
 ## License
