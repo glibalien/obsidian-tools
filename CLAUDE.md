@@ -217,9 +217,9 @@ Send a message and receive the agent's response.
 - Each session maintains full conversation history
 - The MCP connection is shared across all sessions
 
-## Obsidian Plugin
+## Obsidian Plugin (Optional)
 
-The `plugin/` directory contains an Obsidian plugin that provides a chat sidebar for interacting with the vault agent.
+The `plugin/` directory contains an optional Obsidian plugin that provides a chat sidebar for interacting with the vault agent. The core functionality (MCP server, API server, CLI agent) works independently without the plugin.
 
 ### Plugin Structure
 
