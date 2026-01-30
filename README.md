@@ -172,6 +172,7 @@ Then in Obsidian:
 | `log_interaction` | Log an interaction to today's daily note |
 | `web_search` | Search the web using DuckDuckGo |
 | `append_to_file` | Append content to an existing file |
+| `get_current_date` | Get current date in YYYY-MM-DD format |
 
 ### Example: search_vault
 
