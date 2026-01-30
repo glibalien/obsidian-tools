@@ -61,6 +61,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `save_preference` | Save a user preference | `preference` (string) |
 | `list_preferences` | List all saved preferences | (none) |
 | `remove_preference` | Remove a preference by line number | `line_number` (int, 1-indexed) |
+| `get_current_date` | Get current date | (none) |
 
 ### search_vault
 
@@ -169,6 +170,10 @@ Removes a preference by its line number.
 - Returns error if line number is out of range
 
 **Note**: The Qwen agent automatically loads `Preferences.md` into its system prompt at startup. Preferences are appended as a "User Preferences" section that the agent follows.
+
+### get_current_date
+
+Returns the current date in YYYY-MM-DD format. Useful for agents that need to know today's date for date-based queries or logging.
 
 ## Configuration
 
