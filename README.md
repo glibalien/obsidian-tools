@@ -33,7 +33,7 @@ The Obsidian plugin provides a chat sidebar that connects to the API server. The
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/obsidian-tools.git
+git clone https://github.com/glibalien/obsidian-tools.git
 cd obsidian-tools
 
 # Create virtual environment
