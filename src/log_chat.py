@@ -51,13 +51,13 @@ def ensure_daily_note_exists(path: Path) -> str:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         today = datetime.now().strftime("%Y-%m-%d")
-        path.write_text(f"# {today}\n\n## Claude Chats\n\n")
+        path.write_text(f"# {today}\n\n## Vault Agent Interactions\n\n")
     
     content = path.read_text()
     
-    # Add Claude Chats header if missing
-    if "## Claude Chats" not in content:
-        content += "\n## Claude Chats\n\n"
+    # Add Vault Agent Interactions header if missing
+    if "## Vault Agent Interactions" not in content:
+        content += "\n## Vault Agent Interactions\n\n"
     
     return content
 
@@ -106,8 +106,8 @@ def format_entry(
 
 
 def insert_entry(content: str, entry: str) -> str:
-    """Insert entry after the Claude Chats header."""
-    marker = "## Claude Chats\n"
+    """Insert entry after the Vault Agent Interactions header."""
+    marker = "## Vault Agent Interactions\n"
     pos = content.find(marker)
     
     if pos != -1:
