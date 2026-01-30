@@ -97,7 +97,7 @@ Before searching, index your vault to create embeddings:
 python src/index_vault.py
 ```
 
-Re-run this when vault content changes significantly.
+Re-run this when vault content changes significantly. Alternatively, create a systemd service and timer to index on a schedule. The service prunes chunks for deleted files automatically, and after the initial index will only index any files that have changed since the previous index run.
 
 ### Run the MCP server
 
