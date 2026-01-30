@@ -64,6 +64,29 @@ FIREWORKS_API_KEY=your-api-key-here
 - `CHROMA_PATH`: Where to store the ChromaDB database (relative or absolute)
 - `FIREWORKS_API_KEY`: API key from [Fireworks AI](https://fireworks.ai/) (required for the chat agent and HTTP API)
 
+### MCP Client Configuration
+
+To use the MCP server with Claude Code or another MCP client, copy `.mcp.json.example` to `.mcp.json` and update the paths:
+
+```bash
+cp .mcp.json.example .mcp.json
+```
+
+Edit `.mcp.json` to point to your local installation:
+
+```json
+{
+  "mcpServers": {
+    "obsidian-tools": {
+      "command": "/path/to/obsidian-tools/.venv/bin/python",
+      "args": ["/path/to/obsidian-tools/src/mcp_server.py"]
+    }
+  }
+}
+```
+
+Replace `/path/to/obsidian-tools` with the actual path where you cloned the repository.
+
 ## Usage
 
 ### Index your vault
