@@ -31,18 +31,50 @@ The Obsidian plugin provides a chat sidebar that connects to the API server. The
 
 ## Installation
 
+### Requirements
+
+- **Python 3.11, 3.12, or 3.13** (not 3.14 — `onnxruntime` doesn't have wheels for 3.14 yet)
+
+### macOS Users (Homebrew)
+
+If you're on macOS and Homebrew has upgraded you to Python 3.14, use pyenv to install a compatible version:
+
+```bash
+# Install pyenv if you don't have it
+brew install pyenv
+
+# Add pyenv to your shell (add these to ~/.zshrc or ~/.bashrc)
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+
+# Restart your shell or run:
+source ~/.zshrc
+
+# Install Python 3.12
+pyenv install 3.12.8
+```
+
+### Clone and Set Up
+
 ```bash
 # Clone the repository
 git clone https://github.com/glibalien/obsidian-tools.git
 cd obsidian-tools
 
-# Create virtual environment
-python3 -m venv .venv
+# If using pyenv, it will automatically use 3.12.8 (from .python-version)
+# Verify your Python version:
+python --version  # Should show Python 3.12.8
+
+# Create virtual environment (use 'python', not 'python3', with pyenv)
+python -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+**Note:** After activating the virtual environment, `python` and `python3` are equivalent. The `python -m venv` command matters because pyenv shims `python` to point to the correct version.
 
 ## Configuration
 
