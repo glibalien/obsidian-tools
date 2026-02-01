@@ -23,7 +23,7 @@ PREFERENCES_FILE = VAULT_PATH / "Preferences.md"
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
-MODEL = "accounts/fireworks/models/deepseek-v3p2"
+MODEL = "accounts/fireworks/models/kimi-k2p5"
 
 SYSTEM_PROMPT = """You are a helpful assistant with access to an Obsidian vault.
 
