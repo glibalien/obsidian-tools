@@ -399,6 +399,7 @@ The project includes a pytest test suite in `tests/`.
 ```
 tests/
 ├── conftest.py              # Fixtures: temp_vault, vault_config
+├── test_api_context.py      # Tests for API context handling
 ├── test_vault_service.py    # Tests for services/vault.py
 ├── test_tools_files.py      # Tests for file operations
 ├── test_tools_sections.py   # Tests for section manipulation
@@ -457,7 +458,8 @@ Send a message and receive the agent's response.
 ```json
 {
   "message": "Find notes about projects",
-  "session_id": "optional-uuid"
+  "session_id": "optional-uuid",
+  "active_file": "Projects/Marketing.md"
 }
 ```
 
@@ -473,6 +475,7 @@ Send a message and receive the agent's response.
 - Omit `session_id` to start a new conversation (returns a new UUID)
 - Include `session_id` to continue an existing conversation
 - Invalid `session_id` returns HTTP 404
+- Include `active_file` to provide context about the currently viewed note (enables "this note" references)
 
 **Session Management:**
 - Sessions are stored in-memory (lost on server restart)
@@ -518,6 +521,7 @@ npm run build
 - Session continuity across messages
 - Loading indicator during API calls
 - Error handling when server is unavailable
+- Active file context: automatically sends the currently open note's path with each message, enabling natural references like "summarize this note"
 
 ---
 
