@@ -851,6 +851,61 @@ def append_to_file(path: str, content: str) -> str:
 
 
 @mcp.tool()
+def prepend_to_file(path: str, content: str) -> str:
+    """Prepend content to a vault file, inserting after any frontmatter.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+        content: Content to prepend to the file.
+
+    Returns:
+        JSON response: {"success": true, "path": "..."} on success,
+        or {"success": false, "error": "..."} on failure.
+    """
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+    if not file_path.exists():
+        return json.dumps({"success": False, "error": f"File not found: {path}"})
+
+    if not file_path.is_file():
+        return json.dumps({"success": False, "error": f"Not a file: {path}"})
+
+    try:
+        existing_content = file_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return json.dumps({"success": False, "error": f"Error reading file: {e}"})
+
+    # Detect YAML frontmatter (must start at position 0)
+    frontmatter_match = re.match(r"^---\n(.*?)\n---\n", existing_content, re.DOTALL)
+
+    if frontmatter_match:
+        # Insert after frontmatter with blank line separator
+        frontmatter_end = frontmatter_match.end()
+        body = existing_content[frontmatter_end:]
+        new_content = (
+            existing_content[:frontmatter_end]
+            + content
+            + "\n\n"
+            + body.lstrip("\n")
+        )
+    else:
+        # No frontmatter, prepend to beginning
+        new_content = content + "\n\n" + existing_content.lstrip("\n")
+
+    try:
+        file_path.write_text(new_content, encoding="utf-8")
+    except Exception as e:
+        return json.dumps({"success": False, "error": f"Error writing file: {e}"})
+
+    vault_resolved = VAULT_PATH.resolve()
+    rel_path = file_path.relative_to(vault_resolved)
+    return json.dumps({"success": True, "path": str(rel_path)})
+
+
+@mcp.tool()
 def web_search(query: str) -> str:
     """Search the web using DuckDuckGo.
 
