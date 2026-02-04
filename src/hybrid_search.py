@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 """Hybrid search combining semantic and keyword matching with RRF merge."""
 
+import logging
 from collections import defaultdict
 
-import chromadb
+from services.chroma import get_collection
 
-from config import CHROMA_PATH
+logger = logging.getLogger(__name__)
 
 STOPWORDS = {"the", "a", "an", "is", "in", "of", "and", "or", "to", "for", "it", "on", "at", "by", "be"}
 RRF_K = 60  # Standard reciprocal rank fusion constant
-
-
-def _get_collection() -> chromadb.Collection:
-    """Get the ChromaDB obsidian_vault collection."""
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    return client.get_collection("obsidian_vault")
 
 
 def semantic_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
@@ -27,7 +22,7 @@ def semantic_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     Returns:
         List of dicts with 'source' and 'content' keys.
     """
-    collection = _get_collection()
+    collection = get_collection()
     results = collection.query(query_texts=[query], n_results=n_results)
 
     return [
@@ -63,7 +58,7 @@ def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     if not terms:
         return []
 
-    collection = _get_collection()
+    collection = get_collection()
     # Track hits per chunk: chunk_id -> {doc, metadata, hits}
     chunk_hits: dict[str, dict] = defaultdict(lambda: {"hits": 0})
 
@@ -73,7 +68,8 @@ def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
                 where_document={"$contains": term},
                 include=["documents", "metadatas"],
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Keyword search failed for term '{term}': {e}")
             continue
 
         if not matches["ids"]:

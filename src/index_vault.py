@@ -7,40 +7,22 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import chromadb
 from sentence_transformers import SentenceTransformer
 
-from config import VAULT_PATH, CHROMA_PATH, EXCLUDED_DIRS
+from config import VAULT_PATH, CHROMA_PATH, EMBEDDING_MODEL
+from services.chroma import get_client, get_collection
+from services.vault import get_vault_files
 
 
-# Lazy-loaded globals
-_client = None
-_collection = None
+# Lazy-loaded embedding model
 _model = None
-
-
-def get_client():
-    """Get or create ChromaDB client."""
-    global _client
-    if _client is None:
-        os.makedirs(CHROMA_PATH, exist_ok=True)
-        _client = chromadb.PersistentClient(path=CHROMA_PATH)
-    return _client
-
-
-def get_collection():
-    """Get or create the vault collection."""
-    global _collection
-    if _collection is None:
-        _collection = get_client().get_or_create_collection("obsidian_vault")
-    return _collection
 
 
 def get_model():
     """Get or create the sentence transformer model."""
     global _model
     if _model is None:
-        _model = SentenceTransformer('all-MiniLM-L6-v2')
+        _model = SentenceTransformer(EMBEDDING_MODEL)
     return _model
 
 
@@ -99,16 +81,6 @@ def index_file(md_file: Path) -> None:
             documents=[chunk],
             metadatas=[{"source": str(md_file), "chunk": i}]
         )
-
-
-def get_vault_files(vault_path: Path) -> list[Path]:
-    """Get all markdown files in vault, excluding tooling directories."""
-    files = []
-    for md_file in vault_path.rglob("*.md"):
-        if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
-            continue
-        files.append(md_file)
-    return files
 
 
 def prune_deleted_files(valid_sources: set[str]) -> int:

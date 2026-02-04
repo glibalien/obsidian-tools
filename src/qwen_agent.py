@@ -13,7 +13,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
-from config import PREFERENCES_FILE, VAULT_PATH
+from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH
 
 # Configuration
 load_dotenv()
@@ -21,7 +21,6 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
-MODEL = "accounts/fireworks/models/deepseek-v3p1"
 
 SYSTEM_PROMPT = """You are a helpful assistant with access to an Obsidian vault.
 
@@ -136,7 +135,7 @@ async def agent_turn(
     """Execute one agent turn, handling tool calls until final response."""
     while True:
         response = client.chat.completions.create(
-            model=MODEL,
+            model=LLM_MODEL,
             messages=messages,
             tools=tools if tools else None,
             tool_choice="auto" if tools else None,

@@ -151,14 +151,34 @@ def get_relative_path(absolute_path: Path) -> str:
 # =============================================================================
 
 
-def get_vault_files() -> list[Path]:
-    """Get all markdown files in vault, excluding tooling directories."""
+def get_vault_files(vault_path: Path | None = None) -> list[Path]:
+    """Get all markdown files in vault, excluding tooling directories.
+
+    Args:
+        vault_path: Optional path to vault. Defaults to VAULT_PATH from config.
+
+    Returns:
+        List of Path objects for all markdown files in the vault.
+    """
+    vault = vault_path if vault_path is not None else VAULT_PATH
     files = []
-    for md_file in VAULT_PATH.rglob("*.md"):
+    for md_file in vault.rglob("*.md"):
         if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
             continue
         files.append(md_file)
     return files
+
+
+def get_vault_note_names(vault_path: Path | None = None) -> set[str]:
+    """Get set of note names (without .md extension) from vault.
+
+    Args:
+        vault_path: Optional path to vault. Defaults to VAULT_PATH from config.
+
+    Returns:
+        Set of note names without the .md extension.
+    """
+    return {f.stem for f in get_vault_files(vault_path)}
 
 
 # =============================================================================
