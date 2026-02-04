@@ -62,6 +62,9 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `list_preferences` | List all saved preferences | (none) |
 | `remove_preference` | Remove a preference by line number | `line_number` (int, 1-indexed) |
 | `get_current_date` | Get current date | (none) |
+| `append_to_file` | Append content to end of file | `path` (string), `content` (string) |
+| `prepend_to_file` | Insert content after frontmatter | `path` (string), `content` (string) |
+| `web_search` | Search the web via DuckDuckGo | `query` (string) |
 
 ### search_vault
 
@@ -174,6 +177,26 @@ Removes a preference by its line number.
 ### get_current_date
 
 Returns the current date in YYYY-MM-DD format. Useful for agents that need to know today's date for date-based queries or logging.
+
+### prepend_to_file
+
+Inserts content at the beginning of a vault file, after any YAML frontmatter.
+- `path`: Path to the note (relative to vault or absolute)
+- `content`: Content to prepend
+
+**Behavior:**
+- If the file has YAML frontmatter (opening `---` at position 0), content is inserted immediately after the closing `---` with a blank line separator
+- If no frontmatter, content is inserted at the very beginning of the file
+- Inserted content is followed by a blank line to separate it from existing content
+
+**Returns:** JSON response
+- Success: `{"success": true, "path": "relative/path.md"}`
+- Error: `{"success": false, "error": "description"}`
+
+**Error cases:**
+- File not found
+- Path outside vault (path traversal protection)
+- Path in excluded directory (`.obsidian`, `.git`, etc.)
 
 ## Configuration
 
