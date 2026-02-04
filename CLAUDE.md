@@ -64,6 +64,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `get_current_date` | Get current date | (none) |
 | `append_to_file` | Append content to end of file | `path` (string), `content` (string) |
 | `prepend_to_file` | Insert content after frontmatter | `path` (string), `content` (string) |
+| `replace_section` | Replace a markdown section | `path` (string), `heading` (string), `content` (string) |
 | `web_search` | Search the web via DuckDuckGo | `query` (string) |
 
 ### search_vault
@@ -197,6 +198,31 @@ Inserts content at the beginning of a vault file, after any YAML frontmatter.
 - File not found
 - Path outside vault (path traversal protection)
 - Path in excluded directory (`.obsidian`, `.git`, etc.)
+
+### replace_section
+
+Replaces a markdown heading and its content with new content.
+- `path`: Path to the note (relative to vault or absolute)
+- `heading`: Full heading text including `#` symbols (e.g., "## Meeting Notes")
+- `content`: Replacement content (can include a heading or not)
+
+**Behavior:**
+- Finds heading by case-insensitive exact match (heading level must match exactly)
+- A "section" includes the heading line through to the next heading of same or higher level, or EOF
+- Replaces the entire section (heading + content) with the provided replacement
+- Headings inside fenced code blocks (``` or ~~~) are ignored
+
+**Returns:** JSON response
+- Success: `{"success": true, "path": "relative/path.md"}`
+- Error: `{"success": false, "error": "description"}`
+
+**Error cases:**
+- File not found
+- Path outside vault (path traversal protection)
+- Path in excluded directory
+- Heading not found
+- Multiple headings match (includes line numbers where matches were found)
+- Invalid heading format (no `#` prefix)
 
 ## Configuration
 
