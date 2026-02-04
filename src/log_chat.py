@@ -6,17 +6,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from config import VAULT_PATH, EXCLUDED_DIRS
-
-
-def get_vault_note_names() -> set[str]:
-    """Scan the vault and return a set of all note names (without .md extension)."""
-    note_names = set()
-    for md_file in VAULT_PATH.rglob("*.md"):
-        if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
-            continue
-        note_names.add(md_file.stem)
-    return note_names
+from config import VAULT_PATH
+from services.vault import get_vault_note_names
 
 
 def add_wikilinks(text: str, note_names: set[str]) -> str:

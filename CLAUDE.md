@@ -35,6 +35,7 @@ This project provides semantic search and interaction logging for an Obsidian va
 src/
 ├── mcp_server.py        # Entry point - registers tools from submodules
 ├── services/
+│   ├── chroma.py        # Shared ChromaDB connection management
 │   └── vault.py         # Path resolution, response helpers, utilities
 ├── tools/
 │   ├── files.py         # read_file, create_file, move_file, append_to_file
@@ -56,7 +57,8 @@ src/
 **Components:**
 
 - **mcp_server.py**: Entry point that registers all tools with FastMCP
-- **services/vault.py**: Shared utilities for path resolution, response formatting, section finding
+- **services/chroma.py**: Shared ChromaDB connection management (lazy singletons)
+- **services/vault.py**: Shared utilities for path resolution, response formatting, section finding, file scanning
 - **tools/**: Tool implementations organized by category
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper exposing the agent via REST API
@@ -343,6 +345,38 @@ if error:
 # start = line index of heading, end = line index where section ends
 ```
 
+### File Scanning
+
+```python
+from services.vault import get_vault_files, get_vault_note_names
+
+# Get all markdown files (excludes .venv, .obsidian, etc.)
+files = get_vault_files()  # list[Path]
+
+# Get note names without .md extension
+note_names = get_vault_note_names()  # set[str]
+
+# Both accept optional vault_path parameter
+files = get_vault_files(custom_vault_path)
+```
+
+## ChromaDB Service
+
+The `services/chroma.py` module provides shared ChromaDB connection management using lazy singletons.
+
+```python
+from services.chroma import get_client, get_collection, reset
+
+# Get ChromaDB client (creates on first call)
+client = get_client()
+
+# Get the obsidian_vault collection
+collection = get_collection()
+
+# Reset singletons (for testing)
+reset()
+```
+
 ## Testing
 
 The project includes a pytest test suite in `tests/`.
@@ -402,6 +436,8 @@ All paths are configured via `.env`:
 Additional configuration in `config.py`:
 - `EXCLUDED_DIRS`: Directories to skip when scanning vault (`.venv`, `.chroma_db`, `.trash`, `.obsidian`, `.git`)
 - `PREFERENCES_FILE`: Path to user preferences file (`VAULT_PATH / "Preferences.md"`)
+- `LLM_MODEL`: Model ID for the LLM agent (default: `accounts/fireworks/models/deepseek-v3p1`, env: `LLM_MODEL`)
+- `EMBEDDING_MODEL`: Model name for embeddings (default: `all-MiniLM-L6-v2`, env: `EMBEDDING_MODEL`)
 
 ## HTTP API
 
