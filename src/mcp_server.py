@@ -1021,16 +1021,17 @@ def replace_section(path: str, heading: str, content: str) -> str:
 
 
 @mcp.tool()
-def insert_after_heading(path: str, heading: str, content: str) -> str:
-    """Insert content immediately after a heading line.
+def append_to_section(path: str, heading: str, content: str) -> str:
+    """Append content at the end of a section.
 
-    Finds a heading by case-insensitive exact match and inserts content
-    on the line immediately after it, preserving all existing section content.
+    Finds a heading by case-insensitive exact match and appends content
+    at the end of that section (just before the next same-or-higher-level
+    heading, or end of file). Preserves the heading and all existing content.
 
     Args:
         path: Path to the note (relative to vault or absolute).
-        heading: Full heading text including # symbols (e.g., "## Personal").
-        content: Content to insert after the heading (may be multiline).
+        heading: Full heading text including # symbols (e.g., "## Context").
+        content: Content to append to the section (may be multiline).
 
     Returns:
         JSON response: {"success": true, "path": "..."} on success,
@@ -1097,9 +1098,31 @@ def insert_after_heading(path: str, heading: str, content: str) -> str:
             "error": f"Multiple headings match '{heading}': found at lines {line_nums}",
         })
 
-    # Insert content after heading line
+    # Find section boundary
     match_line = matches[0][0]
-    new_lines = lines[:match_line + 1] + [content, ""] + lines[match_line + 1:]
+    section_end = len(lines)  # Default to end of file
+
+    # Scan for next heading of same or higher level (tracking code blocks again)
+    in_code_block = False
+    for i in range(match_line + 1, len(lines)):
+        line = lines[i]
+
+        if fence_pattern.match(line):
+            in_code_block = not in_code_block
+            continue
+
+        if in_code_block:
+            continue
+
+        line_heading_match = heading_pattern.match(line)
+        if line_heading_match:
+            line_level = len(line_heading_match.group(1))
+            if line_level <= target_level:
+                section_end = i
+                break
+
+    # Append content at end of section
+    new_lines = lines[:section_end] + ["", content] + lines[section_end:]
     new_content = "\n".join(new_lines)
 
     try:

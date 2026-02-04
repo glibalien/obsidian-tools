@@ -205,7 +205,7 @@ Then in Obsidian:
 | `append_to_file` | Append content to end of a file |
 | `prepend_to_file` | Insert content after frontmatter (or at start if none) |
 | `replace_section` | Replace a markdown heading and its content |
-| `insert_after_heading` | Insert content after a heading, preserving existing content |
+| `append_to_section` | Append content to end of a section |
 | `save_preference` | Save a user preference to Preferences.md |
 | `list_preferences` | List all saved preferences |
 | `remove_preference` | Remove a preference by line number |
@@ -249,7 +249,7 @@ Operations: `"set"`, `"remove"`, `"append"`
 
 Replaces the entire "## Status" section (heading + content through to the next same-level or higher heading).
 
-### Example: insert_after_heading
+### Example: append_to_section
 
 ```json
 {
@@ -259,7 +259,7 @@ Replaces the entire "## Status" section (heading + content through to the next s
 }
 ```
 
-Inserts content immediately after the heading, preserving existing section content.
+Appends content at the end of the "## Notes" section, preserving all existing content.
 
 ## Project Structure
 
