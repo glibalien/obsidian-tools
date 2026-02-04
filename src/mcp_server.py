@@ -1021,6 +1021,98 @@ def replace_section(path: str, heading: str, content: str) -> str:
 
 
 @mcp.tool()
+def insert_after_heading(path: str, heading: str, content: str) -> str:
+    """Insert content immediately after a heading line.
+
+    Finds a heading by case-insensitive exact match and inserts content
+    on the line immediately after it, preserving all existing section content.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+        heading: Full heading text including # symbols (e.g., "## Personal").
+        content: Content to insert after the heading (may be multiline).
+
+    Returns:
+        JSON response: {"success": true, "path": "..."} on success,
+        or {"success": false, "error": "..."} on failure.
+    """
+    try:
+        file_path = _resolve_vault_path(path)
+    except ValueError as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+    if not file_path.exists():
+        return json.dumps({"success": False, "error": f"File not found: {path}"})
+
+    if not file_path.is_file():
+        return json.dumps({"success": False, "error": f"Not a file: {path}"})
+
+    # Parse heading parameter to extract level and text
+    heading_match = re.match(r"^(#+)\s+(.*)$", heading.strip())
+    if not heading_match:
+        return json.dumps({"success": False, "error": f"Invalid heading format: {heading}"})
+
+    target_level = len(heading_match.group(1))
+    target_text = heading_match.group(2).lower()
+
+    # Read file content
+    try:
+        file_content = file_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return json.dumps({"success": False, "error": f"Error reading file: {e}"})
+
+    lines = file_content.split("\n")
+
+    # Find matching headings, tracking code blocks
+    matches = []  # List of (line_index, line_content)
+    in_code_block = False
+    fence_pattern = re.compile(r"^(`{3,}|~{3,})")
+    heading_pattern = re.compile(r"^(#+)\s+(.*)$")
+
+    for i, line in enumerate(lines):
+        # Check for code fence toggle
+        if fence_pattern.match(line):
+            in_code_block = not in_code_block
+            continue
+
+        if in_code_block:
+            continue
+
+        # Check if this line is a matching heading
+        line_heading_match = heading_pattern.match(line)
+        if line_heading_match:
+            line_level = len(line_heading_match.group(1))
+            line_text = line_heading_match.group(2).lower()
+            if line_level == target_level and line_text == target_text:
+                matches.append((i, line))
+
+    # Validate matches
+    if not matches:
+        return json.dumps({"success": False, "error": f"Heading not found: {heading}"})
+
+    if len(matches) > 1:
+        line_nums = ", ".join(str(m[0] + 1) for m in matches)  # 1-indexed
+        return json.dumps({
+            "success": False,
+            "error": f"Multiple headings match '{heading}': found at lines {line_nums}",
+        })
+
+    # Insert content after heading line
+    match_line = matches[0][0]
+    new_lines = lines[:match_line + 1] + [content, ""] + lines[match_line + 1:]
+    new_content = "\n".join(new_lines)
+
+    try:
+        file_path.write_text(new_content, encoding="utf-8")
+    except Exception as e:
+        return json.dumps({"success": False, "error": f"Error writing file: {e}"})
+
+    vault_resolved = VAULT_PATH.resolve()
+    rel_path = file_path.relative_to(vault_resolved)
+    return json.dumps({"success": True, "path": str(rel_path)})
+
+
+@mcp.tool()
 def web_search(query: str) -> str:
     """Search the web using DuckDuckGo.
 
