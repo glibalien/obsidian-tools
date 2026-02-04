@@ -202,8 +202,14 @@ Then in Obsidian:
 | `search_by_date_range` | Find files by created or modified date |
 | `search_by_folder` | List files in a folder |
 | `log_interaction` | Log an interaction to today's daily note |
+| `append_to_file` | Append content to end of a file |
+| `prepend_to_file` | Insert content after frontmatter (or at start if none) |
+| `replace_section` | Replace a markdown heading and its content |
+| `insert_after_heading` | Insert content after a heading, preserving existing content |
+| `save_preference` | Save a user preference to Preferences.md |
+| `list_preferences` | List all saved preferences |
+| `remove_preference` | Remove a preference by line number |
 | `web_search` | Search the web using DuckDuckGo |
-| `append_to_file` | Append content to an existing file |
 | `get_current_date` | Get current date in YYYY-MM-DD format |
 
 ### Example: search_vault
@@ -230,6 +236,30 @@ Modes: `"hybrid"` (default), `"semantic"`, `"keyword"`
 ```
 
 Operations: `"set"`, `"remove"`, `"append"`
+
+### Example: replace_section
+
+```json
+{
+  "path": "Projects/my-project.md",
+  "heading": "## Status",
+  "content": "## Status\n\nUpdated to complete."
+}
+```
+
+Replaces the entire "## Status" section (heading + content through to the next same-level or higher heading).
+
+### Example: insert_after_heading
+
+```json
+{
+  "path": "Projects/my-project.md",
+  "heading": "## Notes",
+  "content": "- New note added today"
+}
+```
+
+Inserts content immediately after the heading, preserving existing section content.
 
 ## Project Structure
 
