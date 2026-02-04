@@ -29,12 +29,38 @@ This project provides semantic search and interaction logging for an Obsidian va
                                                 └─────────────────┘
 ```
 
+**Directory Structure:**
+
+```
+src/
+├── mcp_server.py        # Entry point - registers tools from submodules
+├── services/
+│   └── vault.py         # Path resolution, response helpers, utilities
+├── tools/
+│   ├── files.py         # read_file, create_file, move_file, append_to_file
+│   ├── frontmatter.py   # list_files_by_frontmatter, update_frontmatter, etc.
+│   ├── links.py         # find_backlinks, find_outlinks, search_by_folder
+│   ├── preferences.py   # save_preference, list_preferences, remove_preference
+│   ├── search.py        # search_vault, web_search
+│   ├── sections.py      # prepend_to_file, replace_section, append_to_section
+│   └── utility.py       # log_interaction, get_current_date
+├── config.py            # Environment configuration
+├── api_server.py        # FastAPI HTTP wrapper
+├── qwen_agent.py        # CLI chat client
+├── hybrid_search.py     # Semantic + keyword search with RRF
+├── search_vault.py      # Search interface
+├── index_vault.py       # ChromaDB indexing
+└── log_chat.py          # Daily note logging
+```
+
 **Components:**
 
+- **mcp_server.py**: Entry point that registers all tools with FastMCP
+- **services/vault.py**: Shared utilities for path resolution, response formatting, section finding
+- **tools/**: Tool implementations organized by category
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper exposing the agent via REST API
 - **qwen_agent.py**: CLI chat client that connects Qwen (via Fireworks) to the MCP server
-- **mcp_server.py**: FastMCP server exposing vault tools
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
 - **index_vault.py**: Indexes vault content into ChromaDB (runs via systemd, not manually)
 - **log_chat.py**: Appends interaction logs to daily notes
@@ -74,6 +100,11 @@ Searches the Obsidian vault using hybrid search (semantic + keyword by default).
 - `"hybrid"` (default): Runs both semantic and keyword search, merges results using Reciprocal Rank Fusion.
 - `"semantic"`: Vector similarity search only.
 - `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
+
+**Returns:** JSON response
+- Success with results: `{"success": true, "results": [{"source": "path.md", "content": "..."}]}`
+- Success with no matches: `{"success": true, "message": "No matching documents found", "results": []}`
+- Error: `{"success": false, "error": "description"}`
 
 ### read_file
 
@@ -252,12 +283,125 @@ Appends content at the end of a section (just before the next same-or-higher-lev
 - Multiple headings match (includes line numbers where matches were found)
 - Invalid heading format (no `#` prefix)
 
+### web_search
+
+Searches the web using DuckDuckGo.
+- `query`: Search query string
+
+**Returns:** JSON response
+- Success with results: `{"success": true, "results": [{"title": "...", "url": "...", "snippet": "..."}]}`
+- Success with no matches: `{"success": true, "message": "No web results found", "results": []}`
+- Error: `{"success": false, "error": "description"}`
+
+## Vault Service Helpers
+
+The `services/vault.py` module provides shared utilities used across all tools.
+
+### Response Helpers
+
+All tools that perform actions should use these helpers for consistent JSON responses:
+
+```python
+from services.vault import ok, err
+
+# Success responses
+ok("Operation completed")           # {"success": true, "message": "..."}
+ok(results=[...])                   # {"success": true, "results": [...]}
+ok(path="file.md")                  # {"success": true, "path": "file.md"}
+
+# Error responses
+err("File not found")               # {"success": false, "error": "..."}
+err("Invalid path", path="bad.md")  # {"success": false, "error": "...", "path": "..."}
+```
+
+### Path Resolution
+
+```python
+from services.vault import resolve_file, resolve_dir, resolve_vault_path
+
+# Resolve and validate a file (returns tuple)
+file_path, error = resolve_file("notes/file.md")
+if error:
+    return err(error)
+
+# Resolve and validate a directory
+dir_path, error = resolve_dir("notes")
+
+# Low-level path resolution (raises ValueError)
+path = resolve_vault_path("notes/file.md")
+```
+
+### Section Finding
+
+```python
+from services.vault import find_section
+
+lines = file_content.split("\n")
+start, end, error = find_section(lines, "## Section Name")
+if error:
+    return err(error)
+# start = line index of heading, end = line index where section ends
+```
+
+## Testing
+
+The project includes a pytest test suite in `tests/`.
+
+### Running Tests
+
+```bash
+# Run all tests
+.venv/bin/python -m pytest tests/ -v
+
+# Run specific test file
+.venv/bin/python -m pytest tests/test_vault_service.py -v
+
+# Run with coverage (if pytest-cov installed)
+.venv/bin/python -m pytest tests/ --cov=src
+```
+
+### Test Structure
+
+```
+tests/
+├── conftest.py              # Fixtures: temp_vault, vault_config
+├── test_vault_service.py    # Tests for services/vault.py
+├── test_tools_files.py      # Tests for file operations
+├── test_tools_sections.py   # Tests for section manipulation
+└── test_tools_links.py      # Tests for link operations
+```
+
+### Key Fixtures
+
+- **`temp_vault`**: Creates a temporary vault directory with sample files
+- **`vault_config`**: Patches `VAULT_PATH` across all modules to use `temp_vault`
+- **`sample_frontmatter_file`**: File with YAML frontmatter for testing
+
+### Writing New Tests
+
+```python
+def test_my_tool(vault_config):
+    """vault_config fixture patches VAULT_PATH to temp directory."""
+    # Create test file
+    (vault_config / "test.md").write_text("# Test")
+
+    # Call tool
+    result = my_tool("test.md")
+
+    # Assert
+    assert "expected" in result
+```
+
 ## Configuration
 
 All paths are configured via `.env`:
 - `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/archvault2026`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
 - `FIREWORKS_API_KEY`: API key for Fireworks (used by Qwen agent)
+
+Additional configuration in `config.py`:
+- `EXCLUDED_DIRS`: Directories to skip when scanning vault (`.venv`, `.chroma_db`, `.trash`, `.obsidian`, `.git`)
+- `PREFERENCES_FILE`: Path to user preferences file (`VAULT_PATH / "Preferences.md"`)
 
 ## HTTP API
 
