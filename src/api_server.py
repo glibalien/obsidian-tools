@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """FastAPI HTTP wrapper for the Qwen agent."""
 
+import sys
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 
@@ -41,7 +42,7 @@ class ChatResponse(BaseModel):
 async def lifespan(app: FastAPI):
     """Initialize MCP session and LLM client at startup."""
     server_params = StdioServerParameters(
-        command=str(PROJECT_ROOT / ".venv" / "bin" / "python"),
+        command=sys.executable,
         args=[str(PROJECT_ROOT / "src" / "mcp_server.py")],
         cwd=str(PROJECT_ROOT),
     )

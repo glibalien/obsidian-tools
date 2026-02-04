@@ -13,12 +13,10 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
-from config import VAULT_PATH
+from config import PREFERENCES_FILE, VAULT_PATH
 
 # Configuration
 load_dotenv()
-
-PREFERENCES_FILE = VAULT_PATH / "Preferences.md"
 
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
@@ -173,7 +171,7 @@ async def agent_turn(
 async def chat_loop():
     """Main chat loop - handles user input and agent responses."""
     server_params = StdioServerParameters(
-        command=str(PROJECT_ROOT / ".venv" / "bin" / "python"),
+        command=sys.executable,
         args=[str(PROJECT_ROOT / "src" / "mcp_server.py")],
         cwd=str(PROJECT_ROOT),
     )
