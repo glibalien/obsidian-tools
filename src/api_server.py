@@ -29,6 +29,7 @@ class ChatRequest(BaseModel):
 
     message: str
     session_id: str | None = None
+    active_file: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -36,6 +37,13 @@ class ChatResponse(BaseModel):
 
     response: str
     session_id: str
+
+
+def format_context_prefix(active_file: str | None) -> str:
+    """Format context prefix for the user message."""
+    if not active_file:
+        return ""
+    return f"[Context: Currently viewing '{active_file}']\n\n"
 
 
 @asynccontextmanager
@@ -105,8 +113,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         messages = [{"role": "system", "content": app.state.system_prompt}]
         sessions[session_id] = messages
 
-    # Add user message
-    messages.append({"role": "user", "content": request.message})
+    # Add user message with context prefix if active file is provided
+    context_prefix = format_context_prefix(request.active_file)
+    messages.append({"role": "user", "content": context_prefix + request.message})
 
     try:
         response = await agent_turn(

@@ -92,6 +92,11 @@ export class ChatView extends ItemView {
 		return loadingEl;
 	}
 
+	private getActiveFilePath(): string | null {
+		const activeFile = this.app.workspace.getActiveFile();
+		return activeFile?.path ?? null;
+	}
+
 	private async sendMessage(): Promise<void> {
 		const message = this.inputField.value.trim();
 		if (!message || this.isLoading) return;
@@ -113,7 +118,8 @@ export class ChatView extends ItemView {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					message: message,
-					session_id: this.sessionId
+					session_id: this.sessionId,
+					active_file: this.getActiveFilePath()
 				})
 			});
 
