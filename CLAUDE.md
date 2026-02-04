@@ -65,7 +65,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `append_to_file` | Append content to end of file | `path` (string), `content` (string) |
 | `prepend_to_file` | Insert content after frontmatter | `path` (string), `content` (string) |
 | `replace_section` | Replace a markdown section | `path` (string), `heading` (string), `content` (string) |
-| `insert_after_heading` | Insert content after a heading | `path` (string), `heading` (string), `content` (string) |
+| `append_to_section` | Append content to end of a section | `path` (string), `heading` (string), `content` (string) |
 | `web_search` | Search the web via DuckDuckGo | `query` (string) |
 
 ### search_vault
@@ -225,18 +225,19 @@ Replaces a markdown heading and its content with new content.
 - Multiple headings match (includes line numbers where matches were found)
 - Invalid heading format (no `#` prefix)
 
-### insert_after_heading
+### append_to_section
 
-Inserts content immediately after a heading line, preserving all existing section content.
+Appends content at the end of a section (just before the next same-or-higher-level heading or EOF).
 - `path`: Path to the note (relative to vault or absolute)
-- `heading`: Full heading text including `#` symbols (e.g., "## Personal")
-- `content`: Content to insert after the heading (may be multiline)
+- `heading`: Full heading text including `#` symbols (e.g., "## Context")
+- `content`: Content to append to the section (may be multiline)
 
 **Behavior:**
 - Finds heading by case-insensitive exact match (heading level must match exactly)
-- Inserts content on the line immediately after the heading
-- Adds a blank line after inserted content to separate from existing content
-- Preserves all existing section content (this is insertion, not replacement)
+- Finds section boundary (next heading of same or higher level, or EOF)
+- Appends content at the end of the section, just before that boundary
+- Adds a blank line before inserted content to separate from existing content
+- Preserves the heading and all existing section content (this is append, not replacement)
 - Headings inside fenced code blocks (``` or ~~~) are ignored
 
 **Returns:** JSON response
