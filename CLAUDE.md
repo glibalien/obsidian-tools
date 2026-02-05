@@ -462,7 +462,7 @@ def test_my_tool(vault_config):
 ## Configuration
 
 All paths are configured via `.env`:
-- `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/archvault2026`)
+- `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/obsidian-vault`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
 - `FIREWORKS_API_KEY`: API key for Fireworks (used by Qwen agent)
 
