@@ -174,13 +174,13 @@ npm install
 npm run build
 
 # Install to your vault (adjust path as needed)
-mkdir -p ~/Documents/your-vault/.obsidian/plugins/vault-chat
-cp manifest.json main.js styles.css ~/Documents/your-vault/.obsidian/plugins/vault-chat/
+mkdir -p ~/Documents/your-vault/.obsidian/plugins/vault-agent
+cp manifest.json main.js styles.css ~/Documents/your-vault/.obsidian/plugins/vault-agent/
 ```
 
 Then in Obsidian:
 1. Go to Settings → Community Plugins
-2. Enable "Vault Chat"
+2. Enable "Vault Agent"
 3. Click the message icon in the ribbon to open the chat sidebar
 
 **Note:** The API server must be running for the plugin to work.
