@@ -10,6 +10,7 @@ Semantic search and vault management tools for Obsidian, exposed via MCP (Model 
 - **Link discovery**: Find backlinks and outlinks between notes
 - **Query by metadata**: Search by frontmatter fields, date ranges, or folder
 - **Interaction logging**: Log AI conversations to daily notes
+- **Audio transcription**: Transcribe audio embeds using Whisper API
 - **HTTP API**: REST endpoint for programmatic access
 
 ## Architecture
@@ -211,6 +212,7 @@ Then in Obsidian:
 | `remove_preference` | Remove a preference by line number |
 | `web_search` | Search the web using DuckDuckGo |
 | `get_current_date` | Get current date in YYYY-MM-DD format |
+| `transcribe_audio` | Transcribe audio embeds in a note via Whisper API |
 
 ### Example: search_vault
 
@@ -261,6 +263,16 @@ Replaces the entire "## Status" section (heading + content through to the next s
 
 Appends content at the end of the "## Notes" section, preserving all existing content.
 
+### Example: transcribe_audio
+
+```json
+{
+  "path": "Meetings/2024-01-15.md"
+}
+```
+
+Parses audio embeds like `![[recording.m4a]]` from the note and transcribes them using Fireworks Whisper API. Supported formats: m4a, webm, mp3, wav, ogg. Audio files are resolved from the `Attachments` folder.
+
 ## Project Structure
 
 ```
@@ -272,7 +284,9 @@ src/
 ├── index_vault.py    # Vault indexer for ChromaDB
 ├── log_chat.py       # Daily note logging
 ├── config.py         # Shared configuration
-└── qwen_agent.py     # CLI chat agent
+├── qwen_agent.py     # CLI chat agent
+└── tools/
+    └── audio.py      # Audio transcription tool
 
 plugin/
 ├── src/
@@ -289,6 +303,7 @@ plugin/
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
 - [FastAPI](https://fastapi.tiangolo.com/) - HTTP API framework
 - [PyYAML](https://pyyaml.org/) - YAML parsing for frontmatter
+- [OpenAI SDK](https://github.com/openai/openai-python) - Whisper API client (via Fireworks)
 
 ## License
 

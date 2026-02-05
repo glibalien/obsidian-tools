@@ -44,7 +44,8 @@ src/
 │   ├── preferences.py   # save_preference, list_preferences, remove_preference
 │   ├── search.py        # search_vault, web_search
 │   ├── sections.py      # prepend_to_file, replace_section, append_to_section
-│   └── utility.py       # log_interaction, get_current_date
+│   ├── utility.py       # log_interaction, get_current_date
+│   └── audio.py         # transcribe_audio
 ├── config.py            # Environment configuration
 ├── api_server.py        # FastAPI HTTP wrapper
 ├── qwen_agent.py        # CLI chat client
@@ -95,6 +96,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | `replace_section` | Replace a markdown section | `path` (string), `heading` (string), `content` (string) |
 | `append_to_section` | Append content to end of a section | `path` (string), `heading` (string), `content` (string) |
 | `web_search` | Search the web via DuckDuckGo | `query` (string) |
+| `transcribe_audio` | Transcribe audio embeds in a note | `path` (string: note path with audio embeds) |
 
 ### search_vault
 
@@ -295,6 +297,36 @@ Searches the web using DuckDuckGo.
 - Success with no matches: `{"success": true, "message": "No web results found", "results": []}`
 - Error: `{"success": false, "error": "description"}`
 
+### transcribe_audio
+
+Transcribes audio files embedded in a vault note using Fireworks Whisper API.
+- `path`: Path to the note containing audio embeds (relative to vault or absolute)
+
+**Audio Embed Format:** Parses Obsidian embeds like `![[recording.m4a]]`. Supported formats: m4a, webm, mp3, wav, ogg.
+
+**Audio File Resolution:** Audio files are resolved from the `Attachments` folder in the vault root.
+
+**API Requirements:**
+- Requires `FIREWORKS_API_KEY` environment variable
+- Uses Whisper v3 model with speaker diarization enabled
+
+**Returns:** JSON response
+- Success with transcripts: `{"success": true, "results": [{"file": "recording.m4a", "transcript": "..."}]}`
+- Success with no embeds: `{"success": true, "message": "No audio embeds found", "results": []}`
+- Partial success: `{"success": true, "results": [...], "errors": [...]}`
+- All failed: `{"success": false, "error": "All transcriptions failed: ..."}`
+
+**Error cases:**
+- `FIREWORKS_API_KEY` not set
+- Note file not found
+- Audio file not found in Attachments folder
+- Whisper API failure
+
+**Typical workflow:**
+1. Agent calls `transcribe_audio(path)` to get transcript
+2. Agent summarizes the transcript using LLM
+3. Agent calls `append_to_section(path, "## Summary", "...")` to save the summary
+
 ## Vault Service Helpers
 
 The `services/vault.py` module provides shared utilities used across all tools.
@@ -437,8 +469,10 @@ All paths are configured via `.env`:
 Additional configuration in `config.py`:
 - `EXCLUDED_DIRS`: Directories to skip when scanning vault (`.venv`, `.chroma_db`, `.trash`, `.obsidian`, `.git`)
 - `PREFERENCES_FILE`: Path to user preferences file (`VAULT_PATH / "Preferences.md"`)
+- `ATTACHMENTS_DIR`: Path to audio/image attachments (`VAULT_PATH / "Attachments"`)
 - `LLM_MODEL`: Model ID for the LLM agent (default: `accounts/fireworks/models/deepseek-v3p1`, env: `LLM_MODEL`)
 - `EMBEDDING_MODEL`: Model name for embeddings (default: `all-MiniLM-L6-v2`, env: `EMBEDDING_MODEL`)
+- `WHISPER_MODEL`: Whisper model for audio transcription (default: `whisper-v3`, env: `WHISPER_MODEL`)
 
 ## HTTP API
 
