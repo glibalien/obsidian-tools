@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Vault path - where your Obsidian notes live
-VAULT_PATH = Path(os.getenv("VAULT_PATH", "~/Documents/archvault2026")).expanduser()
+VAULT_PATH = Path(os.getenv("VAULT_PATH", "~/Documents/obsidian-vault")).expanduser()
 
 # ChromaDB path - where the vector database lives
 _chroma_env = os.getenv("CHROMA_PATH", "./.chroma_db")
