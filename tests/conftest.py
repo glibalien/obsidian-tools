@@ -106,10 +106,16 @@ def vault_config(temp_vault, monkeypatch):
     import tools.files
     import tools.frontmatter
     import tools.links
+    import tools.audio
+
+    # Create Attachments directory
+    attachments_dir = temp_vault / "Attachments"
+    attachments_dir.mkdir(exist_ok=True)
 
     # Patch in config module
     monkeypatch.setattr(config, "VAULT_PATH", temp_vault)
     monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian"})
+    monkeypatch.setattr(config, "ATTACHMENTS_DIR", attachments_dir)
 
     # Patch in services.vault (which imports from config at load time)
     monkeypatch.setattr(services.vault, "VAULT_PATH", temp_vault)
@@ -121,6 +127,7 @@ def vault_config(temp_vault, monkeypatch):
     monkeypatch.setattr(tools.frontmatter, "VAULT_PATH", temp_vault)
     monkeypatch.setattr(tools.links, "VAULT_PATH", temp_vault)
     monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian"})
+    monkeypatch.setattr(tools.audio, "ATTACHMENTS_DIR", attachments_dir)
 
     return temp_vault
 
@@ -199,3 +206,31 @@ Some content without frontmatter.
 """
     )
     return file_path
+
+
+@pytest.fixture
+def note_with_audio_embeds(vault_config):
+    """Create a note with audio embeds and corresponding audio files."""
+    # Create note with audio embeds
+    note_path = vault_config / "audio_note.md"
+    note_path.write_text(
+        """# Meeting Recording
+
+Here's the recording from our meeting:
+
+![[meeting.m4a]]
+
+And here's a follow-up voice note:
+
+![[followup.mp3]]
+
+Some text after.
+"""
+    )
+
+    # Create dummy audio files in Attachments
+    attachments = vault_config / "Attachments"
+    (attachments / "meeting.m4a").write_bytes(b"fake audio data")
+    (attachments / "followup.mp3").write_bytes(b"more fake audio")
+
+    return note_path

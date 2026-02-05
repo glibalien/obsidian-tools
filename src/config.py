@@ -23,6 +23,10 @@ EXCLUDED_DIRS = {'.venv', '.chroma_db', '.trash', '.obsidian', '.git'}
 # Preferences file location (user preferences stored as bullet points)
 PREFERENCES_FILE = VAULT_PATH / "Preferences.md"
 
+# Attachments directory (where Obsidian stores audio, images, etc.)
+ATTACHMENTS_DIR = VAULT_PATH / "Attachments"
+
 # Model configuration
 LLM_MODEL = os.getenv("LLM_MODEL", "accounts/fireworks/models/deepseek-v3p1")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
