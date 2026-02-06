@@ -1,0 +1,7 @@
+[Unit]
+Description=Obsidian Tools Vault Indexer
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/obsidian-tools
+ExecStart=%h/obsidian-tools/.venv/bin/python src/index_vault.py

@@ -1,0 +1,13 @@
+[Unit]
+Description=Obsidian Tools API Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/obsidian-tools
+ExecStart=%h/obsidian-tools/.venv/bin/python src/api_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
