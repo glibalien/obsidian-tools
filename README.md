@@ -6,11 +6,14 @@ Semantic search and vault management tools for Obsidian, exposed via MCP (Model 
 
 - **Obsidian plugin** (optional): Chat sidebar for interacting with your vault directly in Obsidian
 - **Hybrid search**: Combines semantic (vector) and keyword search with Reciprocal Rank Fusion
-- **Vault management**: Read, create, and move files; update frontmatter
+- **Vault management**: Read, create, move, and append/prepend to files; update frontmatter
+- **Section editing**: Replace or append to specific markdown sections by heading
 - **Link discovery**: Find backlinks and outlinks between notes
 - **Query by metadata**: Search by frontmatter fields, date ranges, or folder
 - **Interaction logging**: Log AI conversations to daily notes
+- **User preferences**: Persistent preferences stored in vault and loaded by the agent
 - **Audio transcription**: Transcribe audio embeds using Whisper API
+- **Web search**: DuckDuckGo integration for web queries
 - **HTTP API**: REST endpoint for programmatic access
 
 ## Architecture
@@ -28,7 +31,7 @@ Semantic search and vault management tools for Obsidian, exposed via MCP (Model 
                                                 └─────────────────┘
 ```
 
-The Obsidian plugin provides a chat sidebar that connects to the API server. The API server wraps the Qwen agent, which uses MCP tools to search and manage your vault.
+The Obsidian plugin provides a chat sidebar that connects to the API server. The API server wraps the LLM agent, which uses MCP tools to search and manage your vault.
 
 ## Installation
 
@@ -65,17 +68,15 @@ cd obsidian-tools
 
 # If using pyenv, it will automatically use 3.12.8 (from .python-version)
 # Verify your Python version:
-python --version  # Should show Python 3.12.8
+python --version  # Should show Python 3.12.x
 
-# Create virtual environment (use 'python', not 'python3', with pyenv)
+# Create virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
-
-**Note:** After activating the virtual environment, `python` and `python3` are equivalent. The `python -m venv` command matters because pyenv shims `python` to point to the correct version.
 
 ## Configuration
 
@@ -93,9 +94,11 @@ CHROMA_PATH=./.chroma_db
 FIREWORKS_API_KEY=your-api-key-here
 ```
 
-- `VAULT_PATH`: Path to your Obsidian vault
-- `CHROMA_PATH`: Where to store the ChromaDB database (relative or absolute)
-- `FIREWORKS_API_KEY`: API key from [Fireworks AI](https://fireworks.ai/) (required for the chat agent and HTTP API)
+| Variable | Description |
+|----------|-------------|
+| `VAULT_PATH` | Path to your Obsidian vault |
+| `CHROMA_PATH` | Where to store the ChromaDB database (relative or absolute) |
+| `FIREWORKS_API_KEY` | API key from [Fireworks AI](https://fireworks.ai/) (required for the chat agent and audio transcription) |
 
 ### MCP Client Configuration
 
@@ -130,9 +133,13 @@ Before searching, index your vault to create embeddings:
 python src/index_vault.py
 ```
 
-Re-run this when vault content changes significantly. 
+The indexer is incremental — after the initial run, it only indexes files modified since the last run and prunes entries for deleted files. Use `--full` for a complete reindex:
 
-Alternatively, create a systemd service and timer to index on a schedule. The service prunes chunks for deleted files automatically, and after the initial index will only index any files that have changed since the previous index run.
+```bash
+python src/index_vault.py --full
+```
+
+To keep the index up to date automatically, see [Running as a Service](#running-as-a-service).
 
 ### Run the MCP server
 
@@ -140,11 +147,11 @@ Alternatively, create a systemd service and timer to index on a schedule. The se
 python src/mcp_server.py
 ```
 
-Or configure it in your MCP client's settings.
+Or configure it in your MCP client's settings (see [MCP Client Configuration](#mcp-client-configuration)).
 
 ### Run the HTTP API server
 
-For programmatic access via HTTP:
+For programmatic access or to use the Obsidian plugin:
 
 ```bash
 python src/api_server.py
@@ -163,6 +170,8 @@ curl -X POST http://127.0.0.1:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Tell me more", "session_id": "<uuid>"}'
 ```
+
+To keep the API server running persistently, see [Running as a Service](#running-as-a-service).
 
 ### Install the Obsidian plugin (optional)
 
@@ -184,7 +193,98 @@ Then in Obsidian:
 2. Enable "Vault Agent"
 3. Click the message icon in the ribbon to open the chat sidebar
 
-**Note:** The API server must be running for the plugin to work.
+The API server must be running for the plugin to work.
+
+## Running as a Service
+
+Example service files are provided in the `services/` directory to run the API server and vault indexer as background services.
+
+### Linux (systemd)
+
+The systemd unit files use `%h` (home directory), so paths are relative to your home. If you cloned the repo somewhere other than `~/obsidian-tools`, edit the `WorkingDirectory` and `ExecStart` paths in the `.service` files.
+
+```bash
+# Copy the unit files to your user systemd directory
+mkdir -p ~/.config/systemd/user
+cp services/systemd/obsidian-tools-api.service ~/.config/systemd/user/
+cp services/systemd/obsidian-tools-indexer.service ~/.config/systemd/user/
+cp services/systemd/obsidian-tools-indexer-scheduler.timer ~/.config/systemd/user/
+
+# Reload systemd to pick up the new files
+systemctl --user daemon-reload
+
+# Enable and start the API server (runs on boot)
+systemctl --user enable --now obsidian-tools-api
+
+# Enable and start the indexer timer (runs hourly)
+systemctl --user enable --now obsidian-tools-indexer-scheduler.timer
+
+# Run the indexer once immediately
+systemctl --user start obsidian-tools-indexer
+```
+
+Useful commands:
+
+```bash
+# Check status
+systemctl --user status obsidian-tools-api
+systemctl --user status obsidian-tools-indexer-scheduler.timer
+
+# View logs
+journalctl --user -u obsidian-tools-api -f
+journalctl --user -u obsidian-tools-indexer
+
+# Restart the API server
+systemctl --user restart obsidian-tools-api
+```
+
+**Note:** User services require an active login session by default. To allow them to run without being logged in:
+
+```bash
+sudo loginctl enable-linger $USER
+```
+
+### macOS (launchd)
+
+The plist files contain placeholder paths. Before installing, replace `YOUR_USERNAME` with your macOS username:
+
+```bash
+# Replace YOUR_USERNAME in the plist files
+sed -i '' "s/YOUR_USERNAME/$(whoami)/g" services/launchd/com.obsidian-tools.api.plist
+sed -i '' "s/YOUR_USERNAME/$(whoami)/g" services/launchd/com.obsidian-tools.indexer.plist
+```
+
+If you cloned the repo somewhere other than `~/obsidian-tools`, also update the paths in the plist files accordingly.
+
+```bash
+# Copy to LaunchAgents
+cp services/launchd/com.obsidian-tools.api.plist ~/Library/LaunchAgents/
+cp services/launchd/com.obsidian-tools.indexer.plist ~/Library/LaunchAgents/
+
+# Load and start the API server (runs on login)
+launchctl load ~/Library/LaunchAgents/com.obsidian-tools.api.plist
+
+# Load and start the indexer (runs hourly)
+launchctl load ~/Library/LaunchAgents/com.obsidian-tools.indexer.plist
+```
+
+Useful commands:
+
+```bash
+# Check status
+launchctl list | grep obsidian-tools
+
+# View logs
+tail -f ~/Library/Logs/obsidian-tools-api.log
+tail -f ~/Library/Logs/obsidian-tools-indexer.log
+
+# Unload a service
+launchctl unload ~/Library/LaunchAgents/com.obsidian-tools.api.plist
+
+# Reload after editing a plist
+launchctl unload ~/Library/LaunchAgents/com.obsidian-tools.api.plist
+launchctl load ~/Library/LaunchAgents/com.obsidian-tools.api.plist
+```
 
 ## MCP Tools
 
@@ -195,6 +295,10 @@ Then in Obsidian:
 | `create_file` | Create a new markdown note with optional frontmatter |
 | `move_file` | Move a file within the vault |
 | `batch_move_files` | Move multiple files at once |
+| `append_to_file` | Append content to end of a file |
+| `prepend_to_file` | Insert content after frontmatter (or at start if none) |
+| `replace_section` | Replace a markdown heading and its content |
+| `append_to_section` | Append content to end of a section |
 | `list_files_by_frontmatter` | Find files by frontmatter field values |
 | `update_frontmatter` | Modify frontmatter (set, remove, or append) |
 | `batch_update_frontmatter` | Update frontmatter on multiple files |
@@ -203,10 +307,6 @@ Then in Obsidian:
 | `search_by_date_range` | Find files by created or modified date |
 | `search_by_folder` | List files in a folder |
 | `log_interaction` | Log an interaction to today's daily note |
-| `append_to_file` | Append content to end of a file |
-| `prepend_to_file` | Insert content after frontmatter (or at start if none) |
-| `replace_section` | Replace a markdown heading and its content |
-| `append_to_section` | Append content to end of a section |
 | `save_preference` | Save a user preference to Preferences.md |
 | `list_preferences` | List all saved preferences |
 | `remove_preference` | Remove a preference by line number |
@@ -277,23 +377,42 @@ Parses audio embeds like `![[recording.m4a]]` from the note and transcribes them
 
 ```
 src/
-├── mcp_server.py     # FastMCP server exposing vault tools
-├── api_server.py     # FastAPI HTTP wrapper for the agent
-├── hybrid_search.py  # Semantic + keyword search with RRF
-├── search_vault.py   # Search interface
-├── index_vault.py    # Vault indexer for ChromaDB
-├── log_chat.py       # Daily note logging
-├── config.py         # Shared configuration
-├── qwen_agent.py     # CLI chat agent
+├── mcp_server.py        # FastMCP server - registers tools from submodules
+├── api_server.py        # FastAPI HTTP wrapper for the agent
+├── qwen_agent.py        # CLI chat agent
+├── config.py            # Shared configuration
+├── hybrid_search.py     # Semantic + keyword search with RRF
+├── search_vault.py      # Search interface
+├── index_vault.py       # Vault indexer for ChromaDB
+├── log_chat.py          # Daily note logging
+├── services/
+│   ├── chroma.py        # Shared ChromaDB connection management
+│   └── vault.py         # Path resolution, response helpers, utilities
 └── tools/
-    └── audio.py      # Audio transcription tool
+    ├── files.py         # read_file, create_file, move_file, append_to_file
+    ├── frontmatter.py   # list_files_by_frontmatter, update_frontmatter, etc.
+    ├── links.py         # find_backlinks, find_outlinks, search_by_folder
+    ├── preferences.py   # save_preference, list_preferences, remove_preference
+    ├── search.py        # search_vault, web_search
+    ├── sections.py      # prepend_to_file, replace_section, append_to_section
+    ├── utility.py       # log_interaction, get_current_date
+    └── audio.py         # transcribe_audio
+
+services/
+├── systemd/             # Linux systemd unit files
+│   ├── obsidian-tools-api.service
+│   ├── obsidian-tools-indexer.service
+│   └── obsidian-tools-indexer-scheduler.timer
+└── launchd/             # macOS launchd plist files
+    ├── com.obsidian-tools.api.plist
+    └── com.obsidian-tools.indexer.plist
 
 plugin/
 ├── src/
-│   ├── main.ts       # Plugin entry point
-│   └── ChatView.ts   # Chat sidebar view
-├── styles.css        # Chat UI styling
-└── manifest.json     # Plugin metadata
+│   ├── main.ts          # Plugin entry point
+│   └── ChatView.ts      # Chat sidebar view
+├── styles.css           # Chat UI styling
+└── manifest.json        # Plugin metadata
 ```
 
 ## Dependencies
@@ -304,6 +423,8 @@ plugin/
 - [FastAPI](https://fastapi.tiangolo.com/) - HTTP API framework
 - [PyYAML](https://pyyaml.org/) - YAML parsing for frontmatter
 - [OpenAI SDK](https://github.com/openai/openai-python) - Whisper API client (via Fireworks)
+- [python-dotenv](https://github.com/theskumar/python-dotenv) - Environment variable loading
+- [ddgs](https://github.com/deedy5/duckduckgo_search) - DuckDuckGo search
 
 ## License
 

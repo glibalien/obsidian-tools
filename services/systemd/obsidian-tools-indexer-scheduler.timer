@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Obsidian Tools Vault Indexer hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
