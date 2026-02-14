@@ -10,24 +10,7 @@ This project provides semantic search and interaction logging for an Obsidian va
 
 ## Architecture
 
-```
-┌─────────────────┐
-│ Obsidian Plugin │ ◀── Chat sidebar in Obsidian
-│  (plugin/)      │
-└────────┬────────┘
-         │ POST /chat
-         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   API Server    │────▶│   Qwen Agent    │────▶│   MCP Server    │
-│ (api_server.py) │     │ (qwen_agent.py) │     │ (mcp_server.py) │
-└─────────────────┘     └─────────────────┘     └────────┬────────┘
-                                                         │
-                                                         ▼
-                                                ┌─────────────────┐
-                                                │  ChromaDB +     │
-                                                │  Obsidian Vault │
-                                                └─────────────────┘
-```
+![Architecture diagram](obsidian-tools-architecture.svg)
 
 **Directory Structure:**
 
