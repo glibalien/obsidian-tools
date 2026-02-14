@@ -6,7 +6,7 @@ This project provides semantic search and interaction logging for an Obsidian va
 
 **Development (Claude Code)**: Use Claude Code to develop and maintain the vault tools themselves—adding features, fixing bugs, refactoring code. Claude Code does not interact with vault content directly.
 
-**Vault Interaction (Qwen Agent)**: The Qwen agent (`src/qwen_agent.py`) handles user queries about vault content. It connects to the MCP server, searches the vault, and logs interactions to daily notes.
+**Vault Interaction (Agent)**: The LLM agent (`src/agent.py`) handles user queries about vault content. It connects to the MCP server, searches the vault, and logs interactions to daily notes.
 
 ## Architecture
 
@@ -31,7 +31,7 @@ src/
 │   └── audio.py         # transcribe_audio
 ├── config.py            # Environment configuration
 ├── api_server.py        # FastAPI HTTP wrapper
-├── qwen_agent.py        # CLI chat client
+├── agent.py             # CLI chat client
 ├── hybrid_search.py     # Semantic + keyword search with RRF
 ├── search_vault.py      # Search interface
 ├── index_vault.py       # ChromaDB indexing
@@ -63,7 +63,7 @@ services/
 - **tools/**: Tool implementations organized by category
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper exposing the agent via REST API
-- **qwen_agent.py**: CLI chat client that connects Qwen (via Fireworks) to the MCP server
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
 - **index_vault.py**: Indexes vault content into ChromaDB (runs via systemd, not manually)
 - **log_chat.py**: Appends interaction logs to daily notes
@@ -209,7 +209,7 @@ Removes a preference by its line number.
 - `line_number`: 1-indexed line number from `list_preferences` output
 - Returns error if line number is out of range
 
-**Note**: The Qwen agent automatically loads `Preferences.md` into its system prompt at startup. Preferences are appended as a "User Preferences" section that the agent follows.
+**Note**: The LLM agent automatically loads `Preferences.md` into its system prompt at startup. Preferences are appended as a "User Preferences" section that the agent follows.
 
 ### get_current_date
 
@@ -482,7 +482,7 @@ Service templates in `services/` use `__PLACEHOLDER__` style (`__PROJECT_DIR__`,
 All paths are configured via `.env`:
 - `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/obsidian-vault`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
-- `FIREWORKS_API_KEY`: API key for Fireworks (used by Qwen agent)
+- `FIREWORKS_API_KEY`: API key for Fireworks (used by LLM agent)
 - `FIREWORKS_MODEL`: Fireworks model ID (default: `accounts/fireworks/models/deepseek-v3p1`, env: `FIREWORKS_MODEL`). Falls back to `LLM_MODEL` env var for backward compatibility.
 - `API_PORT`: Port for the HTTP API server (default: `8000`)
 - `INDEX_INTERVAL`: How often the vault indexer runs, in minutes (default: `60`). Used by the install scripts to configure service timer intervals.
@@ -500,7 +500,7 @@ Additional configuration in `config.py`:
 
 ## HTTP API
 
-The API server (`src/api_server.py`) provides HTTP access to the Qwen agent. It binds to `127.0.0.1` on the port specified by `API_PORT` (default `8000`, localhost only) for security.
+The API server (`src/api_server.py`) provides HTTP access to the LLM agent. It binds to `127.0.0.1` on the port specified by `API_PORT` (default `8000`, localhost only) for security.
 
 ### Running the Server
 
