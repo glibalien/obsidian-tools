@@ -11,6 +11,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic import BaseModel
 
+from config import API_PORT
 from qwen_agent import (
     PROJECT_ROOT,
     SYSTEM_PROMPT,
@@ -136,7 +137,7 @@ def main():
     uvicorn.run(
         "api_server:app",
         host="127.0.0.1",
-        port=8000,
+        port=API_PORT,
         reload=False,
     )
 

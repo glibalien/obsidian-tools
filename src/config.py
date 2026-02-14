@@ -27,6 +27,16 @@ PREFERENCES_FILE = VAULT_PATH / "Preferences.md"
 ATTACHMENTS_DIR = VAULT_PATH / "Attachments"
 
 # Model configuration
-LLM_MODEL = os.getenv("LLM_MODEL", "accounts/fireworks/models/deepseek-v3p1")
+FIREWORKS_MODEL = os.getenv(
+    "FIREWORKS_MODEL",
+    os.getenv("LLM_MODEL", "accounts/fireworks/models/deepseek-v3p1"),
+)
+LLM_MODEL = FIREWORKS_MODEL  # backward compat alias
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
+
+# Server configuration
+API_PORT = int(os.getenv("API_PORT", "8000"))
+
+# Indexer configuration
+INDEX_INTERVAL = int(os.getenv("INDEX_INTERVAL", "60"))

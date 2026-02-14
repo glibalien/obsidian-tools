@@ -6,18 +6,18 @@
     <string>com.obsidian-tools.api</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/YOUR_USERNAME/obsidian-tools/.venv/bin/python</string>
+        <string>__VENV_PYTHON__</string>
         <string>src/api_server.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/YOUR_USERNAME/obsidian-tools</string>
+    <string>__PROJECT_DIR__</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/YOUR_USERNAME/Library/Logs/obsidian-tools-api.log</string>
+    <string>/Users/__USERNAME__/Library/Logs/obsidian-tools-api.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/YOUR_USERNAME/Library/Logs/obsidian-tools-api.log</string>
+    <string>/Users/__USERNAME__/Library/Logs/obsidian-tools-api.log</string>
 </dict>
 </plist>
