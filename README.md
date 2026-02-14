@@ -99,11 +99,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-</details>
+#### Configure `.env`
 
-## Configuration
-
-Copy `.env.example` to `.env` and configure (the install script does this automatically):
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
 cp .env.example .env
@@ -129,7 +127,9 @@ INDEX_INTERVAL=60
 | `API_PORT` | Port for the HTTP API server (default: `8000`) |
 | `INDEX_INTERVAL` | How often the vault indexer runs, in minutes (default: `60`) |
 
-### MCP Client Configuration
+</details>
+
+## MCP Client Configuration
 
 To use the MCP server with Claude Code or another MCP client, copy `.mcp.json.example` to `.mcp.json` and update the paths:
 
