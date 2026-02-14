@@ -1,8 +1,9 @@
 [Unit]
-Description=Run Obsidian Tools Vault Indexer hourly
+Description=Run Obsidian Tools Vault Indexer periodically
 
 [Timer]
-OnCalendar=hourly
+OnBootSec=5min
+OnUnitActiveSec=__INDEX_INTERVAL__min
 Persistent=true
 
 [Install]
