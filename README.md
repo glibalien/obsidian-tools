@@ -39,7 +39,37 @@ The Obsidian plugin provides a chat sidebar that connects to the API server. The
 
 - **Python 3.11, 3.12, or 3.13** (not 3.14 — `onnxruntime` doesn't have wheels for 3.14 yet)
 
-### macOS Users (Homebrew)
+### Quick Install (recommended)
+
+The install script handles Python detection, virtual environment setup, dependency installation, `.env` configuration, and background service installation:
+
+```bash
+# Clone the repository
+git clone https://github.com/glibalien/obsidian-tools.git
+cd obsidian-tools
+
+# macOS / Linux
+./install.sh
+
+# Windows (PowerShell)
+.\install.ps1
+```
+
+The installer will:
+1. Find or help you install a compatible Python (resolves the real binary, not pyenv shims)
+2. Create a virtual environment and install dependencies
+3. Walk you through `.env` configuration
+4. Optionally install background services (API server + vault indexer)
+5. Optionally run the initial vault index
+
+To uninstall services: `./uninstall.sh` (macOS/Linux) or `.\uninstall.ps1` (Windows).
+
+### Manual Install
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+#### macOS Users (Homebrew)
 
 If you're on macOS and Homebrew has upgraded you to Python 3.14, use pyenv to install a compatible version:
 
@@ -59,7 +89,7 @@ source ~/.zshrc
 pyenv install 3.12.8
 ```
 
-### Clone and Set Up
+#### Clone and Set Up
 
 ```bash
 # Clone the repository
@@ -70,17 +100,21 @@ cd obsidian-tools
 # Verify your Python version:
 python --version  # Should show Python 3.12.x
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
+# IMPORTANT: If using pyenv, create the venv with the real binary, not the shim:
+$(pyenv which python3.12) -m venv .venv
 
-# Install dependencies
+# Otherwise:
+python -m venv .venv
+
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+</details>
+
 ## Configuration
 
-Copy `.env.example` to `.env` and configure:
+Copy `.env.example` to `.env` and configure (the install script does this automatically):
 
 ```bash
 cp .env.example .env
@@ -92,6 +126,9 @@ Edit `.env`:
 VAULT_PATH=~/Documents/your-vault-name
 CHROMA_PATH=./.chroma_db
 FIREWORKS_API_KEY=your-api-key-here
+FIREWORKS_MODEL=accounts/fireworks/models/deepseek-v3p1
+API_PORT=8000
+INDEX_INTERVAL=60
 ```
 
 | Variable | Description |
@@ -99,6 +136,9 @@ FIREWORKS_API_KEY=your-api-key-here
 | `VAULT_PATH` | Path to your Obsidian vault |
 | `CHROMA_PATH` | Where to store the ChromaDB database (relative or absolute) |
 | `FIREWORKS_API_KEY` | API key from [Fireworks AI](https://fireworks.ai/) (required for the chat agent and audio transcription) |
+| `FIREWORKS_MODEL` | Fireworks model ID (default: DeepSeek V3.1) |
+| `API_PORT` | Port for the HTTP API server (default: `8000`) |
+| `INDEX_INTERVAL` | How often the vault indexer runs, in minutes (default: `60`) |
 
 ### MCP Client Configuration
 
@@ -197,30 +237,29 @@ The API server must be running for the plugin to work.
 
 ## Running as a Service
 
-Example service files are provided in the `services/` directory to run the API server and vault indexer as background services.
+The install script (`./install.sh` or `.\install.ps1`) can set up background services automatically. Service templates are in the `services/` directory.
 
-### Linux (systemd)
+If you prefer to install services manually, expand the section for your platform below.
 
-The systemd unit files use `%h` (home directory), so paths are relative to your home. If you cloned the repo somewhere other than `~/obsidian-tools`, edit the `WorkingDirectory` and `ExecStart` paths in the `.service` files.
+<details>
+<summary>Linux (systemd) — manual setup</summary>
+
+The template files in `services/systemd/` use `__PROJECT_DIR__` and `__VENV_PYTHON__` placeholders. Replace them with absolute paths before installing:
 
 ```bash
-# Copy the unit files to your user systemd directory
 mkdir -p ~/.config/systemd/user
-cp services/systemd/obsidian-tools-api.service ~/.config/systemd/user/
-cp services/systemd/obsidian-tools-indexer.service ~/.config/systemd/user/
-cp services/systemd/obsidian-tools-indexer-scheduler.timer ~/.config/systemd/user/
 
-# Reload systemd to pick up the new files
+# Replace placeholders and copy (adjust paths to your setup)
+for f in services/systemd/*.service services/systemd/*.timer; do
+    sed -e "s|__PROJECT_DIR__|$PWD|g" \
+        -e "s|__VENV_PYTHON__|$PWD/.venv/bin/python|g" \
+        -e "s|__INDEX_INTERVAL__|60|g" \
+        "$f" > ~/.config/systemd/user/$(basename "$f")
+done
+
 systemctl --user daemon-reload
-
-# Enable and start the API server (runs on boot)
 systemctl --user enable --now obsidian-tools-api
-
-# Enable and start the indexer timer (runs hourly)
 systemctl --user enable --now obsidian-tools-indexer-scheduler.timer
-
-# Run the indexer once immediately
-systemctl --user start obsidian-tools-indexer
 ```
 
 Useful commands:
@@ -244,27 +283,24 @@ systemctl --user restart obsidian-tools-api
 sudo loginctl enable-linger $USER
 ```
 
-### macOS (launchd)
+</details>
 
-The plist files contain placeholder paths. Before installing, replace `YOUR_USERNAME` with your macOS username:
+<details>
+<summary>macOS (launchd) — manual setup</summary>
 
-```bash
-# Replace YOUR_USERNAME in the plist files
-sed -i '' "s/YOUR_USERNAME/$(whoami)/g" services/launchd/com.obsidian-tools.api.plist
-sed -i '' "s/YOUR_USERNAME/$(whoami)/g" services/launchd/com.obsidian-tools.indexer.plist
-```
-
-If you cloned the repo somewhere other than `~/obsidian-tools`, also update the paths in the plist files accordingly.
+The template files in `services/launchd/` use `__USERNAME__`, `__PROJECT_DIR__`, `__VENV_PYTHON__`, and `__INDEX_INTERVAL_SEC__` placeholders. Replace them before installing:
 
 ```bash
-# Copy to LaunchAgents
-cp services/launchd/com.obsidian-tools.api.plist ~/Library/LaunchAgents/
-cp services/launchd/com.obsidian-tools.indexer.plist ~/Library/LaunchAgents/
+# Replace placeholders and copy (adjust paths to your setup)
+for f in services/launchd/*.plist; do
+    sed -e "s|__VENV_PYTHON__|$PWD/.venv/bin/python|g" \
+        -e "s|__PROJECT_DIR__|$PWD|g" \
+        -e "s|__USERNAME__|$(whoami)|g" \
+        -e "s|__INDEX_INTERVAL_SEC__|3600|g" \
+        "$f" > ~/Library/LaunchAgents/$(basename "$f")
+done
 
-# Load and start the API server (runs on login)
 launchctl load ~/Library/LaunchAgents/com.obsidian-tools.api.plist
-
-# Load and start the indexer (runs hourly)
 launchctl load ~/Library/LaunchAgents/com.obsidian-tools.indexer.plist
 ```
 
@@ -285,6 +321,56 @@ launchctl unload ~/Library/LaunchAgents/com.obsidian-tools.api.plist
 launchctl unload ~/Library/LaunchAgents/com.obsidian-tools.api.plist
 launchctl load ~/Library/LaunchAgents/com.obsidian-tools.api.plist
 ```
+
+</details>
+
+<details>
+<summary>Windows (Task Scheduler) — manual setup</summary>
+
+The template files in `services/taskscheduler/` use `__VENV_PYTHON__`, `__PROJECT_DIR__`, and `__INDEX_INTERVAL__` placeholders. Edit the XML files to replace these with absolute paths, then register them:
+
+```powershell
+$xml = (Get-Content services\taskscheduler\obsidian-tools-api.xml -Raw) `
+    -replace '__VENV_PYTHON__', "$PWD\.venv\Scripts\python.exe" `
+    -replace '__PROJECT_DIR__', "$PWD"
+Register-ScheduledTask -TaskName "ObsidianToolsAPI" -Xml $xml
+
+$xml = (Get-Content services\taskscheduler\obsidian-tools-indexer.xml -Raw) `
+    -replace '__VENV_PYTHON__', "$PWD\.venv\Scripts\python.exe" `
+    -replace '__PROJECT_DIR__', "$PWD" `
+    -replace '__INDEX_INTERVAL__', '60'
+Register-ScheduledTask -TaskName "ObsidianToolsIndexer" -Xml $xml
+```
+
+Useful commands:
+
+```powershell
+# Check status
+Get-ScheduledTask | Where-Object TaskName -like 'ObsidianTools*'
+
+# Start/stop
+Start-ScheduledTask -TaskName ObsidianToolsAPI
+Stop-ScheduledTask -TaskName ObsidianToolsAPI
+
+# Remove
+Unregister-ScheduledTask -TaskName ObsidianToolsAPI -Confirm:$false
+```
+
+</details>
+
+### Uninstall
+
+To remove background services and optionally the virtual environment:
+
+```bash
+# macOS / Linux
+./uninstall.sh
+
+# Windows (PowerShell)
+.\uninstall.ps1
+```
+
+Your `.env` and `.chroma_db/` are preserved by the uninstaller.
 
 ## MCP Tools
 
@@ -403,9 +489,12 @@ services/
 │   ├── obsidian-tools-api.service
 │   ├── obsidian-tools-indexer.service
 │   └── obsidian-tools-indexer-scheduler.timer
-└── launchd/             # macOS launchd plist files
-    ├── com.obsidian-tools.api.plist
-    └── com.obsidian-tools.indexer.plist
+├── launchd/             # macOS launchd plist files
+│   ├── com.obsidian-tools.api.plist
+│   └── com.obsidian-tools.indexer.plist
+└── taskscheduler/       # Windows Task Scheduler XML files
+    ├── obsidian-tools-api.xml
+    └── obsidian-tools-indexer.xml
 
 plugin/
 ├── src/
