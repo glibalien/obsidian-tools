@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI agent client connecting Qwen (via Fireworks) to MCP server."""
+"""CLI agent client connecting an LLM (via Fireworks) to the MCP server."""
 
 import json
 import os

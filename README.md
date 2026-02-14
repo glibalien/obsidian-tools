@@ -454,7 +454,7 @@ Parses audio embeds like `![[recording.m4a]]` from the note and transcribes them
 src/
 ├── mcp_server.py        # FastMCP server - registers tools from submodules
 ├── api_server.py        # FastAPI HTTP wrapper for the agent
-├── qwen_agent.py        # CLI chat agent
+├── agent.py             # CLI chat agent
 ├── config.py            # Shared configuration
 ├── hybrid_search.py     # Semantic + keyword search with RRF
 ├── search_vault.py      # Search interface
