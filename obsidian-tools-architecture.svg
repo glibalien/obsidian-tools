@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="104%">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.1"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#3b82f6"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="520" fill="#fafafa" rx="8"/>
+
+  <!-- Obsidian Chat Plugin -->
+  <rect x="30" y="60" width="190" height="90" rx="10" fill="#7c3aed" filter="url(#shadow)"/>
+  <text x="125" y="95" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Obsidian Chat</text>
+  <text x="125" y="115" text-anchor="middle" fill="#e0d4fc" font-size="11">context-aware plugin</text>
+  <text x="125" y="132" text-anchor="middle" fill="#e0d4fc" font-size="11">(knows current note)</text>
+
+  <!-- FastAPI Server -->
+  <rect x="310" y="60" width="190" height="90" rx="10" fill="#0f172a" filter="url(#shadow)"/>
+  <text x="405" y="95" text-anchor="middle" fill="white" font-size="14" font-weight="bold">FastAPI Server</text>
+  <text x="405" y="115" text-anchor="middle" fill="#94a3b8" font-size="11">orchestration layer</text>
+  <text x="405" y="132" text-anchor="middle" fill="#94a3b8" font-size="11">(agentic loop)</text>
+
+  <!-- DeepSeek / Fireworks -->
+  <rect x="600" y="60" width="220" height="90" rx="10" fill="#059669" filter="url(#shadow)"/>
+  <text x="710" y="90" text-anchor="middle" fill="white" font-size="14" font-weight="bold">DeepSeek 3.1</text>
+  <text x="710" y="110" text-anchor="middle" fill="#a7f3d0" font-size="11">on Fireworks.ai</text>
+  <text x="710" y="132" text-anchor="middle" fill="#fef08a" font-size="12" font-weight="bold">~$1/month inference</text>
+
+  <!-- Arrow: Chat → FastAPI -->
+  <line x1="220" y1="105" x2="305" y2="105" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="262" y="88" text-anchor="middle" fill="#64748b" font-size="9">query +</text>
+  <text x="262" y="99" text-anchor="middle" fill="#64748b" font-size="9">context</text>
+
+  <!-- Arrow: FastAPI → DeepSeek -->
+  <line x1="500" y1="95" x2="595" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="547" y="78" text-anchor="middle" fill="#64748b" font-size="9">prompt +</text>
+  <text x="547" y="89" text-anchor="middle" fill="#64748b" font-size="9">tools</text>
+
+  <!-- Arrow: DeepSeek → FastAPI (tool calls) -->
+  <line x1="595" y1="120" x2="500" y2="120" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+  <text x="547" y="137" text-anchor="middle" fill="#3b82f6" font-size="9">tool calls</text>
+
+  <!-- FastMCP Server -->
+  <rect x="310" y="230" width="190" height="80" rx="10" fill="#1e40af" filter="url(#shadow)"/>
+  <text x="405" y="262" text-anchor="middle" fill="white" font-size="14" font-weight="bold">FastMCP Server</text>
+  <text x="405" y="282" text-anchor="middle" fill="#bfdbfe" font-size="11">20+ custom tools</text>
+
+  <!-- Arrow: FastAPI → MCP -->
+  <line x1="405" y1="150" x2="405" y2="225" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+  <text x="430" y="192" text-anchor="start" fill="#3b82f6" font-size="9">JSON-RPC</text>
+
+  <!-- Bottom layer boxes -->
+  <!-- Obsidian Vault -->
+  <rect x="80" y="390" width="170" height="80" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="165" y="422" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="bold">Obsidian Vault</text>
+  <text x="165" y="442" text-anchor="middle" fill="#64748b" font-size="11">markdown + frontmatter</text>
+  <text x="165" y="458" text-anchor="middle" fill="#64748b" font-size="11">wikilinks</text>
+
+  <!-- ChromaDB -->
+  <rect x="320" y="390" width="170" height="80" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="405" y="422" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="bold">ChromaDB</text>
+  <text x="405" y="442" text-anchor="middle" fill="#64748b" font-size="11">local vector embeddings</text>
+  <text x="405" y="458" text-anchor="middle" fill="#64748b" font-size="11">sentence-transformers</text>
+
+  <!-- DuckDuckGo -->
+  <rect x="560" y="390" width="170" height="80" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="645" y="422" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="bold">DuckDuckGo</text>
+  <text x="645" y="442" text-anchor="middle" fill="#64748b" font-size="11">web search</text>
+
+  <!-- Arrows: MCP ↔ bottom boxes (bidirectional) -->
+  <line x1="350" y1="310" x2="190" y2="385" stroke="#64748b" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line x1="405" y1="310" x2="405" y2="385" stroke="#64748b" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line x1="460" y1="310" x2="620" y2="385" stroke="#64748b" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- Labels on MCP → bottom arrows -->
+  <text x="255" y="348" text-anchor="middle" fill="#64748b" font-size="9" transform="rotate(-25, 255, 348)">read / write / traverse</text>
+  <text x="420" y="355" text-anchor="start" fill="#64748b" font-size="9">semantic + keyword</text>
+  <text x="555" y="348" text-anchor="middle" fill="#64748b" font-size="9" transform="rotate(25, 555, 348)">enrich</text>
+
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" fill="#1e293b" font-size="16" font-weight="bold">obsidian-tools architecture</text>
+
+  <!-- Legend -->
+  <line x1="30" y1="500" x2="60" y2="500" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="68" y="504" fill="#64748b" font-size="10">data flow</text>
+  <line x1="160" y1="500" x2="190" y2="500" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+  <text x="198" y="504" fill="#3b82f6" font-size="10">tool calls (MCP)</text>
+</svg>
