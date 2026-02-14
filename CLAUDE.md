@@ -53,6 +53,23 @@ src/
 ├── search_vault.py      # Search interface
 ├── index_vault.py       # ChromaDB indexing
 └── log_chat.py          # Daily note logging
+
+install.sh               # macOS/Linux installer
+install.ps1              # Windows installer
+uninstall.sh             # macOS/Linux uninstaller
+uninstall.ps1            # Windows uninstaller
+
+services/
+├── systemd/             # Linux systemd unit templates
+│   ├── obsidian-tools-api.service
+│   ├── obsidian-tools-indexer.service
+│   └── obsidian-tools-indexer-scheduler.timer
+├── launchd/             # macOS launchd plist templates
+│   ├── com.obsidian-tools.api.plist
+│   └── com.obsidian-tools.indexer.plist
+└── taskscheduler/       # Windows Task Scheduler XML templates
+    ├── obsidian-tools-api.xml
+    └── obsidian-tools-indexer.xml
 ```
 
 **Components:**
@@ -459,24 +476,48 @@ def test_my_tool(vault_config):
     assert "expected" in result
 ```
 
+## Installation
+
+Cross-platform install scripts handle Python detection, venv creation, dependency installation, `.env` configuration, and background service setup:
+
+```bash
+# macOS / Linux
+./install.sh
+
+# Windows (PowerShell)
+.\install.ps1
+```
+
+The installers resolve the **real** Python binary path (not pyenv shims) when creating the venv, which is critical for launchd/systemd service contexts.
+
+Companion uninstall scripts (`uninstall.sh`, `uninstall.ps1`) reverse service installation. They preserve `.env` and `.chroma_db/`.
+
+Service templates in `services/` use `__PLACEHOLDER__` style (`__PROJECT_DIR__`, `__VENV_PYTHON__`, `__USERNAME__`, `__INDEX_INTERVAL__`, `__INDEX_INTERVAL_SEC__`) that the installers substitute at install time.
+
 ## Configuration
 
 All paths are configured via `.env`:
 - `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/obsidian-vault`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
 - `FIREWORKS_API_KEY`: API key for Fireworks (used by Qwen agent)
+- `FIREWORKS_MODEL`: Fireworks model ID (default: `accounts/fireworks/models/deepseek-v3p1`, env: `FIREWORKS_MODEL`). Falls back to `LLM_MODEL` env var for backward compatibility.
+- `API_PORT`: Port for the HTTP API server (default: `8000`)
+- `INDEX_INTERVAL`: How often the vault indexer runs, in minutes (default: `60`). Used by the install scripts to configure service timer intervals.
 
 Additional configuration in `config.py`:
 - `EXCLUDED_DIRS`: Directories to skip when scanning vault (`.venv`, `.chroma_db`, `.trash`, `.obsidian`, `.git`)
 - `PREFERENCES_FILE`: Path to user preferences file (`VAULT_PATH / "Preferences.md"`)
 - `ATTACHMENTS_DIR`: Path to audio/image attachments (`VAULT_PATH / "Attachments"`)
-- `LLM_MODEL`: Model ID for the LLM agent (default: `accounts/fireworks/models/deepseek-v3p1`, env: `LLM_MODEL`)
+- `FIREWORKS_MODEL`: Model ID for the LLM agent (reads `FIREWORKS_MODEL` env, falls back to `LLM_MODEL`)
+- `LLM_MODEL`: Backward compat alias for `FIREWORKS_MODEL`
+- `API_PORT`: API server port (default: `8000`, env: `API_PORT`)
+- `INDEX_INTERVAL`: Indexer interval in minutes (default: `60`, env: `INDEX_INTERVAL`)
 - `EMBEDDING_MODEL`: Model name for embeddings (default: `all-MiniLM-L6-v2`, env: `EMBEDDING_MODEL`)
 - `WHISPER_MODEL`: Whisper model for audio transcription (default: `whisper-v3`, env: `WHISPER_MODEL`)
 
 ## HTTP API
 
-The API server (`src/api_server.py`) provides HTTP access to the Qwen agent. It binds to `127.0.0.1:8000` only (localhost) for security.
+The API server (`src/api_server.py`) provides HTTP access to the Qwen agent. It binds to `127.0.0.1` on the port specified by `API_PORT` (default `8000`, localhost only) for security.
 
 ### Running the Server
 
