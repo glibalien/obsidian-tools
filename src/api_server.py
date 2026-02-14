@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FastAPI HTTP wrapper for the Qwen agent."""
+"""FastAPI HTTP wrapper for the LLM agent."""
 
 import sys
 import uuid
@@ -12,7 +12,7 @@ from mcp.client.stdio import stdio_client
 from pydantic import BaseModel
 
 from config import API_PORT
-from qwen_agent import (
+from agent import (
     PROJECT_ROOT,
     SYSTEM_PROMPT,
     agent_turn,
