@@ -485,7 +485,7 @@ services/
     ├── obsidian-tools-api.xml
     └── obsidian-tools-indexer.xml
 
-plugin/
+plugin/                  # Obsidian chat plugin (optional)
 ├── src/
 │   ├── main.ts          # Plugin entry point
 │   └── ChatView.ts      # Chat sidebar view
