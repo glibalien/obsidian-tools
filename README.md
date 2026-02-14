@@ -18,18 +18,7 @@ Semantic search and vault management tools for Obsidian, exposed via MCP (Model 
 
 ## Architecture
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ Obsidian Plugin │────▶│   API Server    │────▶│   MCP Server    │
-│   (plugin/)     │     │ (api_server.py) │     │ (mcp_server.py) │
-└─────────────────┘     └─────────────────┘     └────────┬────────┘
-                                                         │
-                                                         ▼
-                                                ┌─────────────────┐
-                                                │  ChromaDB +     │
-                                                │  Obsidian Vault │
-                                                └─────────────────┘
-```
+![Architecture diagram](obsidian-tools-architecture.svg)
 
 The Obsidian plugin provides a chat sidebar that connects to the API server. The API server wraps the LLM agent, which uses MCP tools to search and manage your vault.
 
