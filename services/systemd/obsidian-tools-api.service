@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/obsidian-tools
-ExecStart=%h/obsidian-tools/.venv/bin/python src/api_server.py
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__VENV_PYTHON__ src/api_server.py
 Restart=on-failure
 RestartSec=5
 
