@@ -27,6 +27,10 @@ FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
 MAX_TOOL_RESULT_CHARS = 4000
 
 
+SYSTEM_PROMPT_FILE = PROJECT_ROOT / "system_prompt.txt"
+SYSTEM_PROMPT_EXAMPLE = PROJECT_ROOT / "system_prompt.txt.example"
+
+
 def truncate_tool_result(result: str) -> str:
     """Truncate tool result if it exceeds the character limit."""
     if len(result) <= MAX_TOOL_RESULT_CHARS:
@@ -34,65 +38,23 @@ def truncate_tool_result(result: str) -> str:
     return result[:MAX_TOOL_RESULT_CHARS] + "\n\n[truncated]"
 
 
-SYSTEM_PROMPT = """You are a helpful assistant with access to an Obsidian vault.
+def load_system_prompt() -> str:
+    """Load system prompt from system_prompt.txt, falling back to .example."""
+    if SYSTEM_PROMPT_FILE.exists():
+        return SYSTEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
 
-## Vault Structure
-Notes are organized by folder and identified by a "category" frontmatter property.
-Some notes have multiple categories (e.g. category: [meeting, project]) and may
-be filed in a folder matching only one of those categories.
+    if SYSTEM_PROMPT_EXAMPLE.exists():
+        logger.warning(
+            "system_prompt.txt not found — using system_prompt.txt.example. "
+            "Copy it to system_prompt.txt and customize for your vault."
+        )
+        return SYSTEM_PROMPT_EXAMPLE.read_text(encoding="utf-8").strip()
 
-Key folders and categories:
-- Daily Notes/: Daily journal entries. Named YYYY-MM-DD.md. No category frontmatter.
-- Meetings/: category: meeting
-- Projects/: category: project
-- Notes/: category: note (general-purpose notes)
-- Persons/: category: person (often has additional categories, e.g. [person, actor])
-- TaskNotes/Tasks/: category: task (all tasks live here)
-- Recipes/: category: recipe
+    logger.error("No system prompt file found. Using minimal fallback.")
+    return "You are a helpful assistant with access to an Obsidian vault."
 
-When looking for a specific type of note, prefer direct folder access or frontmatter
-filtering over broad search when possible. For example, to find today's daily note,
-read "Daily Notes/YYYY-MM-DD.md" directly rather than searching.
 
-When a note could be in multiple folders due to multiple categories, search by
-frontmatter category rather than folder path.
-
-## Available Tools
-- Searching the vault (semantic, keyword, by date, by folder)
-- Reading and creating files
-- Modifying frontmatter (single and batch)
-- Moving files (single and batch)
-- Finding backlinks and outlinks between notes
-- Logging interactions to daily notes
-
-## Guidelines
-1. Use exact file paths returned by tools. Never invent or guess filenames.
-2. Cite which files information came from.
-3. Complete each step fully before moving to the next in multi-step operations.
-4. For batch operations, use actual paths from previous tool results.
-5. If a tool returns an error, report it accurately — don't claim success.
-Be concise and helpful.
-
-## Interaction Logging
-Every interaction must be logged to the daily note using log_interaction.
-At the end of every conversation turn that completes a user request, call log_interaction with:
-- task_description: Brief description of the task performed
-- query: The user's original query
-- summary: Summary of the outcome (or "n/a" if using full_response)
-- files: List of referenced vault notes (optional)
-- full_response: Your full response text (optional, for lengthy responses)
-
-Guidelines:
-- For lengthy responses (search results, explanations, multi-paragraph answers):
-  pass summary="n/a" and provide full conversational output in full_response.
-- For short responses (confirmations, one-liners): use summary with a concise description.
-- Include relevant files when the interaction references specific vault notes.
-
-## Tool Orchestration
-- Always use exact file paths returned by tools. Never invent or guess filenames.
-- When performing multi-step operations, complete each step fully before moving to the next.
-- For batch operations, pass the actual paths from previous tool results, not examples.
-- If a tool returns an error, report it accurately - don't claim success."""
+SYSTEM_PROMPT = load_system_prompt()
 
 
 def load_preferences() -> str | None:
