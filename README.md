@@ -189,16 +189,18 @@ python src/api_server.py
 The server binds to `127.0.0.1:8000` (localhost only). Send chat messages via POST:
 
 ```bash
-# Start a new conversation
+# Start a conversation (with active file context)
 curl -X POST http://127.0.0.1:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Find notes about projects"}'
+  -d '{"message": "Summarize this note", "active_file": "Projects/Marketing.md"}'
 
-# Continue a conversation (use session_id from previous response)
+# Continue the conversation (same active_file = same session)
 curl -X POST http://127.0.0.1:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Tell me more", "session_id": "<uuid>"}'
+  -d '{"message": "What are the action items?", "active_file": "Projects/Marketing.md"}'
 ```
+
+Sessions are keyed by `active_file` — requests with the same file continue the conversation, while a different file starts a fresh session. Switching back to a previous file resumes that file's session. Tool results in the conversation history are automatically compacted to lightweight stubs to prevent token explosion.
 
 To keep the API server running persistently, see [Running as a Service](#running-as-a-service).
 

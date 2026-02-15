@@ -62,8 +62,8 @@ services/
 - **services/vault.py**: Shared utilities for path resolution, response formatting, section finding, file scanning
 - **tools/**: Tool implementations organized by category
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
-- **api_server.py**: FastAPI HTTP wrapper exposing the agent via REST API
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server
+- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management and tool compaction
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; includes agent loop cap and tool result truncation
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
 - **index_vault.py**: Indexes vault content into ChromaDB (runs via systemd, not manually)
 - **log_chat.py**: Appends interaction logs to daily notes
@@ -430,12 +430,15 @@ The project includes a pytest test suite in `tests/`.
 
 ```
 tests/
-├── conftest.py              # Fixtures: temp_vault, vault_config
-├── test_api_context.py      # Tests for API context handling
-├── test_vault_service.py    # Tests for services/vault.py
-├── test_tools_files.py      # Tests for file operations
-├── test_tools_sections.py   # Tests for section manipulation
-└── test_tools_links.py      # Tests for link operations
+├── conftest.py                  # Fixtures: temp_vault, vault_config
+├── test_agent.py                # Tests for agent loop cap and tool result truncation
+├── test_api_context.py          # Tests for API context handling
+├── test_session_management.py   # Tests for tool compaction, session routing, /chat integration
+├── test_vault_service.py        # Tests for services/vault.py
+├── test_tools_files.py          # Tests for file operations
+├── test_tools_sections.py       # Tests for section manipulation
+├── test_tools_links.py          # Tests for link operations
+└── test_tools_audio.py          # Tests for audio transcription
 ```
 
 ### Key Fixtures
@@ -498,6 +501,9 @@ Additional configuration in `config.py`:
 - `EMBEDDING_MODEL`: Model name for embeddings (default: `all-MiniLM-L6-v2`, env: `EMBEDDING_MODEL`)
 - `WHISPER_MODEL`: Whisper model for audio transcription (default: `whisper-v3`, env: `WHISPER_MODEL`)
 
+Constants in `agent.py`:
+- `MAX_TOOL_RESULT_CHARS`: Maximum character length for tool results before truncation (default: `4000`)
+
 ## HTTP API
 
 The API server (`src/api_server.py`) provides HTTP access to the LLM agent. It binds to `127.0.0.1` on the port specified by `API_PORT` (default `8000`, localhost only) for security.
@@ -530,14 +536,39 @@ Send a message and receive the agent's response.
 ```
 
 **Behavior:**
-- Omit `session_id` to start a new conversation (returns a new UUID)
-- Include `session_id` to continue an existing conversation
-- Invalid `session_id` returns HTTP 404
+- `active_file` determines session continuity (see Session Management below)
+- `session_id` is returned for reference but routing is by `active_file`
 - Include `active_file` to provide context about the currently viewed note (enables "this note" references)
 
-**Session Management:**
-- Sessions are stored in-memory (lost on server restart)
-- Each session maintains full conversation history
+### Session Management
+
+Sessions are keyed by `active_file`, not by UUID. This prevents token explosion from unbounded conversation history.
+
+**Routing rules:**
+- Same `active_file` as previous request: continues the existing session
+- Different `active_file`: starts or resumes a separate session for that file
+- `null` / omitted `active_file`: gets its own dedicated session
+- Switching back to a previously used file resumes that file's session
+
+**Token management — tool compaction:**
+After each agent turn completes, all `role: "tool"` messages in the session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results (search results, file contents) from accumulating and exploding the prompt size.
+
+Example stub:
+```json
+{"status": "success", "result_count": 5, "files": ["Notes/foo.md", "Notes/bar.md"]}
+```
+
+The `_compacted` flag on tool messages tracks which have been compacted. It is stripped before sending messages to the LLM.
+
+**Token management — tool result truncation:**
+Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results end with `\n\n[truncated]` so the agent knows the result is partial.
+
+**Agent loop safeguard:**
+The `agent_turn` function has a `max_iterations` parameter (default 10). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`.
+
+**Storage:**
+- Sessions are stored in-memory as `file_sessions: dict[str | None, Session]` (lost on server restart)
+- Each `Session` holds a `session_id` (UUID), `active_file`, and `messages` list
 - The MCP connection is shared across all sessions
 
 ## Obsidian Plugin (Optional)
