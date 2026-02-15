@@ -450,6 +450,22 @@ Appends content at the end of the "## Notes" section, preserving all existing co
 
 Parses audio embeds like `![[recording.m4a]]` from the note and transcribes them using Fireworks Whisper API. Supported formats: m4a, webm, mp3, wav, ogg. Audio files are resolved from the `Attachments` folder.
 
+## Customizing the Agent System Prompt
+
+**Important:** The system prompt in `src/agent.py` (`SYSTEM_PROMPT`) is tuned to the author's vault structure and must be updated to match your own. The default prompt describes specific folders (`Daily Notes/`, `Meetings/`, `Projects/`, etc.) and frontmatter conventions (`category: meeting`, `category: project`, etc.) that almost certainly don't match your vault.
+
+**Why this matters:**
+- **Token waste:** A mismatched system prompt causes the agent to make unnecessary tool calls — searching for folders and frontmatter fields that don't exist in your vault, burning tokens on failed lookups.
+- **Poor results:** The agent will try strategies that don't apply (e.g., filtering by a `category` field you don't use), leading to worse answers and more back-and-forth.
+
+**What to change:**
+1. Open `src/agent.py` and find the `SYSTEM_PROMPT` variable (near the top of the file)
+2. Update the **Vault Structure** section to describe your actual folder layout and frontmatter conventions
+3. Adjust the **Interaction Logging** section if you don't use daily notes or want a different logging format
+4. Keep the **Guidelines** and **Tool Orchestration** sections as-is — they apply universally
+
+For example, if your vault uses `tags` instead of `category` and organizes notes by topic folders, rewrite the vault structure section accordingly.
+
 ## Project Structure
 
 ```
