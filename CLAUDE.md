@@ -566,7 +566,7 @@ The `_compacted` flag on tool messages tracks which have been compacted. It is s
 Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results end with `\n\n[truncated]` so the agent knows the result is partial.
 
 **Agent loop safeguard:**
-The `agent_turn` function has a `max_iterations` parameter (default 10). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`.
+The `agent_turn` function has a `max_iterations` parameter (default 20). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`. Calls to `log_interaction` are excluded from the count — iterations where all tool calls are `log_interaction` do not increment the counter.
 
 **Storage:**
 - Sessions are stored in-memory as `file_sessions: dict[str | None, Session]` (lost on server restart)
