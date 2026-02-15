@@ -216,6 +216,15 @@ function Main {
         Write-Info "Existing .env found, updating values."
     }
 
+    $promptFile = Join-Path $ProjectDir "system_prompt.txt"
+    $promptExample = Join-Path $ProjectDir "system_prompt.txt.example"
+
+    if (-not (Test-Path $promptFile)) {
+        Copy-Item $promptExample $promptFile
+        Write-Info "Created system_prompt.txt from system_prompt.txt.example"
+        Write-Warn "Edit system_prompt.txt to match your vault's folder structure and frontmatter conventions."
+    }
+
     Write-Host ""
     Write-Info "Configure your environment:"
     Write-Host ""
