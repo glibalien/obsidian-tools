@@ -183,6 +183,10 @@ async def agent_turn(
             )
             return assistant_message.content or ""
 
+        # Log assistant reasoning that accompanies tool calls
+        if last_content:
+            logger.info("Assistant text: %s", last_content)
+
         # Execute each tool call
         for tool_call in assistant_message.tool_calls:
             tool_name = tool_call.function.name
@@ -191,12 +195,15 @@ async def agent_turn(
             except json.JSONDecodeError:
                 arguments = {}
 
-            print(f"  [Calling {tool_name}...]")
+            logger.info("Tool call: %s args=%s", tool_name, arguments)
             result = await execute_tool_call(session, tool_name, arguments)
-            logger.debug(
-                "Tool %s result: %d chars", tool_name, len(result)
-            )
+            raw_len = len(result)
             result = truncate_tool_result(result)
+            truncated = len(result) < raw_len
+            logger.info(
+                "Tool result: %s chars=%d truncated=%s",
+                tool_name, raw_len, truncated,
+            )
 
             messages.append(
                 {
