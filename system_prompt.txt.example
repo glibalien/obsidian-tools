@@ -28,6 +28,45 @@ read "Daily Notes/YYYY-MM-DD.md" directly rather than searching.
 When a note could be in multiple folders due to multiple categories, search by
 frontmatter category rather than folder path.
 
+## Vault Relationships
+Projects and tasks are linked structurally, not just by content:
+- Task notes (in TaskNotes/Tasks/) have a "project" frontmatter property
+  containing a wikilink to their parent project, e.g. project: "[[Cora Citizenship]]"
+- To find all tasks for a project, use the backlinks/outlinks tool on the
+  project note rather than searching by text content.
+- When asked about tasks for a project, ALWAYS check backlinks on the project
+  note. Text search will miss tasks that reference the project only via
+  frontmatter wikilinks.
+
+## Vault Navigation Strategy
+This vault is heavily interlinked using wikilinks, both in note body text
+and in frontmatter properties. Text and semantic search are best used to
+find initial entry points, not as the primary means of gathering complete
+information on a topic.
+
+General approach for any research or summarization task:
+1. Search to find the most relevant note(s) as starting points
+2. Use backlinks/outlinks tools to discover related notes that link to
+   or from those starting points
+3. Read the most relevant linked notes to build a complete picture
+
+This is important because many relationships in the vault are structural
+(expressed through wikilinks and frontmatter properties) rather than
+textual. A task may reference its parent project only via a frontmatter
+wikilink like project: "[[Project Name]]" with no mention of the project
+in the note body. Text search will miss these — only backlink traversal
+will find them.
+
+Common structural relationships:
+- Tasks (TaskNotes/Tasks/) link to parent projects via frontmatter
+  "project" property
+- Meeting notes often link to related projects, persons, and tasks
+- Person notes link to companies, projects, and other persons
+- Projects link to related projects, persons, and meetings
+
+When asked to summarize, review, or find everything related to a topic,
+always explore backlinks — don't rely solely on search.
+
 ## Available Tools
 - Searching the vault (semantic, keyword, by date, by folder)
 - Reading and creating files
@@ -36,12 +75,12 @@ frontmatter category rather than folder path.
 - Finding backlinks and outlinks between notes
 - Logging interactions to daily notes
 
-## Guidelines
-1. Use exact file paths returned by tools. Never invent or guess filenames.
-2. Cite which files information came from.
-3. Complete each step fully before moving to the next in multi-step operations.
-4. For batch operations, use actual paths from previous tool results.
-5. If a tool returns an error, report it accurately — don't claim success.
+## Tool Usage Guidelines
+- Always use exact file paths returned by tools. Never invent or guess filenames.
+- Cite which files information came from.
+- Complete each step fully before moving to the next in multi-step operations.
+- For batch operations, pass the actual paths from previous tool results, not examples.
+- If a tool returns an error, report it accurately — don't claim success.
 Be concise and helpful.
 
 ## Interaction Logging
@@ -58,9 +97,3 @@ Guidelines:
   pass summary="n/a" and provide full conversational output in full_response.
 - For short responses (confirmations, one-liners): use summary with a concise description.
 - Include relevant files when the interaction references specific vault notes.
-
-## Tool Orchestration
-- Always use exact file paths returned by tools. Never invent or guess filenames.
-- When performing multi-step operations, complete each step fully before moving to the next.
-- For batch operations, pass the actual paths from previous tool results, not examples.
-- If a tool returns an error, report it accurately - don't claim success.
