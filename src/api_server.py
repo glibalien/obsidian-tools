@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """FastAPI HTTP wrapper for the LLM agent."""
 
+import logging
 import sys
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -134,6 +135,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 def main():
     """Run the API server."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     uvicorn.run(
         "api_server:app",
         host="127.0.0.1",

@@ -2,6 +2,7 @@
 """CLI agent client connecting an LLM (via Fireworks) to the MCP server."""
 
 import json
+import logging
 import os
 import sys
 from contextlib import AsyncExitStack
@@ -14,6 +15,8 @@ from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
 from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH
+
+logger = logging.getLogger(__name__)
 
 # Configuration
 load_dotenv()
@@ -133,6 +136,10 @@ async def agent_turn(
     tools: list[dict],
 ) -> str:
     """Execute one agent turn, handling tool calls until final response."""
+    turn_prompt_tokens = 0
+    turn_completion_tokens = 0
+    llm_calls = 0
+
     while True:
         response = client.chat.completions.create(
             model=LLM_MODEL,
@@ -141,10 +148,32 @@ async def agent_turn(
             tool_choice="auto" if tools else None,
         )
 
+        llm_calls += 1
+        usage = response.usage
+        if usage:
+            turn_prompt_tokens += usage.prompt_tokens
+            turn_completion_tokens += usage.completion_tokens
+            logger.info(
+                "LLM call %d: prompt=%d completion=%d total=%d messages=%d",
+                llm_calls,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                usage.total_tokens,
+                len(messages),
+            )
+
         assistant_message = response.choices[0].message
         messages.append(assistant_message.model_dump(exclude_none=True))
 
         if not assistant_message.tool_calls:
+            logger.info(
+                "Turn complete: calls=%d prompt_total=%d completion_total=%d "
+                "turn_total=%d",
+                llm_calls,
+                turn_prompt_tokens,
+                turn_completion_tokens,
+                turn_prompt_tokens + turn_completion_tokens,
+            )
             return assistant_message.content or ""
 
         # Execute each tool call
@@ -157,6 +186,9 @@ async def agent_turn(
 
             print(f"  [Calling {tool_name}...]")
             result = await execute_tool_call(session, tool_name, arguments)
+            logger.debug(
+                "Tool %s result: %d chars", tool_name, len(result)
+            )
 
             messages.append(
                 {
@@ -232,6 +264,10 @@ async def chat_loop():
 
 def main():
     """Entry point for the agent."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     anyio.run(chat_loop)
 
 
