@@ -116,3 +116,54 @@ class TestCompactToolMessages:
         original = [m.copy() for m in messages]
         compact_tool_messages(messages)
         assert messages == original
+
+
+from api_server import Session, get_or_create_session, file_sessions
+
+
+class TestSessionRouting:
+    """Tests for file-keyed session routing."""
+
+    def setup_method(self):
+        file_sessions.clear()
+
+    def test_new_session_created(self):
+        """First request for a file creates a new session."""
+        session = get_or_create_session("notes/foo.md", "system prompt")
+        assert session.active_file == "notes/foo.md"
+        assert len(session.messages) == 1
+        assert session.messages[0]["role"] == "system"
+
+    def test_same_file_returns_existing(self):
+        """Second request for same file returns the same session."""
+        s1 = get_or_create_session("notes/foo.md", "system prompt")
+        s1.messages.append({"role": "user", "content": "hello"})
+
+        s2 = get_or_create_session("notes/foo.md", "system prompt")
+        assert s2.session_id == s1.session_id
+        assert len(s2.messages) == 2
+
+    def test_different_file_creates_new(self):
+        """Different file creates a separate session."""
+        s1 = get_or_create_session("notes/foo.md", "system prompt")
+        s2 = get_or_create_session("notes/bar.md", "system prompt")
+        assert s1.session_id != s2.session_id
+        assert s1.active_file != s2.active_file
+
+    def test_switch_back_resumes(self):
+        """Switching back to a previously used file resumes that session."""
+        s1 = get_or_create_session("notes/foo.md", "system prompt")
+        s1.messages.append({"role": "user", "content": "first"})
+        original_id = s1.session_id
+
+        get_or_create_session("notes/bar.md", "system prompt")
+        s3 = get_or_create_session("notes/foo.md", "system prompt")
+
+        assert s3.session_id == original_id
+        assert len(s3.messages) == 2
+
+    def test_null_file_creates_session(self):
+        """None active_file gets its own session."""
+        session = get_or_create_session(None, "system prompt")
+        assert session.active_file is None
+        assert session.session_id is not None

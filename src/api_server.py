@@ -6,6 +6,7 @@ import logging
 import sys
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass, field
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -23,8 +24,31 @@ from agent import (
     mcp_tool_to_openai_function,
 )
 
-# Session storage: session_id -> messages list
-sessions: dict[str, list[dict]] = {}
+@dataclass
+class Session:
+    """A chat session tied to an active file."""
+
+    session_id: str
+    active_file: str | None
+    messages: list[dict] = field(default_factory=list)
+
+
+# File-keyed session storage: active_file -> Session
+file_sessions: dict[str | None, Session] = {}
+
+
+def get_or_create_session(active_file: str | None, system_prompt: str) -> Session:
+    """Get existing session for a file or create a new one."""
+    if active_file in file_sessions:
+        return file_sessions[active_file]
+
+    session = Session(
+        session_id=str(uuid.uuid4()),
+        active_file=active_file,
+        messages=[{"role": "system", "content": system_prompt}],
+    )
+    file_sessions[active_file] = session
+    return session
 
 
 class ChatRequest(BaseModel):
@@ -153,23 +177,15 @@ app = FastAPI(
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Process a chat message and return the agent's response.
+    """Process a chat message and return the agent's response."""
+    session = get_or_create_session(request.active_file, app.state.system_prompt)
+    messages = session.messages
 
-    If session_id is provided, continues an existing conversation.
-    If session_id is omitted, creates a new session.
-    """
-    # Get or create session
-    if request.session_id:
-        if request.session_id not in sessions:
-            raise HTTPException(status_code=404, detail="Session not found")
-        session_id = request.session_id
-        messages = sessions[session_id]
-    else:
-        session_id = str(uuid.uuid4())
-        messages = [{"role": "system", "content": app.state.system_prompt}]
-        sessions[session_id] = messages
+    # Strip _compacted flags before LLM call
+    for msg in messages:
+        msg.pop("_compacted", None)
 
-    # Add user message with context prefix if active file is provided
+    # Add user message with context prefix
     context_prefix = format_context_prefix(request.active_file)
     messages.append({"role": "user", "content": context_prefix + request.message})
 
@@ -180,9 +196,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
             messages,
             app.state.tools,
         )
-        return ChatResponse(response=response, session_id=session_id)
+        compact_tool_messages(messages)
+        return ChatResponse(response=response, session_id=session.session_id)
     except Exception as e:
-        # Remove failed user message to keep history clean
         messages.pop()
         raise HTTPException(status_code=500, detail=str(e))
 
