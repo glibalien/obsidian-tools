@@ -24,6 +24,15 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
+MAX_TOOL_RESULT_CHARS = 4000
+
+
+def truncate_tool_result(result: str) -> str:
+    """Truncate tool result if it exceeds the character limit."""
+    if len(result) <= MAX_TOOL_RESULT_CHARS:
+        return result
+    return result[:MAX_TOOL_RESULT_CHARS] + "\n\n[truncated]"
+
 
 SYSTEM_PROMPT = """You are a helpful assistant with access to an Obsidian vault.
 
@@ -134,13 +143,20 @@ async def agent_turn(
     session: ClientSession,
     messages: list[dict],
     tools: list[dict],
+    max_iterations: int = 10,
 ) -> str:
     """Execute one agent turn, handling tool calls until final response."""
     turn_prompt_tokens = 0
     turn_completion_tokens = 0
     llm_calls = 0
+    last_content = ""
 
     while True:
+        if llm_calls >= max_iterations:
+            logger.warning(
+                "Agent turn hit iteration cap (%d). Stopping.", max_iterations
+            )
+            return last_content + "\n\n[Tool call limit reached]"
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -164,6 +180,7 @@ async def agent_turn(
 
         assistant_message = response.choices[0].message
         messages.append(assistant_message.model_dump(exclude_none=True))
+        last_content = assistant_message.content or ""
 
         if not assistant_message.tool_calls:
             logger.info(
@@ -189,6 +206,7 @@ async def agent_turn(
             logger.debug(
                 "Tool %s result: %d chars", tool_name, len(result)
             )
+            result = truncate_tool_result(result)
 
             messages.append(
                 {
