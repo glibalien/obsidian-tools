@@ -12,6 +12,7 @@ venv/
 # Environment
 .env
 .mcp.json
+system_prompt.txt
 
 # IDE
 .vscode/
