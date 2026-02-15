@@ -311,6 +311,12 @@ main() {
         info "Existing .env found, updating values."
     fi
 
+    if [[ ! -f "${PROJECT_DIR}/system_prompt.txt" ]]; then
+        cp "${PROJECT_DIR}/system_prompt.txt.example" "${PROJECT_DIR}/system_prompt.txt"
+        info "Created system_prompt.txt from system_prompt.txt.example"
+        warn "Edit system_prompt.txt to match your vault's folder structure and frontmatter conventions."
+    fi
+
     echo ""
     info "Configure your environment:"
     echo ""
