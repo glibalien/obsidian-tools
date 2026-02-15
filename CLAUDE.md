@@ -31,7 +31,7 @@ src/
 │   └── audio.py         # transcribe_audio
 ├── config.py            # Environment configuration
 ├── api_server.py        # FastAPI HTTP wrapper
-├── agent.py             # CLI chat client
+├── agent.py             # CLI chat client (loads system prompt from system_prompt.txt)
 ├── hybrid_search.py     # Semantic + keyword search with RRF
 ├── search_vault.py      # Search interface
 ├── index_vault.py       # ChromaDB indexing
@@ -63,7 +63,7 @@ services/
 - **tools/**: Tool implementations organized by category
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management and tool compaction
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; includes agent loop cap and tool result truncation
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap and tool result truncation
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
 - **index_vault.py**: Indexes vault content into ChromaDB (runs via systemd, not manually)
 - **log_chat.py**: Appends interaction logs to daily notes
@@ -209,7 +209,7 @@ Removes a preference by its line number.
 - `line_number`: 1-indexed line number from `list_preferences` output
 - Returns error if line number is out of range
 
-**Note**: The LLM agent automatically loads `Preferences.md` into its system prompt at startup. Preferences are appended as a "User Preferences" section that the agent follows.
+**Note**: The LLM agent loads its system prompt from `system_prompt.txt` at startup (falling back to `system_prompt.txt.example` with a warning). It also loads `Preferences.md` and appends it as a "User Preferences" section that the agent follows.
 
 ### get_current_date
 
@@ -503,6 +503,8 @@ Additional configuration in `config.py`:
 
 Constants in `agent.py`:
 - `MAX_TOOL_RESULT_CHARS`: Maximum character length for tool results before truncation (default: `4000`)
+- `SYSTEM_PROMPT_FILE`: Path to `system_prompt.txt` (loaded once at startup)
+- `SYSTEM_PROMPT_EXAMPLE`: Path to `system_prompt.txt.example` (fallback if `system_prompt.txt` missing)
 
 ## HTTP API
 
