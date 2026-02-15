@@ -126,13 +126,15 @@ async def agent_turn(
     session: ClientSession,
     messages: list[dict],
     tools: list[dict],
-    max_iterations: int = 10,
+    max_iterations: int = 20,
 ) -> str:
     """Execute one agent turn, handling tool calls until final response."""
     turn_prompt_tokens = 0
     turn_completion_tokens = 0
     llm_calls = 0
     last_content = ""
+    # Tool names excluded from the iteration cap count
+    UNCOUNTED_TOOLS = {"log_interaction"}
 
     while True:
         if llm_calls >= max_iterations:
@@ -147,7 +149,12 @@ async def agent_turn(
             tool_choice="auto" if tools else None,
         )
 
-        llm_calls += 1
+        # Count this iteration unless all tool calls are uncounted tools
+        tool_calls = response.choices[0].message.tool_calls
+        if not tool_calls or not all(
+            tc.function.name in UNCOUNTED_TOOLS for tc in tool_calls
+        ):
+            llm_calls += 1
         usage = response.usage
         if usage:
             turn_prompt_tokens += usage.prompt_tokens
