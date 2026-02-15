@@ -3,12 +3,14 @@
 import json
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from api_server import build_tool_stub, compact_tool_messages
+from api_server import app, build_tool_stub, compact_tool_messages
 
 
 class TestBuildToolStub:
@@ -167,3 +169,73 @@ class TestSessionRouting:
         session = get_or_create_session(None, "system prompt")
         assert session.active_file is None
         assert session.session_id is not None
+
+
+class TestChatEndpointIntegration:
+    """Integration tests for /chat with file-keyed sessions."""
+
+    def setup_method(self):
+        file_sessions.clear()
+        app.state.mcp_session = AsyncMock()
+        app.state.llm_client = MagicMock()
+        app.state.tools = []
+        app.state.system_prompt = "test system prompt"
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_same_file_continues_session(self, mock_agent_turn):
+        """Two requests with same active_file share a session."""
+        mock_agent_turn.return_value = "response"
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            r1 = client.post("/chat", json={"message": "hi", "active_file": "note.md"})
+            sid1 = r1.json()["session_id"]
+
+            r2 = client.post("/chat", json={"message": "more", "active_file": "note.md"})
+            sid2 = r2.json()["session_id"]
+
+        assert sid1 == sid2
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_different_file_new_session(self, mock_agent_turn):
+        """Different active_file gets a different session."""
+        mock_agent_turn.return_value = "response"
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            r1 = client.post("/chat", json={"message": "hi", "active_file": "a.md"})
+            sid1 = r1.json()["session_id"]
+
+            r2 = client.post("/chat", json={"message": "hi", "active_file": "b.md"})
+            sid2 = r2.json()["session_id"]
+
+        assert sid1 != sid2
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_null_file_works(self, mock_agent_turn):
+        """Null active_file creates and continues a session."""
+        mock_agent_turn.return_value = "response"
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            r1 = client.post("/chat", json={"message": "hi"})
+            assert r1.status_code == 200
+            sid1 = r1.json()["session_id"]
+
+            r2 = client.post("/chat", json={"message": "more"})
+            sid2 = r2.json()["session_id"]
+
+        assert sid1 == sid2
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_switch_back_resumes_session(self, mock_agent_turn):
+        """Switching away and back resumes the original session."""
+        mock_agent_turn.return_value = "response"
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            r1 = client.post("/chat", json={"message": "hi", "active_file": "a.md"})
+            sid_a = r1.json()["session_id"]
+
+            client.post("/chat", json={"message": "hi", "active_file": "b.md"})
+
+            r3 = client.post("/chat", json={"message": "back", "active_file": "a.md"})
+            sid_a2 = r3.json()["session_id"]
+
+        assert sid_a == sid_a2
