@@ -1,6 +1,7 @@
 """Preference tools - save, list, remove user preferences."""
 
 from config import PREFERENCES_FILE
+from services.vault import ok, err
 
 
 def _read_preferences() -> list[str]:
@@ -36,14 +37,14 @@ def save_preference(preference: str) -> str:
         Confirmation message.
     """
     if not preference or not preference.strip():
-        return "Error: preference cannot be empty"
+        return err("preference cannot be empty")
 
     preference = preference.strip()
     preferences = _read_preferences()
     preferences.append(preference)
     _write_preferences(preferences)
 
-    return f"Saved preference: {preference}"
+    return ok(f"Saved preference: {preference}")
 
 
 def list_preferences() -> str:
@@ -55,12 +56,9 @@ def list_preferences() -> str:
     preferences = _read_preferences()
 
     if not preferences:
-        return "No preferences saved."
+        return ok("No preferences saved.", results=[])
 
-    lines = []
-    for i, pref in enumerate(preferences, start=1):
-        lines.append(f"{i}. {pref}")
-    return "\n".join(lines)
+    return ok(results=[f"{i}. {pref}" for i, pref in enumerate(preferences, start=1)])
 
 
 def remove_preference(line_number: int) -> str:
@@ -75,12 +73,12 @@ def remove_preference(line_number: int) -> str:
     preferences = _read_preferences()
 
     if not preferences:
-        return "Error: No preferences to remove"
+        return err("No preferences to remove")
 
     if line_number < 1 or line_number > len(preferences):
-        return f"Error: Invalid line number. Must be between 1 and {len(preferences)}"
+        return err(f"Invalid line number. Must be between 1 and {len(preferences)}")
 
     removed = preferences.pop(line_number - 1)
     _write_preferences(preferences)
 
-    return f"Removed preference: {removed}"
+    return ok(f"Removed preference: {removed}")

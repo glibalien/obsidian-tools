@@ -8,23 +8,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer
-
-from config import VAULT_PATH, CHROMA_PATH, EMBEDDING_MODEL
+from config import VAULT_PATH, CHROMA_PATH
 from services.chroma import get_client, get_collection
 from services.vault import get_vault_files
-
-
-# Lazy-loaded embedding model
-_model = None
-
-
-def get_model():
-    """Get or create the sentence transformer model."""
-    global _model
-    if _model is None:
-        _model = SentenceTransformer(EMBEDDING_MODEL)
-    return _model
 
 
 def get_last_run_file() -> str:
