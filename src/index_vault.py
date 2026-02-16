@@ -261,15 +261,20 @@ def index_file(md_file: Path) -> None:
     
     # Read and chunk the file
     content = md_file.read_text(encoding='utf-8', errors='ignore')
-    chunks = _fixed_chunk_text(content)
-    
+    chunks = chunk_markdown(content)
+
     # Index each chunk
     for i, chunk in enumerate(chunks):
         doc_id = hashlib.md5(f"{md_file}_{i}".encode()).hexdigest()
         collection.upsert(
             ids=[doc_id],
-            documents=[chunk],
-            metadatas=[{"source": str(md_file), "chunk": i}]
+            documents=[chunk["text"]],
+            metadatas=[{
+                "source": str(md_file),
+                "chunk": i,
+                "heading": chunk["heading"],
+                "chunk_type": chunk["chunk_type"],
+            }],
         )
 
 
