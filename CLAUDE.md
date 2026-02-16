@@ -61,13 +61,13 @@ services/
 - **mcp_server.py**: Entry point that registers all tools with FastMCP
 - **services/chroma.py**: Shared ChromaDB connection management (lazy singletons)
 - **services/vault.py**: Shared utilities for path resolution, response formatting, section finding, file scanning
-- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by both API server and CLI agent
+- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by the API server between requests
 - **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
-- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management and tool compaction
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and tool message compaction
+- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management; compacts tool messages between requests
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap and tool result truncation
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
-- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
+- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
 
 ## MCP Tools
@@ -469,7 +469,7 @@ tests/
 ├── conftest.py                  # Fixtures: temp_vault, vault_config
 ├── test_agent.py                # Tests for agent loop cap, truncation, compaction
 ├── test_api_context.py          # Tests for API context handling
-├── test_chunking.py             # Tests for chunking, search, keyword optimization, link index, batch upsert
+├── test_chunking.py             # Tests for chunking, frontmatter indexing, search, keyword optimization, link index
 ├── test_session_management.py   # Tests for tool compaction, session routing, /chat integration
 ├── test_log_chat.py             # Tests for wikilink insertion and protected zones
 ├── test_vault_service.py        # Tests for services/vault.py, is_fence_line
@@ -593,14 +593,14 @@ Sessions are keyed by `active_file`, not by UUID. This prevents token explosion 
 - Switching back to a previously used file resumes that file's session
 
 **Token management — tool compaction:**
-Tool messages in session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results (search results, file contents) from accumulating and exploding the prompt size. Compaction logic lives in `services/compaction.py` and is used by both the API server and the CLI agent. In the API server, compaction runs after `agent_turn` completes. In the CLI agent, compaction runs *before* appending new tool results each loop iteration, so the LLM always sees full results for the current round while prior rounds are compacted.
+Tool messages in session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results from accumulating across requests and exploding the prompt size. Compaction logic lives in `services/compaction.py` and runs only in `api_server.py` after each `agent_turn` completes — **not** within `agent_turn` itself, so the LLM retains full tool results throughout a single turn for multi-step research queries.
 
 Example stub:
 ```json
 {"status": "success", "result_count": 5, "files": ["Notes/foo.md", "Notes/bar.md"]}
 ```
 
-The `_compacted` flag on tool messages tracks which have been compacted. It is stripped before sending messages to the LLM.
+The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API.
 
 **Token management — tool result truncation:**
 Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results end with `\n\n[truncated]` so the agent knows the result is partial.
