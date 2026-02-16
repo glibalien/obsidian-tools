@@ -13,7 +13,10 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 info()  { printf '\033[1;34m==> %s\033[0m\n' "$*"; }
 warn()  { printf '\033[1;33m==> %s\033[0m\n' "$*"; }
 error() { printf '\033[1;31m==> %s\033[0m\n' "$*" >&2; }
-ask()   { printf '\033[1;32m==> %s\033[0m ' "$1"; }
+# Print prompt to stderr to avoid buffering issues, and read from /dev/tty
+# in case stdin is redirected (e.g., curl | bash)
+ask()   { printf '\033[1;32m==> %s\033[0m ' "$1" >&2; }
+read_input() { read -r "$@" </dev/tty; }
 
 detect_os() {
     case "$(uname -s)" in
@@ -83,7 +86,7 @@ offer_pyenv_install() {
     if command -v pyenv &>/dev/null; then
         warn "No compatible Python (3.${MIN_MINOR}–3.${MAX_MINOR}) found."
         ask "Install Python ${PREFERRED_VERSION} via pyenv? [Y/n]"
-        read -r answer
+        read_input answer
         if [[ "${answer:-Y}" =~ ^[Yy]$ ]]; then
             pyenv install "$PREFERRED_VERSION"
             pyenv local "$PREFERRED_VERSION"
@@ -96,7 +99,7 @@ offer_pyenv_install() {
         if command -v brew &>/dev/null; then
             warn "No compatible Python found. pyenv is recommended for managing Python versions."
             ask "Install pyenv via Homebrew, then install Python ${PREFERRED_VERSION}? [Y/n]"
-            read -r answer
+            read_input answer
             if [[ "${answer:-Y}" =~ ^[Yy]$ ]]; then
                 brew install pyenv
                 eval "$(pyenv init -)"
@@ -132,7 +135,7 @@ prompt_value() {
         else
             ask "${label}:"
         fi
-        read -r value
+        read_input value
         value="${value:-$default}"
 
         if [[ -z "$value" && "$required" == "true" ]]; then
@@ -148,7 +151,7 @@ prompt_value() {
 prompt_vault_path() {
     while true; do
         ask "Path to your Obsidian vault:"
-        read -r vault_path
+        read_input vault_path
         vault_path="${vault_path/#\~/$HOME}"
 
         if [[ -z "$vault_path" ]]; then
@@ -343,14 +346,11 @@ main() {
 
     echo ""
     ask "Install background services (API server + vault indexer)? [Y/n]"
-    read -r install_svc
+    read_input install_svc
     if [[ "${install_svc:-Y}" =~ ^[Yy]$ ]]; then
-        local resolved_venv_python
-        resolved_venv_python="$(resolve_real_python "$venv_python")"
-
         case "$os" in
-            macos) install_services_macos "$resolved_venv_python" "$index_interval" ;;
-            linux) install_services_linux "$resolved_venv_python" "$index_interval" ;;
+            macos) install_services_macos "$venv_python" "$index_interval" ;;
+            linux) install_services_linux "$venv_python" "$index_interval" ;;
         esac
     else
         info "Skipped service installation."
@@ -360,7 +360,7 @@ main() {
 
     echo ""
     ask "Run the vault indexer now? (recommended for first install) [Y/n]"
-    read -r run_index
+    read_input run_index
     if [[ "${run_index:-Y}" =~ ^[Yy]$ ]]; then
         info "Indexing vault (this may take a minute)..."
         "${PROJECT_DIR}/.venv/bin/python" "${PROJECT_DIR}/src/index_vault.py"
