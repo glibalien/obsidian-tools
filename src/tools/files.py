@@ -7,8 +7,10 @@ import yaml
 from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import (
     do_move_file,
+    err,
     format_batch_result,
     get_relative_path,
+    ok,
     resolve_file,
     resolve_vault_path,
 )
@@ -27,22 +29,22 @@ def read_file(path: str, offset: int = 0, length: int = 4000) -> str:
     """
     file_path, error = resolve_file(path)
     if error:
-        return f"Error: {error}"
+        return err(error)
 
     try:
         content = file_path.read_text()
     except Exception as e:
-        return f"Error reading file: {e}"
+        return err(f"Error reading file: {e}")
 
     total = len(content)
 
     # Short file with no offset — return as-is
     if offset == 0 and total <= length:
-        return content
+        return ok(content=content)
 
     # Offset past end of file
     if offset >= total:
-        return f"Error: offset {offset} exceeds file length {total}"
+        return err(f"offset {offset} exceeds file length {total}")
 
     # Slice the content
     chunk = content[offset:offset + length]
@@ -56,7 +58,7 @@ def read_file(path: str, offset: int = 0, length: int = 4000) -> str:
     if end_pos < total:
         parts.append(f"\n\n[... truncated at char {end_pos} of {total}. Use offset={end_pos} to read more.]")
 
-    return "".join(parts)
+    return ok(content="".join(parts))
 
 
 def create_file(
@@ -80,10 +82,10 @@ def create_file(
     try:
         file_path = resolve_vault_path(path)
     except ValueError as e:
-        return f"Error: {e}"
+        return err(str(e))
 
     if file_path.exists():
-        return f"Error: File already exists: {path}"
+        return err(f"File already exists: {path}")
 
     # Parse frontmatter if provided
     frontmatter_yaml = ""
@@ -92,7 +94,7 @@ def create_file(
             fm_dict = json.loads(frontmatter)
             frontmatter_yaml = yaml.dump(fm_dict, default_flow_style=False, allow_unicode=True)
         except json.JSONDecodeError as e:
-            return f"Error: Invalid frontmatter JSON: {e}"
+            return err(f"Invalid frontmatter JSON: {e}")
 
     # Build file content
     if frontmatter_yaml:
@@ -107,9 +109,10 @@ def create_file(
     try:
         file_path.write_text(file_content, encoding="utf-8")
     except Exception as e:
-        return f"Error writing file: {e}"
+        return err(f"Error writing file: {e}")
 
-    return f"Created {get_relative_path(file_path)}"
+    rel = str(get_relative_path(file_path))
+    return ok(f"Created {rel}", path=rel)
 
 
 def move_file(
@@ -127,7 +130,9 @@ def move_file(
         Confirmation message or error.
     """
     success, message = do_move_file(source, destination)
-    return message if success else f"Error: {message}"
+    if success:
+        return ok(message)
+    return err(message)
 
 
 def batch_move_files(
@@ -143,7 +148,7 @@ def batch_move_files(
         Summary of successes and failures.
     """
     if not moves:
-        return "Error: moves list is empty"
+        return err("moves list is empty")
 
     results = []
     for i, move in enumerate(moves):
@@ -164,7 +169,7 @@ def batch_move_files(
         success, message = do_move_file(source, destination)
         results.append((success, message))
 
-    return format_batch_result("move", results)
+    return ok(format_batch_result("move", results))
 
 
 def append_to_file(path: str, content: str) -> str:
@@ -179,12 +184,13 @@ def append_to_file(path: str, content: str) -> str:
     """
     file_path, error = resolve_file(path)
     if error:
-        return f"Error: {error}"
+        return err(error)
 
     try:
         with file_path.open("a", encoding="utf-8") as f:
             f.write("\n" + content)
     except Exception as e:
-        return f"Error appending to file: {e}"
+        return err(f"Appending to file failed: {e}")
 
-    return f"Appended to {get_relative_path(file_path)}"
+    rel = str(get_relative_path(file_path))
+    return ok(f"Appended to {rel}", path=rel)
