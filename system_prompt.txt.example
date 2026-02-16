@@ -177,9 +177,9 @@ there are more pages. Retrieve them with offset=limit, offset=limit*2, etc.
 
 ### Truncated tool results
 Any tool result longer than 4000 characters is automatically truncated. The
-truncation marker includes a tool_call_id. To retrieve the rest, call:
+truncation marker includes a short numeric id. To retrieve the rest, call:
 
-  get_continuation(tool_call_id="<id from marker>", offset=4000)
+  get_continuation(id="<id from marker>", offset=4000)
 
 You can call get_continuation repeatedly with increasing offsets to page
 through the full result. Always check for truncation markers — do not assume

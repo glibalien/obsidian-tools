@@ -31,19 +31,19 @@ SYSTEM_PROMPT_FILE = PROJECT_ROOT / "system_prompt.txt"
 SYSTEM_PROMPT_EXAMPLE = PROJECT_ROOT / "system_prompt.txt.example"
 
 
-def truncate_tool_result(result: str, tool_call_id: str | None = None) -> str:
+def truncate_tool_result(result: str, result_id: str | None = None) -> str:
     """Truncate tool result if it exceeds the character limit.
 
-    When tool_call_id is provided, the truncation marker includes it
+    When result_id is provided, the truncation marker includes it
     so the LLM can call get_continuation to retrieve more.
     """
     if len(result) <= MAX_TOOL_RESULT_CHARS:
         return result
     truncated = result[:MAX_TOOL_RESULT_CHARS]
-    if tool_call_id:
+    if result_id:
         truncated += (
             f"\n\n[truncated — showing {MAX_TOOL_RESULT_CHARS}/{len(result)} chars. "
-            f'Call get_continuation with tool_call_id="{tool_call_id}" to read more]'
+            f'Call get_continuation with id="{result_id}" to read more]'
         )
     else:
         truncated += "\n\n[truncated]"
@@ -144,16 +144,16 @@ GET_CONTINUATION_TOOL = {
         "parameters": {
             "type": "object",
             "properties": {
-                "tool_call_id": {
+                "id": {
                     "type": "string",
-                    "description": "The tool_call_id from the truncation message",
+                    "description": "The id from the truncation message",
                 },
                 "offset": {
                     "type": "integer",
                     "description": "Character offset to read from",
                 },
             },
-            "required": ["tool_call_id"],
+            "required": ["id"],
         },
     },
 }
@@ -161,12 +161,12 @@ GET_CONTINUATION_TOOL = {
 
 def _handle_get_continuation(cache: dict[str, str], arguments: dict) -> str:
     """Serve the next chunk of a cached truncated tool result."""
-    tc_id = arguments.get("tool_call_id", "")
+    result_id = arguments.get("id", "")
     offset = arguments.get("offset", MAX_TOOL_RESULT_CHARS)
 
-    full_result = cache.get(tc_id)
+    full_result = cache.get(result_id)
     if full_result is None:
-        return json.dumps({"error": f"No cached result for tool_call_id '{tc_id}'"})
+        return json.dumps({"error": f"No cached result for id '{result_id}'"})
 
     chunk = full_result[offset : offset + MAX_TOOL_RESULT_CHARS]
     if not chunk:
@@ -178,7 +178,7 @@ def _handle_get_continuation(cache: dict[str, str], arguments: dict) -> str:
         chunk += (
             f"\n\n[truncated — showing {offset}-{end}/{len(full_result)} chars. "
             f"{remaining} chars remaining. Call get_continuation with "
-            f'tool_call_id="{tc_id}" offset={end} to read more]'
+            f'id="{result_id}" offset={end} to read more]'
         )
 
     return chunk
@@ -197,6 +197,7 @@ async def agent_turn(
     llm_calls = 0
     last_content = ""
     truncated_results: dict[str, str] = {}
+    next_result_id = 1
     # Tool names excluded from the iteration cap count
     UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
     all_tools = tools + [GET_CONTINUATION_TOOL]
@@ -269,8 +270,12 @@ async def agent_turn(
                 result = await execute_tool_call(session, tool_name, arguments)
                 raw_len = len(result)
                 if raw_len > MAX_TOOL_RESULT_CHARS:
-                    truncated_results[tool_call.id] = result
-                result = truncate_tool_result(result, tool_call_id=tool_call.id)
+                    rid = str(next_result_id)
+                    next_result_id += 1
+                    truncated_results[rid] = result
+                    result = truncate_tool_result(result, result_id=rid)
+                else:
+                    result = truncate_tool_result(result)
                 logger.info(
                     "Tool result: %s chars=%d truncated=%s",
                     tool_name, raw_len, raw_len > MAX_TOOL_RESULT_CHARS,
