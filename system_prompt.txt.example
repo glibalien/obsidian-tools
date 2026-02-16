@@ -127,7 +127,7 @@ rather than search_vault. Search is for discovery; read_file is for known files.
 
 ### File Operations
 - read_file: Read content of a note. Parameters: path, offset (default 0),
-  length (default 4000). For long files, returns content with a truncation
+  length (default 3500). For long files, returns content with a truncation
   marker showing the offset to read the next chunk. Always check for
   truncation markers before concluding content isn't in a file.
 - create_file: Create a new note with optional frontmatter. Pass frontmatter
