@@ -49,25 +49,25 @@ class TestReadFile:
         result = json.loads(read_file("long.md"))
         assert result["success"] is True
         assert result["content"].startswith("# Long Note")
-        assert "[... truncated at char 4000 of" in result["content"]
-        assert "Use offset=4000 to read more." in result["content"]
+        assert "[... truncated at char 3500 of" in result["content"]
+        assert "Use offset=3500 to read more." in result["content"]
 
     def test_offset_pagination(self, vault_config):
         """Reading with offset should show continuation header and may show truncation marker."""
         long_content = "A" * 10000
         (vault_config / "long.md").write_text(long_content)
-        result = json.loads(read_file("long.md", offset=4000))
+        result = json.loads(read_file("long.md", offset=3500))
         assert result["success"] is True
-        assert "[Continuing from char 4000 of 10000]" in result["content"]
-        assert "[... truncated at char 8000 of 10000" in result["content"]
+        assert "[Continuing from char 3500 of 10000]" in result["content"]
+        assert "[... truncated at char 7000 of 10000" in result["content"]
 
     def test_offset_final_chunk(self, vault_config):
         """Reading the last chunk should have no truncation marker."""
         long_content = "B" * 5000
         (vault_config / "long.md").write_text(long_content)
-        result = json.loads(read_file("long.md", offset=4000))
+        result = json.loads(read_file("long.md", offset=3500))
         assert result["success"] is True
-        assert "[Continuing from char 4000 of 5000]" in result["content"]
+        assert "[Continuing from char 3500 of 5000]" in result["content"]
         assert "[... truncated" not in result["content"]
 
     def test_offset_past_end(self, vault_config):

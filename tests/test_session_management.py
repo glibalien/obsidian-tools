@@ -479,3 +479,22 @@ class TestChatEndpointIntegration:
             sid_a2 = r3.json()["session_id"]
 
         assert sid_a == sid_a2
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    @patch("api_server.load_preferences")
+    def test_preferences_reloaded_per_request(self, mock_load_prefs, mock_agent_turn):
+        """Preferences should be reloaded each request, not cached from startup."""
+        mock_agent_turn.return_value = "response"
+        # First request: no preferences
+        mock_load_prefs.return_value = None
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            client.post("/chat", json={"message": "hi", "active_file": "prefs.md"})
+            session = file_sessions["prefs.md"]
+            assert "User Preferences" not in session.messages[0]["content"]
+
+            # Second request: preferences now exist
+            mock_load_prefs.return_value = "\n\n## User Preferences\n\n- Always be concise"
+            client.post("/chat", json={"message": "more", "active_file": "prefs.md"})
+            assert "User Preferences" in session.messages[0]["content"]
+            assert "Always be concise" in session.messages[0]["content"]

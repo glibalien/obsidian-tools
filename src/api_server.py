@@ -100,17 +100,11 @@ async def lifespan(app: FastAPI):
         # Set up LLM client
         client = create_llm_client()
 
-        # Build system prompt with preferences
-        system_prompt = SYSTEM_PROMPT
-        preferences = load_preferences()
-        if preferences:
-            system_prompt += preferences
-
         # Store in app state
         app.state.mcp_session = session
         app.state.llm_client = client
         app.state.tools = tools
-        app.state.system_prompt = system_prompt
+        app.state.system_prompt = SYSTEM_PROMPT
 
         yield
         # Cleanup happens automatically when exiting the context
@@ -126,8 +120,15 @@ app = FastAPI(
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     """Process a chat message and return the agent's response."""
-    session = get_or_create_session(request.active_file, app.state.system_prompt)
+    # Reload preferences each request so mid-session changes take effect
+    system_prompt = app.state.system_prompt
+    preferences = load_preferences()
+    if preferences:
+        system_prompt += preferences
+
+    session = get_or_create_session(request.active_file, system_prompt)
     messages = session.messages
+    messages[0]["content"] = system_prompt
 
     # Remember which messages were already compacted, then strip the
     # internal flag so it isn't sent to the LLM API (Fireworks rejects it).
