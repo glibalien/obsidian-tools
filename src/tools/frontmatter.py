@@ -20,6 +20,8 @@ def list_files_by_frontmatter(
     field: str,
     value: str,
     match_type: str = "contains",
+    limit: int = 100,
+    offset: int = 0,
 ) -> str:
     """Find vault files matching frontmatter criteria.
 
@@ -58,9 +60,12 @@ def list_files_by_frontmatter(
             matching.append(str(rel_path))
 
     if not matching:
-        return ok(f"No files found where {field} {match_type} '{value}'", results=[])
+        return ok(f"No files found where {field} {match_type} '{value}'", results=[], total=0)
 
-    return ok(results=sorted(matching))
+    all_results = sorted(matching)
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return ok(results=page, total=total)
 
 
 def update_frontmatter(
@@ -147,6 +152,8 @@ def search_by_date_range(
     start_date: str,
     end_date: str,
     date_type: str = "modified",
+    limit: int = 100,
+    offset: int = 0,
 ) -> str:
     """Find vault files within a date range.
 
@@ -209,6 +216,10 @@ def search_by_date_range(
         return ok(
             f"No files found with {date_type} date between {start_date} and {end_date}",
             results=[],
+            total=0,
         )
 
-    return ok(results=sorted(matching))
+    all_results = sorted(matching)
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return ok(results=page, total=total)
