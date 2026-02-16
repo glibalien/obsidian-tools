@@ -26,7 +26,7 @@ def semantic_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     results = collection.query(query_texts=[query], n_results=n_results)
 
     return [
-        {"source": metadata["source"], "content": doc[:500], "heading": metadata.get("heading", "")}
+        {"source": metadata["source"], "content": doc, "heading": metadata.get("heading", "")}
         for doc, metadata in zip(results["documents"][0], results["metadatas"][0])
     ]
 
@@ -100,8 +100,8 @@ def merge_results(
     semantic: list[dict[str, str]],
     keyword: list[dict[str, str]],
     n_results: int = 5,
-    semantic_weight: float = 0.7,
-    keyword_weight: float = 0.3,
+    semantic_weight: float = 0.5,
+    keyword_weight: float = 0.5,
 ) -> list[dict[str, str]]:
     """Merge two ranked result lists using Reciprocal Rank Fusion.
 
