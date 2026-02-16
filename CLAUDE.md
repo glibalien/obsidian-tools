@@ -65,7 +65,7 @@ services/
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management and tool compaction
 - **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap and tool result truncation
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Returns `heading` metadata from chunks in search results.
-- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata. Runs via systemd, not manually. Use `--full` flag to force full reindex.
+- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes
 
 ## MCP Tools

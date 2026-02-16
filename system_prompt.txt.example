@@ -59,6 +59,11 @@ When search results contain enough information to answer the question
 answer directly from the search results. Only use read_file when you
 need additional context beyond what search returned.
 
+When a user asks about a specific section of a known note (e.g. "tell me about
+phase 5 of the obsidian tools project"), use read_file on that note directly
+rather than search_vault. Search is best for discovery; read_file is best when
+you already know which file contains the answer.
+
 This is important because many relationships in the vault are structural
 (expressed through wikilinks and frontmatter properties) rather than
 textual. A task may reference its parent project only via a frontmatter
