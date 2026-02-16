@@ -68,7 +68,7 @@ services/
 - **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and tool message compaction
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
-- **log_chat.py**: Appends interaction logs to daily notes
+- **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
 
 ## MCP Tools
 
@@ -389,6 +389,18 @@ dir_path, error = resolve_dir("notes")
 path = resolve_vault_path("notes/file.md")
 ```
 
+### Code Fence Detection
+
+```python
+from services.vault import is_fence_line
+
+is_fence_line("```python")  # True
+is_fence_line("~~~")        # True
+is_fence_line("hello")      # False
+```
+
+Shared helper used by both `find_section` (vault.py) and `_split_by_headings` (index_vault.py) for consistent code fence detection.
+
 ### Section Finding
 
 ```python
@@ -459,7 +471,8 @@ tests/
 ├── test_api_context.py          # Tests for API context handling
 ├── test_chunking.py             # Tests for chunking, search, keyword optimization, link index, batch upsert
 ├── test_session_management.py   # Tests for tool compaction, session routing, /chat integration
-├── test_vault_service.py        # Tests for services/vault.py
+├── test_log_chat.py             # Tests for wikilink insertion and protected zones
+├── test_vault_service.py        # Tests for services/vault.py, is_fence_line
 ├── test_tools_files.py          # Tests for file operations
 ├── test_tools_sections.py       # Tests for section manipulation
 ├── test_tools_links.py          # Tests for link operations, pagination
