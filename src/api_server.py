@@ -129,10 +129,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session = get_or_create_session(request.active_file, app.state.system_prompt)
     messages = session.messages
 
-    # Strip _compacted flags before LLM call
-    for msg in messages:
-        msg.pop("_compacted", None)
-
     # Add user message with context prefix
     context_prefix = format_context_prefix(request.active_file)
     messages.append({"role": "user", "content": context_prefix + request.message})
