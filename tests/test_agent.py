@@ -119,10 +119,9 @@ async def test_agent_turn_tool_result_truncated():
 
     tool_msgs = [m for m in messages if m.get("role") == "tool"]
     assert len(tool_msgs) == 1
-    # After truncation, compaction replaces the content with a stub
-    assert tool_msgs[0]["_compacted"] is True
-    parsed = json.loads(tool_msgs[0]["content"])
-    assert parsed["status"] == "unknown"  # non-JSON content gets "unknown" status
+    # Last round's tool results stay uncompacted so the LLM can read them
+    assert "_compacted" not in tool_msgs[0]
+    assert "[truncated]" in tool_msgs[0]["content"]
 
 
 class TestAgentCompaction:
