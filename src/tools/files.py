@@ -16,7 +16,7 @@ from services.vault import (
 )
 
 
-def read_file(path: str, offset: int = 0, length: int = 4000) -> str:
+def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
     """Read content of a vault note with optional pagination.
 
     Args:
