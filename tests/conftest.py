@@ -112,10 +112,14 @@ def vault_config(temp_vault, monkeypatch):
     attachments_dir = temp_vault / "Attachments"
     attachments_dir.mkdir(exist_ok=True)
 
+    # Use a temp chroma path so tests don't read/write the real link index
+    temp_chroma = str(temp_vault / ".chroma_db")
+
     # Patch in config module
     monkeypatch.setattr(config, "VAULT_PATH", temp_vault)
     monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian"})
     monkeypatch.setattr(config, "ATTACHMENTS_DIR", attachments_dir)
+    monkeypatch.setattr(config, "CHROMA_PATH", temp_chroma)
 
     # Patch in services.vault (which imports from config at load time)
     monkeypatch.setattr(services.vault, "VAULT_PATH", temp_vault)

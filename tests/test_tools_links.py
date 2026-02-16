@@ -47,6 +47,61 @@ class TestFindBacklinks:
         assert "cannot be empty" in result["error"]
 
 
+class TestFindBacklinksWithIndex:
+    """Tests for find_backlinks using link index."""
+
+    def test_uses_index_when_available(self, vault_config):
+        """Should read from link index file instead of scanning vault."""
+        import json as json_mod
+        import os
+        from config import CHROMA_PATH
+
+        # Write a fake link index with absolute paths
+        vault_resolved = vault_config.resolve()
+        index = {"note1": [str(vault_resolved / "note2.md")]}
+        index_path = os.path.join(CHROMA_PATH, "link_index.json")
+        os.makedirs(CHROMA_PATH, exist_ok=True)
+        with open(index_path, "w") as f:
+            json_mod.dump(index, f)
+
+        try:
+            result = json.loads(find_backlinks("note1"))
+            assert result["success"] is True
+            assert len(result["results"]) >= 1
+            assert any("note2.md" in r for r in result["results"])
+        finally:
+            os.remove(index_path)
+
+    def test_falls_back_without_index(self, vault_config):
+        """Should fall back to vault scan if index file missing."""
+        import os
+        from config import CHROMA_PATH
+        index_path = os.path.join(CHROMA_PATH, "link_index.json")
+        if os.path.exists(index_path):
+            os.remove(index_path)
+
+        result = json.loads(find_backlinks("note1"))
+        assert result["success"] is True
+        assert any("note2.md" in r for r in result["results"])
+
+    def test_pagination_limit(self, vault_config):
+        """Should respect limit parameter."""
+        result = json.loads(find_backlinks("note1", limit=1))
+        assert result["success"] is True
+        assert len(result["results"]) <= 1
+        assert result["total"] >= 1
+
+    def test_pagination_offset(self, vault_config):
+        """Should respect offset parameter."""
+        # Get all results first
+        full = json.loads(find_backlinks("note1"))
+        total = full["total"]
+
+        # Offset past all results
+        result = json.loads(find_backlinks("note1", offset=total))
+        assert result["results"] == [] or len(result["results"]) == 0
+
+
 class TestFindOutlinks:
     """Tests for find_outlinks tool."""
 
@@ -126,3 +181,44 @@ class TestSearchByFolder:
         assert result["success"] is True
         assert result["results"] == []
         assert "No markdown files found" in result["message"]
+
+
+class TestListToolPagination:
+    """Tests for limit/offset pagination on list tools."""
+
+    def test_find_outlinks_pagination(self, vault_config):
+        """find_outlinks should respect limit and offset."""
+        links = " ".join(f"[[note{i}]]" for i in range(10))
+        (vault_config / "many_links.md").write_text(f"# Links\n\n{links}")
+
+        result = json.loads(find_outlinks("many_links.md", limit=3, offset=0))
+        assert result["success"] is True
+        assert len(result["results"]) == 3
+        assert result["total"] == 10
+
+        result2 = json.loads(find_outlinks("many_links.md", limit=3, offset=3))
+        assert len(result2["results"]) == 3
+        assert result2["total"] == 10
+
+    def test_search_by_folder_pagination(self, vault_config):
+        """search_by_folder should respect limit and offset."""
+        for i in range(5):
+            (vault_config / f"page_test_{i}.md").write_text(f"# Page {i}")
+
+        result = json.loads(search_by_folder(".", limit=3, offset=0))
+        assert result["success"] is True
+        assert len(result["results"]) == 3
+        assert result["total"] >= 5
+
+    def test_pagination_offset_beyond_results(self, vault_config):
+        """Offset beyond results returns empty list with correct total."""
+        result = json.loads(search_by_folder(".", limit=100, offset=9999))
+        assert result["success"] is True
+        assert result["results"] == []
+        assert result["total"] >= 1
+
+    def test_default_pagination_includes_total(self, vault_config):
+        """Default call (no limit/offset) should still include total."""
+        result = json.loads(find_outlinks("note1.md"))
+        assert result["success"] is True
+        assert "total" in result
