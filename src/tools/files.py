@@ -32,7 +32,7 @@ def read_file(path: str, offset: int = 0, length: int = 4000) -> str:
         return err(error)
 
     try:
-        content = file_path.read_text()
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         return err(f"Error reading file: {e}")
 
