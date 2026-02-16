@@ -65,7 +65,7 @@ services/
 - **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management; compacts tool messages between requests
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap and tool result truncation
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and synthetic `get_continuation` tool for retrieving truncated results in chunks
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
@@ -603,10 +603,13 @@ Example stub:
 The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API.
 
 **Token management — tool result truncation:**
-Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results end with `\n\n[truncated]` so the agent knows the result is partial.
+Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results include the `tool_call_id` and character counts so the LLM can call `get_continuation(tool_call_id, offset)` to retrieve more.
+
+**Tool result continuation:**
+When a tool result is truncated, the full result is cached in-memory for the duration of the `agent_turn` call. A synthetic `get_continuation` tool is injected into the tool list and handled directly by `agent_turn` (no MCP round-trip). The LLM can call it repeatedly with increasing offsets to retrieve the full result in 4000-char chunks. `get_continuation` calls are excluded from the iteration cap count. The cache is freed when the turn ends.
 
 **Agent loop safeguard:**
-The `agent_turn` function has a `max_iterations` parameter (default 20). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`. Calls to `log_interaction` are excluded from the count — iterations where all tool calls are `log_interaction` do not increment the counter.
+The `agent_turn` function has a `max_iterations` parameter (default 20). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`. Calls to `log_interaction` and `get_continuation` are excluded from the count — iterations where all tool calls are uncounted tools do not increment the counter.
 
 **Storage:**
 - Sessions are stored in-memory as `file_sessions: dict[str | None, Session]` (lost on server restart)
