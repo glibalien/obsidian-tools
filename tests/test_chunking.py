@@ -1,7 +1,9 @@
 """Tests for structure-aware markdown chunking."""
 
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -381,3 +383,30 @@ class TestKeywordSearchOptimization:
         call_kwargs = mock_collection.get.call_args[1]
         assert "limit" in call_kwargs
         assert call_kwargs["limit"] == 200
+
+
+class TestIndexFileBatching:
+    """Tests for batched upsert in index_file."""
+
+    @patch("index_vault.get_collection")
+    def test_single_upsert_call_per_file(self, mock_get_collection):
+        """index_file should call upsert once with all chunks, not once per chunk."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": []}
+        mock_get_collection.return_value = mock_collection
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+            f.write("# Section 1\n\nContent one.\n\n# Section 2\n\nContent two.\n")
+            tmp_path = Path(f.name)
+
+        try:
+            from index_vault import index_file
+            index_file(tmp_path)
+
+            assert mock_collection.upsert.call_count == 1
+            call_args = mock_collection.upsert.call_args[1]
+            assert len(call_args["ids"]) >= 2
+            assert len(call_args["documents"]) == len(call_args["ids"])
+            assert len(call_args["metadatas"]) == len(call_args["ids"])
+        finally:
+            tmp_path.unlink()

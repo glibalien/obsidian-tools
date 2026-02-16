@@ -249,19 +249,24 @@ def index_file(md_file: Path) -> None:
     content = md_file.read_text(encoding='utf-8', errors='ignore')
     chunks = chunk_markdown(content)
 
-    # Index each chunk
+    if not chunks:
+        return
+
+    # Batch upsert all chunks at once
+    ids = []
+    documents = []
+    metadatas = []
     for i, chunk in enumerate(chunks):
-        doc_id = hashlib.md5(f"{md_file}_{i}".encode()).hexdigest()
-        collection.upsert(
-            ids=[doc_id],
-            documents=[f"[{md_file.stem}] {chunk['text']}"],
-            metadatas=[{
-                "source": str(md_file),
-                "chunk": i,
-                "heading": chunk["heading"],
-                "chunk_type": chunk["chunk_type"],
-            }],
-        )
+        ids.append(hashlib.md5(f"{md_file}_{i}".encode()).hexdigest())
+        documents.append(f"[{md_file.stem}] {chunk['text']}")
+        metadatas.append({
+            "source": str(md_file),
+            "chunk": i,
+            "heading": chunk["heading"],
+            "chunk_type": chunk["chunk_type"],
+        })
+
+    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
 
 def prune_deleted_files(valid_sources: set[str]) -> int:
