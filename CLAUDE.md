@@ -67,7 +67,7 @@ services/
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management; compacts tool messages between requests
 - **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and synthetic `get_continuation` tool for retrieving truncated results in chunks. See **System Prompt** section below for prompt structure.
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
-- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
+- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
 
 ## MCP Tools
@@ -182,7 +182,7 @@ Creates a new markdown note in the vault.
 
 ### find_backlinks
 
-Finds all vault files containing wikilinks to a given note name. Uses a pre-built link index (`link_index.json` in `CHROMA_PATH`) for O(1) lookups, falling back to a full vault scan if the index doesn't exist.
+Finds all vault files containing wikilinks to a given note name by scanning the vault.
 - `note_name`: The note name to search for (without `[[]]` brackets or `.md` extension)
 - `limit`: Maximum results to return (default 100)
 - `offset`: Number of results to skip (default 0)
@@ -247,7 +247,7 @@ The system prompt (`system_prompt.txt.example`) is organized into 8 sections:
 1. **Vault Structure**: Folder layout and frontmatter category conventions (tailored to actual vault)
 2. **Vault Relationships**: Structural linking patterns (tasks→projects via frontmatter wikilinks)
 3. **Choosing the Right Tool**: Decision tree mapping user intent → correct tool. Includes intent-to-tool table, key distinctions (exhaustive vs relevant, structural vs textual, known path vs discovery), and common mistakes to avoid. This section is critical for preventing the agent from defaulting to `search_vault` for everything.
-4. **Vault Navigation Strategy**: Multi-step research pattern — search for entry points, use `find_backlinks`/`find_outlinks` to discover related notes, read relevant linked notes. Emphasizes that backlinks use a pre-built index and catch frontmatter wikilinks invisible to text search.
+4. **Vault Navigation Strategy**: Multi-step research pattern — search for entry points, use `find_backlinks`/`find_outlinks` to discover related notes, read relevant linked notes. Emphasizes that backlinks catch frontmatter wikilinks invisible to text search.
 5. **Available Tools**: Detailed docs for all MCP tools grouped by category (Search & Discovery, Relationships, File Operations, Section Editing, Frontmatter, Preferences, Utility). Includes pagination parameters, heading metadata, batch operation formats, and section operation specifics.
 6. **Handling Large Results**: Three truncation/pagination mechanisms — list tool pagination (limit/offset/total), `get_continuation` for truncated tool results (>100K chars, safety net only), and `read_file` offset for long files. Explicitly distinguishes the latter two to prevent confusion.
 7. **Tool Usage Guidelines**: General principles (use exact paths, cite sources, report errors accurately)
@@ -489,7 +489,7 @@ tests/
 ├── conftest.py                  # Fixtures: temp_vault, vault_config
 ├── test_agent.py                # Tests for agent loop cap, truncation, compaction
 ├── test_api_context.py          # Tests for API context handling
-├── test_chunking.py             # Tests for chunking, frontmatter indexing, search, keyword optimization, link index
+├── test_chunking.py             # Tests for chunking, frontmatter indexing, search, keyword optimization
 ├── test_session_management.py   # Tests for tool compaction, session routing, /chat integration
 ├── test_log_chat.py             # Tests for wikilink insertion and protected zones
 ├── test_vault_service.py        # Tests for services/vault.py, is_fence_line

@@ -1,9 +1,6 @@
 """Link tools - backlinks, outlinks, folder search."""
 
-import json as _json
-import os
 import re
-from pathlib import Path
 
 from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import err, get_vault_files, ok, resolve_dir, resolve_file
@@ -11,9 +8,6 @@ from services.vault import err, get_vault_files, ok, resolve_dir, resolve_file
 
 def find_backlinks(note_name: str, limit: int = 100, offset: int = 0) -> str:
     """Find all vault files that contain wikilinks to a given note.
-
-    Uses a pre-built link index for O(1) lookups when available,
-    falling back to a full vault scan if the index doesn't exist.
 
     Args:
         note_name: The note name to search for (without brackets or .md extension).
@@ -30,25 +24,7 @@ def find_backlinks(note_name: str, limit: int = 100, offset: int = 0) -> str:
     if note_name.endswith(".md"):
         note_name = note_name[:-3]
 
-    # Try link index first
-    from config import CHROMA_PATH
-    index_path = os.path.join(CHROMA_PATH, "link_index.json")
-
-    if os.path.exists(index_path):
-        try:
-            with open(index_path, "r", encoding="utf-8") as f:
-                link_index = _json.load(f)
-            sources = link_index.get(note_name.lower(), [])
-            vault_resolved = VAULT_PATH.resolve()
-            all_results = sorted(
-                str(Path(s).relative_to(vault_resolved))
-                for s in sources
-                if Path(s).exists()
-            )
-        except Exception:
-            all_results = _scan_backlinks(note_name)
-    else:
-        all_results = _scan_backlinks(note_name)
+    all_results = _scan_backlinks(note_name)
 
     if not all_results:
         return ok(f"No backlinks found to [[{note_name}]]", results=[], total=0)

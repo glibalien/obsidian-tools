@@ -75,7 +75,7 @@ not textual — text search will miss them.
 General approach for research or summarization tasks:
 1. Search or read to find the most relevant note(s) as starting points
 2. Use find_backlinks on key notes to discover everything that references them —
-   this is fast (uses a pre-built index) and catches relationships that search
+   this catches relationships that search
    misses, including frontmatter wikilinks like project: "[[Project Name]]"
 3. Use find_outlinks to see what a note links to — useful for mapping a note's
    context (related projects, people, meetings)
