@@ -76,7 +76,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 
 | MCP Tool | Purpose | Parameters |
 |----------|---------|------------|
-| `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
+| `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid"), `chunk_type` (string: "frontmatter"\|"section"\|"paragraph"\|"sentence"\|"fragment", default "" = no filter) |
 | `read_file` | Read content of a vault note | `path` (string: relative to vault or absolute), `offset` (int, default 0), `length` (int, default 3500) |
 | `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains"), `limit` (int, default 100), `offset` (int, default 0) |
 | `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
@@ -107,12 +107,17 @@ Searches the Obsidian vault using hybrid search (semantic + keyword by default).
 - `"semantic"`: Vector similarity search only.
 - `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
 
+The optional `chunk_type` parameter filters results to a specific type of indexed chunk:
+- `"frontmatter"`: YAML metadata only (tags, people, company, etc.). Use this to search across metadata fields without body content noise.
+- `"section"`, `"paragraph"`, `"sentence"`, `"fragment"`: Body content chunks at various granularities.
+- `""` (default): No filter, searches all chunk types.
+
 **Returns:** JSON response
 - Success with results: `{"success": true, "results": [{"source": "path.md", "content": "...", "heading": "## Section Name"}]}`
 - Success with no matches: `{"success": true, "message": "No matching documents found", "results": []}`
 - Error: `{"success": false, "error": "description"}`
 
-The `heading` field indicates which markdown section the result came from (e.g., `"## Meeting Notes"`, `"### Action Items"`). It may be `"top-level"` for content before the first heading, or empty for older chunks indexed before this metadata was added.
+The `heading` field indicates which markdown section the result came from (e.g., `"## Meeting Notes"`, `"### Action Items"`). It may be `"top-level"` for content before the first heading, `"frontmatter"` for frontmatter chunks, or empty for older chunks indexed before this metadata was added.
 
 ### read_file
 
@@ -244,7 +249,7 @@ The system prompt (`system_prompt.txt.example`) is organized into 8 sections:
 3. **Choosing the Right Tool**: Decision tree mapping user intent → correct tool. Includes intent-to-tool table, key distinctions (exhaustive vs relevant, structural vs textual, known path vs discovery), and common mistakes to avoid. This section is critical for preventing the agent from defaulting to `search_vault` for everything.
 4. **Vault Navigation Strategy**: Multi-step research pattern — search for entry points, use `find_backlinks`/`find_outlinks` to discover related notes, read relevant linked notes. Emphasizes that backlinks use a pre-built index and catch frontmatter wikilinks invisible to text search.
 5. **Available Tools**: Detailed docs for all MCP tools grouped by category (Search & Discovery, Relationships, File Operations, Section Editing, Frontmatter, Preferences, Utility). Includes pagination parameters, heading metadata, batch operation formats, and section operation specifics.
-6. **Handling Large Results**: Three truncation/pagination mechanisms — list tool pagination (limit/offset/total), `get_continuation` for truncated tool results (>4000 chars), and `read_file` offset for long files. Explicitly distinguishes the latter two to prevent confusion.
+6. **Handling Large Results**: Three truncation/pagination mechanisms — list tool pagination (limit/offset/total), `get_continuation` for truncated tool results (>100K chars, safety net only), and `read_file` offset for long files. Explicitly distinguishes the latter two to prevent confusion.
 7. **Tool Usage Guidelines**: General principles (use exact paths, cite sources, report errors accurately)
 8. **Interaction Logging**: When and how to call `log_interaction`
 
@@ -557,7 +562,7 @@ Additional configuration in `config.py`:
 - `WHISPER_MODEL`: Whisper model for audio transcription (default: `whisper-v3`, env: `WHISPER_MODEL`)
 
 Constants in `agent.py`:
-- `MAX_TOOL_RESULT_CHARS`: Maximum character length for tool results before truncation (default: `4000`)
+- `MAX_TOOL_RESULT_CHARS`: Maximum character length for tool results before truncation (default: `100000`)
 - `SYSTEM_PROMPT_FILE`: Path to `system_prompt.txt` (loaded once at startup)
 - `SYSTEM_PROMPT_EXAMPLE`: Path to `system_prompt.txt.example` (fallback if `system_prompt.txt` missing)
 
@@ -622,10 +627,10 @@ Tool-specific stubs:
 The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API, then restored afterward so `compact_tool_messages` skips already-compacted stubs (re-compaction degrades them).
 
 **Token management — tool result truncation:**
-Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results include the `tool_call_id` and character counts so the LLM can call `get_continuation(tool_call_id, offset)` to retrieve more.
+Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (100,000) characters before being appended to message history. Truncated results include a short numeric `id` and character counts so the LLM can call `get_continuation(id, offset)` to retrieve more.
 
 **Tool result continuation:**
-When a tool result is truncated, the full result is cached in-memory for the duration of the `agent_turn` call. A synthetic `get_continuation` tool is injected into the tool list and handled directly by `agent_turn` (no MCP round-trip). The LLM can call it repeatedly with increasing offsets to retrieve the full result in 4000-char chunks. `get_continuation` calls are excluded from the iteration cap count. The cache is freed when the turn ends.
+When a tool result is truncated, the full result is cached in-memory for the duration of the `agent_turn` call. A synthetic `get_continuation` tool is injected into the tool list and handled directly by `agent_turn` (no MCP round-trip). The LLM can call it repeatedly with increasing offsets to retrieve the full result in 100K-char chunks. `get_continuation` calls are excluded from the iteration cap count. The cache is freed when the turn ends.
 
 **Agent loop safeguard:**
 The `agent_turn` function has a `max_iterations` parameter (default 20). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`. Calls to `log_interaction` and `get_continuation` are excluded from the count — iterations where all tool calls are uncounted tools do not increment the counter.

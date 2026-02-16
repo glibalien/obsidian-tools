@@ -9,7 +9,10 @@ VALID_MODES = {"hybrid", "semantic", "keyword"}
 
 
 def search_results(
-    query: str, n_results: int = 5, mode: str = "hybrid"
+    query: str,
+    n_results: int = 5,
+    mode: str = "hybrid",
+    chunk_type: str | None = None,
 ) -> list[dict[str, str]]:
     """Search the vault and return structured results.
 
@@ -17,6 +20,7 @@ def search_results(
         query: Search query string.
         n_results: Maximum number of results to return.
         mode: Search strategy -- "hybrid" (default), "semantic", or "keyword".
+        chunk_type: Filter by chunk type (e.g. "frontmatter", "section").
 
     Returns:
         List of dicts with 'source' and 'content' keys.
@@ -28,11 +32,11 @@ def search_results(
         raise ValueError(f"Invalid search mode '{mode}'. Must be one of: {VALID_MODES}")
 
     if mode == "hybrid":
-        return hybrid_search(query, n_results)
+        return hybrid_search(query, n_results, chunk_type=chunk_type)
     elif mode == "semantic":
-        return semantic_search(query, n_results)
+        return semantic_search(query, n_results, chunk_type=chunk_type)
     else:
-        return keyword_search(query, n_results)
+        return keyword_search(query, n_results, chunk_type=chunk_type)
 
 
 def search(query: str, n_results: int = 5, mode: str = "hybrid") -> None:

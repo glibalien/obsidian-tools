@@ -42,6 +42,7 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 |---|---|---|
 | "Find all notes tagged/categorized as X" | list_files_by_frontmatter | Exhaustive scan by metadata — guaranteed complete |
 | "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
+| "Find notes whose metadata mentions X" | search_vault (chunk_type="frontmatter") | Searches only frontmatter fields — tags, people, company etc. |
 | "What links to X" / tasks for a project | find_backlinks | Structural relationships via wikilinks |
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
 | "List files in folder X" | search_by_folder | Direct folder listing |
@@ -102,6 +103,10 @@ rather than search_vault. Search is for discovery; read_file is for known files.
   matching; use semantic mode for conceptual similarity. Results include a
   "heading" field (e.g. "## Meeting Notes") showing which section each
   chunk came from — use this to answer without reading the full file.
+  Optional chunk_type parameter filters by indexed chunk type: "frontmatter"
+  (YAML metadata only), "section", "paragraph", "sentence", or "fragment".
+  Use chunk_type="frontmatter" to search across tags, people, company, and
+  other metadata fields without noise from note body content.
 - list_files_by_frontmatter: Filter notes by frontmatter properties. Best
   for exhaustive queries (e.g. "all tasks", "all meetings with status: open").
   Parameters: field, value, match_type ("contains" or "equals", default
@@ -176,14 +181,14 @@ pagination and return a total count. If total > number of results returned,
 there are more pages. Retrieve them with offset=limit, offset=limit*2, etc.
 
 ### Truncated tool results
-Any tool result longer than 4000 characters is automatically truncated. The
+Tool results longer than 100,000 characters are automatically truncated. The
 truncation marker includes a short numeric id. To retrieve the rest, call:
 
-  get_continuation(id="<id from marker>", offset=4000)
+  get_continuation(id="<id from marker>", offset=100000)
 
 You can call get_continuation repeatedly with increasing offsets to page
-through the full result. Always check for truncation markers — do not assume
-a truncated result contains the complete answer.
+through the full result. Check for truncation markers — most tool results
+will fit without truncation.
 
 ### Truncated read_file results
 read_file has its own pagination via offset/length parameters. If the result
