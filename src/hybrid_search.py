@@ -13,18 +13,24 @@ RRF_K = 60  # Standard reciprocal rank fusion constant
 KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 
 
-def semantic_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
+def semantic_search(
+    query: str, n_results: int = 5, chunk_type: str | None = None
+) -> list[dict[str, str]]:
     """Search the vault using semantic similarity via ChromaDB embeddings.
 
     Args:
         query: Natural language search query.
         n_results: Maximum number of results to return.
+        chunk_type: Filter by chunk type (e.g. "frontmatter", "section").
 
     Returns:
         List of dicts with 'source' and 'content' keys.
     """
     collection = get_collection()
-    results = collection.query(query_texts=[query], n_results=n_results)
+    query_kwargs: dict = {"query_texts": [query], "n_results": n_results}
+    if chunk_type:
+        query_kwargs["where"] = {"chunk_type": chunk_type}
+    results = collection.query(**query_kwargs)
 
     return [
         {"source": metadata["source"], "content": doc, "heading": metadata.get("heading", "")}
@@ -42,7 +48,9 @@ def _extract_query_terms(query: str) -> list[str]:
     return terms
 
 
-def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
+def keyword_search(
+    query: str, n_results: int = 5, chunk_type: str | None = None
+) -> list[dict[str, str]]:
     """Search the vault for chunks containing query keywords.
 
     Combines all query terms into a single ChromaDB $or query, then ranks
@@ -51,6 +59,7 @@ def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     Args:
         query: Search query string.
         n_results: Maximum number of results to return.
+        chunk_type: Filter by chunk type (e.g. "frontmatter", "section").
 
     Returns:
         List of dicts with 'source', 'content', and 'heading' keys,
@@ -68,12 +77,16 @@ def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     else:
         where_document = {"$or": [{"$contains": t} for t in terms]}
 
+    get_kwargs: dict = {
+        "where_document": where_document,
+        "include": ["documents", "metadatas"],
+        "limit": KEYWORD_LIMIT,
+    }
+    if chunk_type:
+        get_kwargs["where"] = {"chunk_type": chunk_type}
+
     try:
-        matches = collection.get(
-            where_document=where_document,
-            include=["documents", "metadatas"],
-            limit=KEYWORD_LIMIT,
-        )
+        matches = collection.get(**get_kwargs)
     except Exception as e:
         logger.warning(f"Keyword search failed: {e}")
         return []
@@ -145,7 +158,9 @@ def merge_results(
     return [result_map[key] for key in ranked_keys[:n_results]]
 
 
-def hybrid_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
+def hybrid_search(
+    query: str, n_results: int = 5, chunk_type: str | None = None
+) -> list[dict[str, str]]:
     """Run semantic and keyword search, merging results with RRF.
 
     Fetches extra candidates from each source (2x n_results) to ensure
@@ -154,11 +169,12 @@ def hybrid_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     Args:
         query: Search query string.
         n_results: Maximum number of final results to return.
+        chunk_type: Filter by chunk type (e.g. "frontmatter", "section").
 
     Returns:
         Merged results from both search strategies.
     """
     candidate_count = n_results * 2
-    sem_results = semantic_search(query, n_results=candidate_count)
-    kw_results = keyword_search(query, n_results=candidate_count)
+    sem_results = semantic_search(query, n_results=candidate_count, chunk_type=chunk_type)
+    kw_results = keyword_search(query, n_results=candidate_count, chunk_type=chunk_type)
     return merge_results(sem_results, kw_results, n_results=n_results)

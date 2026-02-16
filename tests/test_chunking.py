@@ -311,6 +311,101 @@ class TestSearchHeadingMetadata:
         assert results[0]["heading"] == "## Tasks"
 
 
+class TestChunkTypeFilter:
+    """Tests for chunk_type filtering in search."""
+
+    @patch("hybrid_search.get_collection")
+    def test_semantic_search_with_chunk_type(self, mock_get_collection):
+        """Semantic search passes chunk_type as where filter."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["frontmatter content"]],
+            "metadatas": [[{"source": "file.md", "heading": "frontmatter", "chunk_type": "frontmatter"}]],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("project tags", n_results=5, chunk_type="frontmatter")
+
+        call_kwargs = mock_collection.query.call_args[1]
+        assert call_kwargs["where"] == {"chunk_type": "frontmatter"}
+        assert len(results) == 1
+
+    @patch("hybrid_search.get_collection")
+    def test_semantic_search_no_chunk_type(self, mock_get_collection):
+        """Semantic search without chunk_type sends no where filter."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["content"]],
+            "metadatas": [[{"source": "file.md", "heading": "", "chunk_type": "section"}]],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("test", n_results=5)
+
+        call_kwargs = mock_collection.query.call_args[1]
+        assert "where" not in call_kwargs
+
+    @patch("hybrid_search.get_collection")
+    def test_keyword_search_with_chunk_type(self, mock_get_collection):
+        """Keyword search passes chunk_type as where filter."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["frontmatter content"],
+            "metadatas": [{"source": "file.md", "heading": "frontmatter", "chunk_type": "frontmatter"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("content", n_results=5, chunk_type="frontmatter")
+
+        call_kwargs = mock_collection.get.call_args[1]
+        assert call_kwargs["where"] == {"chunk_type": "frontmatter"}
+
+    @patch("hybrid_search.get_collection")
+    def test_keyword_search_no_chunk_type(self, mock_get_collection):
+        """Keyword search without chunk_type sends no where filter."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["some content"],
+            "metadatas": [{"source": "file.md", "heading": "", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("content", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        assert "where" not in call_kwargs
+
+    @patch("hybrid_search.get_collection")
+    def test_hybrid_search_passes_chunk_type(self, mock_get_collection):
+        """Hybrid search passes chunk_type through to both sub-searches."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["content"]],
+            "metadatas": [[{"source": "a.md", "heading": "", "chunk_type": "frontmatter"}]],
+        }
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["content"],
+            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "frontmatter"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import hybrid_search
+        hybrid_search("test query", n_results=5, chunk_type="frontmatter")
+
+        # Both semantic (query) and keyword (get) should have where filter
+        query_kwargs = mock_collection.query.call_args[1]
+        get_kwargs = mock_collection.get.call_args[1]
+        assert query_kwargs["where"] == {"chunk_type": "frontmatter"}
+        assert get_kwargs["where"] == {"chunk_type": "frontmatter"}
+
+
 class TestKeywordSearchOptimization:
     """Tests for optimized single-query keyword search."""
 

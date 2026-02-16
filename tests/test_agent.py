@@ -41,7 +41,7 @@ def test_truncate_tool_result_with_result_id():
     assert truncated.startswith("x" * MAX_TOOL_RESULT_CHARS)
     assert 'id="1"' in truncated
     assert "tool_call_id" not in truncated  # no longer uses tool_call_id
-    assert "4000" in truncated
+    assert str(MAX_TOOL_RESULT_CHARS) in truncated
     assert str(MAX_TOOL_RESULT_CHARS + 500) in truncated
 
 
@@ -101,7 +101,7 @@ async def test_agent_turn_max_iterations():
 @pytest.mark.anyio
 async def test_agent_turn_tool_result_truncated():
     """Tool results exceeding MAX_TOOL_RESULT_CHARS are truncated in messages."""
-    big_result = "x" * (MAX_TOOL_RESULT_CHARS + 500)
+    big_result = "x" * (MAX_TOOL_RESULT_CHARS + 5000)
 
     mock_tool_call = MagicMock()
     mock_tool_call.id = "call_1"
@@ -153,7 +153,8 @@ async def test_agent_turn_tool_result_truncated():
 @pytest.mark.anyio
 async def test_agent_turn_get_continuation():
     """Agent handles get_continuation for truncated results."""
-    big_result = "A" * 3000 + "B" * 3000 + "C" * 2000  # 8000 chars total
+    # Must exceed MAX_TOOL_RESULT_CHARS (100K) to trigger truncation
+    big_result = "A" * 60000 + "B" * 60000 + "C" * 30000  # 150K chars total
 
     # LLM call 1: calls transcribe_audio, gets truncated result
     mock_tool_call_1 = MagicMock()
@@ -269,19 +270,21 @@ async def test_agent_turn_get_continuation_invalid_id():
 def test_handle_get_continuation_valid():
     """Returns correct chunk from cache."""
     from agent import _handle_get_continuation, MAX_TOOL_RESULT_CHARS
-    cache = {"1": "A" * 10000}
+    size = MAX_TOOL_RESULT_CHARS * 3  # large enough to have remaining after first chunk
+    cache = {"1": "A" * size}
     result = _handle_get_continuation(cache, {"id": "1", "offset": MAX_TOOL_RESULT_CHARS})
     assert result.startswith("A")
-    assert "remaining" in result  # still has more (10000 - 4000 - 4000 = 2000 remaining)
+    assert "remaining" in result
 
 
 def test_handle_get_continuation_final_chunk():
     """Final chunk has no truncation marker."""
     from agent import _handle_get_continuation, MAX_TOOL_RESULT_CHARS
-    cache = {"1": "A" * 5000}
+    extra = 1000
+    cache = {"1": "A" * (MAX_TOOL_RESULT_CHARS + extra)}
     result = _handle_get_continuation(cache, {"id": "1", "offset": MAX_TOOL_RESULT_CHARS})
     assert "truncated" not in result
-    assert len(result) == 1000  # 5000 - 4000
+    assert len(result) == extra
 
 
 def test_handle_get_continuation_missing_id():

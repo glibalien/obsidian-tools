@@ -24,7 +24,7 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
-MAX_TOOL_RESULT_CHARS = 4000
+MAX_TOOL_RESULT_CHARS = 100_000
 
 
 SYSTEM_PROMPT_FILE = PROJECT_ROOT / "system_prompt.txt"
