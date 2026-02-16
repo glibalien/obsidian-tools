@@ -30,6 +30,52 @@ class TestReadFile:
         result = read_file("projects/project1.md")
         assert "# Project 1" in result
 
+    def test_short_file_no_markers(self, vault_config):
+        """Short files should be returned in full with no markers."""
+        result = read_file("note3.md")
+        assert "[... truncated" not in result
+        assert "[Continuing from" not in result
+        assert "# Note 3" in result
+
+    def test_long_file_truncated_with_marker(self, vault_config):
+        """Files longer than length should have a continuation marker."""
+        long_content = "# Long Note\n\n" + "x" * 5000
+        (vault_config / "long.md").write_text(long_content)
+        result = read_file("long.md")
+        assert result.startswith("# Long Note")
+        assert "[... truncated at char 4000 of" in result
+        assert "Use offset=4000 to read more." in result
+
+    def test_offset_pagination(self, vault_config):
+        """Reading with offset should show continuation header and may show truncation marker."""
+        long_content = "A" * 10000
+        (vault_config / "long.md").write_text(long_content)
+        result = read_file("long.md", offset=4000)
+        assert "[Continuing from char 4000 of 10000]" in result
+        assert "[... truncated at char 8000 of 10000" in result
+
+    def test_offset_final_chunk(self, vault_config):
+        """Reading the last chunk should have no truncation marker."""
+        long_content = "B" * 5000
+        (vault_config / "long.md").write_text(long_content)
+        result = read_file("long.md", offset=4000)
+        assert "[Continuing from char 4000 of 5000]" in result
+        assert "[... truncated" not in result
+
+    def test_offset_past_end(self, vault_config):
+        """Offset past end of file should return error."""
+        result = read_file("note3.md", offset=99999)
+        assert "Error" in result
+        assert "offset" in result.lower()
+
+    def test_custom_length(self, vault_config):
+        """Custom length parameter should control chunk size."""
+        content = "C" * 500
+        (vault_config / "custom.md").write_text(content)
+        result = read_file("custom.md", length=100)
+        assert "[... truncated at char 100 of 500" in result
+        assert len(result.split("\n\n[... truncated")[0]) == 100
+
 
 class TestCreateFile:
     """Tests for create_file tool."""
