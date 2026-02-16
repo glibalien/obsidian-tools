@@ -14,23 +14,49 @@ from services.vault import (
 )
 
 
-def read_file(path: str) -> str:
-    """Read the full content of a vault note.
+def read_file(path: str, offset: int = 0, length: int = 4000) -> str:
+    """Read content of a vault note with optional pagination.
 
     Args:
         path: Path to the note, either relative to vault root or absolute.
+        offset: Character position to start reading from (default 0).
+        length: Maximum characters to return (default 4000).
 
     Returns:
-        The full text content of the note.
+        The text content of the note, with pagination markers if truncated.
     """
     file_path, error = resolve_file(path)
     if error:
         return f"Error: {error}"
 
     try:
-        return file_path.read_text()
+        content = file_path.read_text()
     except Exception as e:
         return f"Error reading file: {e}"
+
+    total = len(content)
+
+    # Short file with no offset — return as-is
+    if offset == 0 and total <= length:
+        return content
+
+    # Offset past end of file
+    if offset >= total:
+        return f"Error: offset {offset} exceeds file length {total}"
+
+    # Slice the content
+    chunk = content[offset:offset + length]
+    end_pos = offset + length
+
+    # Build result with markers
+    parts = []
+    if offset > 0:
+        parts.append(f"[Continuing from char {offset} of {total}]\n\n")
+    parts.append(chunk)
+    if end_pos < total:
+        parts.append(f"\n\n[... truncated at char {end_pos} of {total}. Use offset={end_pos} to read more.]")
+
+    return "".join(parts)
 
 
 def create_file(
