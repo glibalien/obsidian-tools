@@ -145,6 +145,8 @@ async def test_agent_turn_tool_result_truncated():
     # Last round's tool results stay uncompacted so the LLM can read them
     assert "_compacted" not in tool_msgs[0]
     assert "[truncated" in tool_msgs[0]["content"]
+    assert "call_1" in tool_msgs[0]["content"]
+    assert str(MAX_TOOL_RESULT_CHARS) in tool_msgs[0]["content"]
 
 
 class TestAgentCompaction:
