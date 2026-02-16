@@ -15,6 +15,7 @@ from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
 from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH
+from services.compaction import compact_tool_messages
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,9 @@ async def agent_turn(
                     "content": result,
                 }
             )
+
+        # Compact tool results to manage token usage
+        compact_tool_messages(messages)
 
 
 async def chat_loop():
