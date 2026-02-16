@@ -129,7 +129,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session = get_or_create_session(request.active_file, app.state.system_prompt)
     messages = session.messages
 
-    # Strip internal _compacted flags so they aren't sent to the LLM API
+    # Remember which messages were already compacted, then strip the
+    # internal flag so it isn't sent to the LLM API (Fireworks rejects it).
+    compacted_indices = {i for i, msg in enumerate(messages) if msg.get("_compacted")}
     for msg in messages:
         msg.pop("_compacted", None)
 
@@ -144,6 +146,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
             messages,
             app.state.tools,
         )
+        # Restore compacted flags so compact_tool_messages skips
+        # already-compacted stubs (re-compaction degrades them).
+        for i in compacted_indices:
+            messages[i]["_compacted"] = True
         compact_tool_messages(messages)
         return ChatResponse(response=response, session_id=session.session_id)
     except Exception as e:

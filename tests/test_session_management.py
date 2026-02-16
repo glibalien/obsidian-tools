@@ -409,6 +409,62 @@ class TestChatEndpointIntegration:
         assert sid1 == sid2
 
     @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_compacted_stubs_survive_across_requests(self, mock_agent_turn):
+        """Already-compacted tool stubs are not re-compacted on subsequent requests.
+
+        Regression test: _compacted flags were stripped before LLM calls and not
+        restored, causing compact_tool_messages to re-process stubs. Re-compaction
+        degrades stubs (e.g. status becomes 'unknown', read_file loses preview).
+        """
+        mock_agent_turn.return_value = "response"
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            # First request — agent_turn adds tool messages to the session
+            r1 = client.post("/chat", json={"message": "hi", "active_file": "recompact.md"})
+            assert r1.status_code == 200
+
+            # Simulate what agent_turn would have appended: an assistant tool_call
+            # and a tool result, then compact them (as the /chat handler does).
+            session = file_sessions["recompact.md"]
+            session.messages.append({
+                "role": "assistant", "content": None, "tool_calls": [
+                    {"id": "call_rc", "function": {"name": "read_file"}, "type": "function"},
+                ],
+            })
+            original_tool_content = json.dumps({
+                "success": True, "content": "A" * 200, "path": "note.md",
+            })
+            session.messages.append({
+                "role": "tool", "tool_call_id": "call_rc",
+                "content": original_tool_content,
+            })
+            compact_tool_messages(session.messages)
+
+            # Verify the stub after first compaction
+            tool_msg = next(m for m in session.messages if m.get("tool_call_id") == "call_rc")
+            stub_after_first = json.loads(tool_msg["content"])
+            assert stub_after_first["status"] == "success"
+            assert "content_preview" in stub_after_first
+            assert stub_after_first["content_length"] == 200
+
+            # Second request — triggers strip + restore + compact cycle
+            r2 = client.post("/chat", json={"message": "more", "active_file": "recompact.md"})
+            assert r2.status_code == 200
+
+            # The stub should be unchanged after the second request
+            tool_msg = next(m for m in session.messages if m.get("tool_call_id") == "call_rc")
+            stub_after_second = json.loads(tool_msg["content"])
+            assert stub_after_second["status"] == "success", (
+                "Re-compaction degraded status to 'unknown'"
+            )
+            assert "content_preview" in stub_after_second, (
+                "Re-compaction lost content_preview"
+            )
+            assert stub_after_second["content_length"] == 200, (
+                "Re-compaction lost content_length"
+            )
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
     def test_switch_back_resumes_session(self, mock_agent_turn):
         """Switching away and back resumes the original session."""
         mock_agent_turn.return_value = "response"
