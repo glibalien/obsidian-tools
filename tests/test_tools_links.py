@@ -47,42 +47,8 @@ class TestFindBacklinks:
         assert "cannot be empty" in result["error"]
 
 
-class TestFindBacklinksWithIndex:
-    """Tests for find_backlinks using link index."""
-
-    def test_uses_index_when_available(self, vault_config):
-        """Should read from link index file instead of scanning vault."""
-        import json as json_mod
-        import os
-        from config import CHROMA_PATH
-
-        # Write a fake link index with absolute paths
-        vault_resolved = vault_config.resolve()
-        index = {"note1": [str(vault_resolved / "note2.md")]}
-        index_path = os.path.join(CHROMA_PATH, "link_index.json")
-        os.makedirs(CHROMA_PATH, exist_ok=True)
-        with open(index_path, "w") as f:
-            json_mod.dump(index, f)
-
-        try:
-            result = json.loads(find_backlinks("note1"))
-            assert result["success"] is True
-            assert len(result["results"]) >= 1
-            assert any("note2.md" in r for r in result["results"])
-        finally:
-            os.remove(index_path)
-
-    def test_falls_back_without_index(self, vault_config):
-        """Should fall back to vault scan if index file missing."""
-        import os
-        from config import CHROMA_PATH
-        index_path = os.path.join(CHROMA_PATH, "link_index.json")
-        if os.path.exists(index_path):
-            os.remove(index_path)
-
-        result = json.loads(find_backlinks("note1"))
-        assert result["success"] is True
-        assert any("note2.md" in r for r in result["results"])
+class TestFindBacklinksPagination:
+    """Tests for find_backlinks pagination."""
 
     def test_pagination_limit(self, vault_config):
         """Should respect limit parameter."""

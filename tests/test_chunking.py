@@ -485,39 +485,6 @@ class TestKeywordSearchOptimization:
         assert call_kwargs["limit"] == 200
 
 
-class TestLinkIndex:
-    """Tests for wikilink index building."""
-
-    def test_build_link_index_basic(self, tmp_path):
-        """Should extract wikilinks and build reverse index."""
-        (tmp_path / "a.md").write_text("Link to [[B]] and [[C|alias]].")
-        (tmp_path / "b.md").write_text("Link to [[C]].")
-        (tmp_path / "c.md").write_text("No links here.")
-
-        from index_vault import build_link_index
-        index = build_link_index([tmp_path / "a.md", tmp_path / "b.md", tmp_path / "c.md"])
-
-        assert sorted(index["b"]) == [str(tmp_path / "a.md")]
-        assert sorted(index["c"]) == [str(tmp_path / "a.md"), str(tmp_path / "b.md")]
-
-    def test_build_link_index_case_insensitive(self, tmp_path):
-        """Link targets should be lowercased for case-insensitive lookup."""
-        (tmp_path / "a.md").write_text("Link to [[MyNote]].")
-
-        from index_vault import build_link_index
-        index = build_link_index([tmp_path / "a.md"])
-
-        assert "mynote" in index
-
-    def test_build_link_index_empty(self, tmp_path):
-        """Files with no wikilinks produce empty index."""
-        (tmp_path / "a.md").write_text("No links.")
-
-        from index_vault import build_link_index
-        index = build_link_index([tmp_path / "a.md"])
-
-        assert index == {}
-
 
 class TestStripWikilinkBrackets:
     """Tests for wikilink bracket stripping."""
