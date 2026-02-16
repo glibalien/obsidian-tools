@@ -593,7 +593,7 @@ Sessions are keyed by `active_file`, not by UUID. This prevents token explosion 
 - Switching back to a previously used file resumes that file's session
 
 **Token management — tool compaction:**
-After each agent turn completes, all `role: "tool"` messages in the session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results (search results, file contents) from accumulating and exploding the prompt size. Compaction logic lives in `services/compaction.py` and is used by both the API server and the CLI agent.
+Tool messages in session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results (search results, file contents) from accumulating and exploding the prompt size. Compaction logic lives in `services/compaction.py` and is used by both the API server and the CLI agent. In the API server, compaction runs after `agent_turn` completes. In the CLI agent, compaction runs *before* appending new tool results each loop iteration, so the LLM always sees full results for the current round while prior rounds are compacted.
 
 Example stub:
 ```json
