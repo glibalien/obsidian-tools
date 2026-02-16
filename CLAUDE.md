@@ -64,8 +64,8 @@ services/
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management and tool compaction
 - **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap and tool result truncation
-- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking
-- **index_vault.py**: Indexes vault content into ChromaDB (runs via systemd, not manually)
+- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Returns `heading` metadata from chunks in search results.
+- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes
 
 ## MCP Tools
@@ -106,9 +106,11 @@ Searches the Obsidian vault using hybrid search (semantic + keyword by default).
 - `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
 
 **Returns:** JSON response
-- Success with results: `{"success": true, "results": [{"source": "path.md", "content": "..."}]}`
+- Success with results: `{"success": true, "results": [{"source": "path.md", "content": "...", "heading": "## Section Name"}]}`
 - Success with no matches: `{"success": true, "message": "No matching documents found", "results": []}`
 - Error: `{"success": false, "error": "description"}`
+
+The `heading` field indicates which markdown section the result came from (e.g., `"## Meeting Notes"`, `"### Action Items"`). It may be `"top-level"` for content before the first heading, or empty for older chunks indexed before this metadata was added.
 
 ### read_file
 
