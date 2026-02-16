@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from agent import agent_turn, truncate_tool_result, MAX_TOOL_RESULT_CHARS
+from services.compaction import compact_tool_messages
 
 
 def test_truncate_tool_result_short():
@@ -118,5 +119,29 @@ async def test_agent_turn_tool_result_truncated():
 
     tool_msgs = [m for m in messages if m.get("role") == "tool"]
     assert len(tool_msgs) == 1
-    assert tool_msgs[0]["content"].endswith("\n\n[truncated]")
-    assert len(tool_msgs[0]["content"]) < len(big_result)
+    # After truncation, compaction replaces the content with a stub
+    assert tool_msgs[0]["_compacted"] is True
+    parsed = json.loads(tool_msgs[0]["content"])
+    assert parsed["status"] == "unknown"  # non-JSON content gets "unknown" status
+
+
+class TestAgentCompaction:
+    """Tests for tool message compaction in agent context."""
+
+    def test_compact_tool_messages_after_tool_round(self):
+        """Tool messages should be compacted after execution."""
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "search"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+            ]},
+            {"role": "tool", "tool_call_id": "call_1",
+             "content": json.dumps({"success": True, "results": [{"source": "a.md", "content": "long..."}]})},
+        ]
+        compact_tool_messages(messages)
+
+        tool_msg = messages[3]
+        assert tool_msg["_compacted"] is True
+        parsed = json.loads(tool_msg["content"])
+        assert parsed["status"] == "success"

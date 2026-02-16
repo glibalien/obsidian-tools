@@ -6,10 +6,12 @@ from datetime import datetime
 from config import VAULT_PATH
 from services.vault import (
     do_update_frontmatter,
+    err,
     extract_frontmatter,
     format_batch_result,
     get_file_creation_time,
     get_vault_files,
+    ok,
     parse_frontmatter_date,
 )
 
@@ -30,7 +32,7 @@ def list_files_by_frontmatter(
         Newline-separated list of matching file paths (relative to vault).
     """
     if match_type not in ("contains", "equals"):
-        return f"Error: match_type must be 'contains' or 'equals', got '{match_type}'"
+        return err(f"match_type must be 'contains' or 'equals', got '{match_type}'")
 
     matching = []
     vault_resolved = VAULT_PATH.resolve()
@@ -56,9 +58,9 @@ def list_files_by_frontmatter(
             matching.append(str(rel_path))
 
     if not matching:
-        return f"No files found where {field} {match_type} '{value}'"
+        return ok(f"No files found where {field} {match_type} '{value}'", results=[])
 
-    return "\n".join(sorted(matching))
+    return ok(results=sorted(matching))
 
 
 def update_frontmatter(
@@ -79,10 +81,10 @@ def update_frontmatter(
         Confirmation message or error.
     """
     if operation not in ("set", "remove", "append"):
-        return f"Error: operation must be 'set', 'remove', or 'append', got '{operation}'"
+        return err(f"operation must be 'set', 'remove', or 'append', got '{operation}'")
 
     if operation in ("set", "append") and value is None:
-        return f"Error: value is required for '{operation}' operation"
+        return err(f"value is required for '{operation}' operation")
 
     # Parse value - try JSON first, fall back to string
     parsed_value = value
@@ -93,7 +95,9 @@ def update_frontmatter(
             parsed_value = value  # Keep as string
 
     success, message = do_update_frontmatter(path, field, parsed_value, operation)
-    return message if success else f"Error: {message}"
+    if success:
+        return ok(message)
+    return err(message)
 
 
 def batch_update_frontmatter(
@@ -114,13 +118,13 @@ def batch_update_frontmatter(
         Summary of successes and failures.
     """
     if operation not in ("set", "remove", "append"):
-        return f"Error: operation must be 'set', 'remove', or 'append', got '{operation}'"
+        return err(f"operation must be 'set', 'remove', or 'append', got '{operation}'")
 
     if operation in ("set", "append") and value is None:
-        return f"Error: value is required for '{operation}' operation"
+        return err(f"value is required for '{operation}' operation")
 
     if not paths:
-        return "Error: paths list is empty"
+        return err("paths list is empty")
 
     # Parse value once (same for all files)
     parsed_value = value
@@ -136,7 +140,7 @@ def batch_update_frontmatter(
         success, message = do_update_frontmatter(path, field, parsed_value, operation)
         results.append((success, message))
 
-    return format_batch_result("update", results)
+    return ok(format_batch_result("update", results))
 
 
 def search_by_date_range(
@@ -158,20 +162,20 @@ def search_by_date_range(
         or a message if no files found.
     """
     if date_type not in ("created", "modified"):
-        return f"Error: date_type must be 'created' or 'modified', got '{date_type}'"
+        return err(f"date_type must be 'created' or 'modified', got '{date_type}'")
 
     try:
         start = datetime.strptime(start_date, "%Y-%m-%d")
     except ValueError:
-        return f"Error: Invalid start_date format. Use YYYY-MM-DD, got '{start_date}'"
+        return err(f"Invalid start_date format. Use YYYY-MM-DD, got '{start_date}'")
 
     try:
         end = datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError:
-        return f"Error: Invalid end_date format. Use YYYY-MM-DD, got '{end_date}'"
+        return err(f"Invalid end_date format. Use YYYY-MM-DD, got '{end_date}'")
 
     if start > end:
-        return f"Error: start_date ({start_date}) is after end_date ({end_date})"
+        return err(f"start_date ({start_date}) is after end_date ({end_date})")
 
     matching = []
     vault_resolved = VAULT_PATH.resolve()
@@ -202,6 +206,9 @@ def search_by_date_range(
             matching.append(str(rel_path))
 
     if not matching:
-        return f"No files found with {date_type} date between {start_date} and {end_date}"
+        return ok(
+            f"No files found with {date_type} date between {start_date} and {end_date}",
+            results=[],
+        )
 
-    return "\n".join(sorted(matching))
+    return ok(results=sorted(matching))

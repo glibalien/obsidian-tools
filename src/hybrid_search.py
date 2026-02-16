@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 STOPWORDS = {"the", "a", "an", "is", "in", "of", "and", "or", "to", "for", "it", "on", "at", "by", "be"}
 RRF_K = 60  # Standard reciprocal rank fusion constant
+KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 
 
 def semantic_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
@@ -44,50 +45,58 @@ def _extract_query_terms(query: str) -> list[str]:
 def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     """Search the vault for chunks containing query keywords.
 
-    Splits the query into terms, finds chunks containing each term via
-    ChromaDB's $contains filter, and ranks by number of matching terms.
+    Combines all query terms into a single ChromaDB $or query, then ranks
+    results by number of matching terms.
 
     Args:
         query: Search query string.
         n_results: Maximum number of results to return.
 
     Returns:
-        List of dicts with 'source' and 'content' keys, sorted by hit count.
+        List of dicts with 'source', 'content', and 'heading' keys,
+        sorted by hit count.
     """
     terms = _extract_query_terms(query)
     if not terms:
         return []
 
     collection = get_collection()
-    # Track hits per chunk: chunk_id -> {doc, metadata, hits}
-    chunk_hits: dict[str, dict] = defaultdict(lambda: {"hits": 0})
 
-    for term in terms:
-        try:
-            matches = collection.get(
-                where_document={"$contains": term},
-                include=["documents", "metadatas"],
-            )
-        except Exception as e:
-            logger.warning(f"Keyword search failed for term '{term}': {e}")
-            continue
+    # Build filter: single $contains for one term, $or for multiple
+    if len(terms) == 1:
+        where_document = {"$contains": terms[0]}
+    else:
+        where_document = {"$or": [{"$contains": t} for t in terms]}
 
-        if not matches["ids"]:
-            continue
+    try:
+        matches = collection.get(
+            where_document=where_document,
+            include=["documents", "metadatas"],
+            limit=KEYWORD_LIMIT,
+        )
+    except Exception as e:
+        logger.warning(f"Keyword search failed: {e}")
+        return []
 
-        for chunk_id, doc, metadata in zip(
-            matches["ids"], matches["documents"], matches["metadatas"]
-        ):
-            entry = chunk_hits[chunk_id]
-            entry["hits"] += 1
-            entry["source"] = metadata["source"]
-            entry["content"] = doc[:500]
-            entry["heading"] = metadata.get("heading", "")
+    if not matches["ids"]:
+        return []
 
-    ranked = sorted(chunk_hits.values(), key=lambda x: x["hits"], reverse=True)
+    # Count matching terms per chunk and build results
+    scored = []
+    for doc, metadata in zip(matches["documents"], matches["metadatas"]):
+        doc_lower = doc.lower()
+        hits = sum(1 for t in terms if t in doc_lower)
+        scored.append({
+            "source": metadata["source"],
+            "content": doc[:500],
+            "heading": metadata.get("heading", ""),
+            "hits": hits,
+        })
+
+    scored.sort(key=lambda x: x["hits"], reverse=True)
     return [
         {"source": r["source"], "content": r["content"], "heading": r["heading"]}
-        for r in ranked[:n_results]
+        for r in scored[:n_results]
     ]
 
 

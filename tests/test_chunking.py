@@ -302,3 +302,82 @@ class TestSearchHeadingMetadata:
         from hybrid_search import keyword_search
         results = keyword_search("searchable content", n_results=1)
         assert results[0]["heading"] == "## Tasks"
+
+
+class TestKeywordSearchOptimization:
+    """Tests for optimized single-query keyword search."""
+
+    @patch("hybrid_search.get_collection")
+    def test_single_term_no_or_wrapper(self, mock_get_collection):
+        """Single-term query should use $contains directly, not $or."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["some content here"],
+            "metadatas": [{"source": "a.md", "heading": "## H", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("content", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        assert call_kwargs["where_document"] == {"$contains": "content"}
+
+    @patch("hybrid_search.get_collection")
+    def test_multi_term_uses_or_query(self, mock_get_collection):
+        """Multi-term query should combine terms with $or."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1", "id2"],
+            "documents": ["alpha bravo content", "bravo only content"],
+            "metadatas": [
+                {"source": "a.md", "heading": "", "chunk_type": "section"},
+                {"source": "b.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        results = keyword_search("alpha bravo", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        where_doc = call_kwargs["where_document"]
+        assert "$or" in where_doc
+        assert {"$contains": "alpha"} in where_doc["$or"]
+        assert {"$contains": "bravo"} in where_doc["$or"]
+
+    @patch("hybrid_search.get_collection")
+    def test_multi_term_ranked_by_hit_count(self, mock_get_collection):
+        """Results should be ranked by number of matching terms."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1", "id2"],
+            "documents": ["alpha bravo content", "bravo only content"],
+            "metadatas": [
+                {"source": "a.md", "heading": "", "chunk_type": "section"},
+                {"source": "b.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        results = keyword_search("alpha bravo", n_results=5)
+
+        # a.md matches both terms, b.md matches one
+        assert results[0]["source"] == "a.md"
+        assert results[1]["source"] == "b.md"
+
+    @patch("hybrid_search.get_collection")
+    def test_query_uses_limit(self, mock_get_collection):
+        """Query should include a limit parameter."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "documents": [], "metadatas": []}
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("something", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        assert "limit" in call_kwargs
+        assert call_kwargs["limit"] == 200

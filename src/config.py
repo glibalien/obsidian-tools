@@ -32,7 +32,6 @@ FIREWORKS_MODEL = os.getenv(
     os.getenv("LLM_MODEL", "accounts/fireworks/models/deepseek-v3p1"),
 )
 LLM_MODEL = FIREWORKS_MODEL  # backward compat alias
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
 
 # Server configuration

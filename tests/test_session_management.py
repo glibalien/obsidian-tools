@@ -10,7 +10,8 @@ from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from api_server import app, build_tool_stub, compact_tool_messages
+from api_server import app
+from services.compaction import build_tool_stub, compact_tool_messages
 
 
 class TestBuildToolStub:
