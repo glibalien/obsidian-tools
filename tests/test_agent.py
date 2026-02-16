@@ -34,12 +34,13 @@ def test_truncate_tool_result_over_limit():
     assert truncated.startswith("x" * MAX_TOOL_RESULT_CHARS)
 
 
-def test_truncate_tool_result_with_tool_call_id():
-    """Truncated results include tool_call_id and char counts in marker."""
+def test_truncate_tool_result_with_result_id():
+    """Truncated results include simple result_id and char counts in marker."""
     result = "x" * (MAX_TOOL_RESULT_CHARS + 500)
-    truncated = truncate_tool_result(result, tool_call_id="call_abc")
+    truncated = truncate_tool_result(result, result_id="1")
     assert truncated.startswith("x" * MAX_TOOL_RESULT_CHARS)
-    assert "call_abc" in truncated
+    assert 'id="1"' in truncated
+    assert "tool_call_id" not in truncated  # no longer uses tool_call_id
     assert "4000" in truncated
     assert str(MAX_TOOL_RESULT_CHARS + 500) in truncated
 
@@ -52,9 +53,9 @@ def test_truncate_tool_result_no_id_still_works():
 
 
 def test_truncate_tool_result_short_with_id():
-    """Short results unchanged even when tool_call_id provided."""
+    """Short results unchanged even when result_id provided."""
     result = "short"
-    assert truncate_tool_result(result, tool_call_id="call_1") == "short"
+    assert truncate_tool_result(result, result_id="1") == "short"
 
 
 @pytest.mark.anyio
@@ -145,7 +146,7 @@ async def test_agent_turn_tool_result_truncated():
     # Last round's tool results stay uncompacted so the LLM can read them
     assert "_compacted" not in tool_msgs[0]
     assert "[truncated" in tool_msgs[0]["content"]
-    assert "call_1" in tool_msgs[0]["content"]
+    assert 'id="1"' in tool_msgs[0]["content"]  # simple numeric ID, not tool_call_id
     assert str(MAX_TOOL_RESULT_CHARS) in tool_msgs[0]["content"]
 
 
@@ -168,11 +169,11 @@ async def test_agent_turn_get_continuation():
         "tool_calls": [{"id": "call_transcribe", "function": {"name": "transcribe_audio", "arguments": '{"path": "note.md"}'}, "type": "function"}],
     }
 
-    # LLM call 2: calls get_continuation to get the rest
+    # LLM call 2: calls get_continuation with simple numeric id
     mock_tool_call_2 = MagicMock()
     mock_tool_call_2.id = "call_cont"
     mock_tool_call_2.function.name = "get_continuation"
-    mock_tool_call_2.function.arguments = json.dumps({"tool_call_id": "call_transcribe", "offset": MAX_TOOL_RESULT_CHARS})
+    mock_tool_call_2.function.arguments = json.dumps({"id": "1", "offset": MAX_TOOL_RESULT_CHARS})
 
     mock_msg_2 = MagicMock()
     mock_msg_2.tool_calls = [mock_tool_call_2]
@@ -216,8 +217,8 @@ async def test_agent_turn_get_continuation():
     # Verify tool messages
     tool_msgs = [m for m in messages if m.get("role") == "tool"]
     assert len(tool_msgs) == 2
-    # First: truncated with marker
-    assert "call_transcribe" in tool_msgs[0]["content"]
+    # First: truncated with simple numeric id in marker
+    assert 'id="1"' in tool_msgs[0]["content"]
     # Second: continuation chunk contains B's
     assert "B" in tool_msgs[1]["content"]
 
@@ -228,7 +229,7 @@ async def test_agent_turn_get_continuation_invalid_id():
     mock_tool_call = MagicMock()
     mock_tool_call.id = "call_cont"
     mock_tool_call.function.name = "get_continuation"
-    mock_tool_call.function.arguments = json.dumps({"tool_call_id": "nonexistent", "offset": 0})
+    mock_tool_call.function.arguments = json.dumps({"id": "99", "offset": 0})
 
     mock_msg_1 = MagicMock()
     mock_msg_1.tool_calls = [mock_tool_call]
@@ -268,8 +269,8 @@ async def test_agent_turn_get_continuation_invalid_id():
 def test_handle_get_continuation_valid():
     """Returns correct chunk from cache."""
     from agent import _handle_get_continuation, MAX_TOOL_RESULT_CHARS
-    cache = {"call_1": "A" * 10000}
-    result = _handle_get_continuation(cache, {"tool_call_id": "call_1", "offset": MAX_TOOL_RESULT_CHARS})
+    cache = {"1": "A" * 10000}
+    result = _handle_get_continuation(cache, {"id": "1", "offset": MAX_TOOL_RESULT_CHARS})
     assert result.startswith("A")
     assert "remaining" in result  # still has more (10000 - 4000 - 4000 = 2000 remaining)
 
@@ -277,16 +278,16 @@ def test_handle_get_continuation_valid():
 def test_handle_get_continuation_final_chunk():
     """Final chunk has no truncation marker."""
     from agent import _handle_get_continuation, MAX_TOOL_RESULT_CHARS
-    cache = {"call_1": "A" * 5000}
-    result = _handle_get_continuation(cache, {"tool_call_id": "call_1", "offset": MAX_TOOL_RESULT_CHARS})
+    cache = {"1": "A" * 5000}
+    result = _handle_get_continuation(cache, {"id": "1", "offset": MAX_TOOL_RESULT_CHARS})
     assert "truncated" not in result
     assert len(result) == 1000  # 5000 - 4000
 
 
 def test_handle_get_continuation_missing_id():
-    """Returns error for unknown tool_call_id."""
+    """Returns error for unknown id."""
     from agent import _handle_get_continuation
-    result = _handle_get_continuation({}, {"tool_call_id": "bad"})
+    result = _handle_get_continuation({}, {"id": "99"})
     parsed = json.loads(result)
     assert "error" in parsed
 
