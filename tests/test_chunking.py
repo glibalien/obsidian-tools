@@ -209,3 +209,34 @@ class TestChunkMarkdownMetadata:
     def test_whitespace_only(self):
         """Whitespace-only input returns empty list."""
         assert chunk_markdown("   \n\n  \t  ") == []
+
+
+# --- index_file integration ---
+
+
+from unittest.mock import MagicMock, patch
+
+
+class TestIndexFileMetadata:
+    """Tests for enriched metadata in index_file."""
+
+    @patch("index_vault.get_collection")
+    def test_index_file_stores_heading_and_chunk_type(self, mock_get_collection, tmp_path):
+        md_file = tmp_path / "test.md"
+        md_file.write_text("---\ntags: test\n---\n\n# Title\n\nContent.\n\n## Section\n\nMore.")
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": []}
+        mock_get_collection.return_value = mock_collection
+
+        from index_vault import index_file
+        index_file(md_file)
+
+        # Verify upsert was called with heading and chunk_type in metadata
+        assert mock_collection.upsert.called
+        for call in mock_collection.upsert.call_args_list:
+            metadata = call[1]["metadatas"][0]
+            assert "heading" in metadata
+            assert "chunk_type" in metadata
+            assert "source" in metadata
+            assert "chunk" in metadata
