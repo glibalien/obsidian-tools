@@ -356,6 +356,11 @@ _FENCE_PATTERN = re.compile(r"^(`{3,}|~{3,})")
 _HEADING_PATTERN = re.compile(r"^(#+)\s+(.*)$")
 
 
+def is_fence_line(line: str) -> bool:
+    """Check if a line is a code fence opener/closer (``` or ~~~)."""
+    return bool(_FENCE_PATTERN.match(line.strip()))
+
+
 def find_section(
     lines: list[str], heading: str
 ) -> tuple[int | None, int | None, str | None]:
@@ -388,7 +393,7 @@ def find_section(
 
     for i, line in enumerate(lines):
         # Check for code fence toggle
-        if _FENCE_PATTERN.match(line):
+        if is_fence_line(line):
             in_code_block = not in_code_block
             continue
 
@@ -420,7 +425,7 @@ def find_section(
     for i in range(section_start + 1, len(lines)):
         line = lines[i]
 
-        if _FENCE_PATTERN.match(line):
+        if is_fence_line(line):
             in_code_block = not in_code_block
             continue
 

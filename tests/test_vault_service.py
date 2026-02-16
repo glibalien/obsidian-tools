@@ -11,6 +11,7 @@ from services.vault import (
     find_section,
     get_relative_path,
     get_vault_files,
+    is_fence_line,
     ok,
     parse_frontmatter_date,
     resolve_dir,
@@ -273,3 +274,34 @@ class TestVaultScanning:
         import config
         result = get_relative_path(abs_path)
         assert result == "projects/project1.md"
+
+
+class TestIsFenceLine:
+    """Tests for is_fence_line helper."""
+
+    def test_backtick_fence(self):
+        assert is_fence_line("```") is True
+
+    def test_backtick_fence_with_language(self):
+        assert is_fence_line("```python") is True
+
+    def test_tilde_fence(self):
+        assert is_fence_line("~~~") is True
+
+    def test_tilde_fence_with_language(self):
+        assert is_fence_line("~~~markdown") is True
+
+    def test_four_backticks(self):
+        assert is_fence_line("````") is True
+
+    def test_indented_fence(self):
+        assert is_fence_line("  ```") is True
+
+    def test_not_a_fence_two_backticks(self):
+        assert is_fence_line("``not a fence``") is False
+
+    def test_not_a_fence_plain_text(self):
+        assert is_fence_line("hello world") is False
+
+    def test_empty_line(self):
+        assert is_fence_line("") is False
