@@ -61,7 +61,7 @@ services/
 - **mcp_server.py**: Entry point that registers all tools with FastMCP
 - **services/chroma.py**: Shared ChromaDB connection management (lazy singletons)
 - **services/vault.py**: Shared utilities for path resolution, response formatting, section finding, file scanning
-- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by the API server between requests
+- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by the API server between requests. Uses tool-specific stub builders for top tools (dispatched by tool name) with a generic fallback for the rest.
 - **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management; compacts tool messages between requests
@@ -595,10 +595,14 @@ Sessions are keyed by `active_file`, not by UUID. This prevents token explosion 
 **Token management — tool compaction:**
 Tool messages in session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results from accumulating across requests and exploding the prompt size. Compaction logic lives in `services/compaction.py` and runs only in `api_server.py` after each `agent_turn` completes — **not** within `agent_turn` itself, so the LLM retains full tool results throughout a single turn for multi-step research queries.
 
-Example stub:
-```json
-{"status": "success", "result_count": 5, "files": ["Notes/foo.md", "Notes/bar.md"]}
-```
+`compact_tool_messages` resolves tool names from assistant messages' `tool_calls` (by `tool_call_id`) and dispatches to tool-specific stub builders. Tools without a specific handler use the generic fallback.
+
+Tool-specific stubs:
+- **`search_vault`**: Keeps `source`, `heading`, and 80-char content `snippet` per result
+- **`read_file`**: Keeps 100-char `content_preview`, `content_length`, and pagination `truncation_marker` if present
+- **List tools** (`find_backlinks`, `find_outlinks`, `search_by_folder`, `list_files_by_frontmatter`, `search_by_date_range`): Keeps full `results` list (already just path strings) and `total` for pagination awareness
+- **`web_search`**: Keeps `title` and `url` per result, drops snippets
+- **Generic fallback**: Extracts `status`, `error`, `message`, `path`, `result_count`, `files` (from `source` keys), `has_content`/`content_length`, `date`
 
 The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API.
 
