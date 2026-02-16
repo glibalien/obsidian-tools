@@ -34,6 +34,29 @@ def test_truncate_tool_result_over_limit():
     assert truncated.startswith("x" * MAX_TOOL_RESULT_CHARS)
 
 
+def test_truncate_tool_result_with_tool_call_id():
+    """Truncated results include tool_call_id and char counts in marker."""
+    result = "x" * (MAX_TOOL_RESULT_CHARS + 500)
+    truncated = truncate_tool_result(result, tool_call_id="call_abc")
+    assert truncated.startswith("x" * MAX_TOOL_RESULT_CHARS)
+    assert "call_abc" in truncated
+    assert "4000" in truncated
+    assert str(MAX_TOOL_RESULT_CHARS + 500) in truncated
+
+
+def test_truncate_tool_result_no_id_still_works():
+    """Without tool_call_id, truncation marker omits continuation hint."""
+    result = "x" * (MAX_TOOL_RESULT_CHARS + 100)
+    truncated = truncate_tool_result(result)
+    assert truncated.endswith("\n\n[truncated]")
+
+
+def test_truncate_tool_result_short_with_id():
+    """Short results unchanged even when tool_call_id provided."""
+    result = "short"
+    assert truncate_tool_result(result, tool_call_id="call_1") == "short"
+
+
 @pytest.mark.anyio
 async def test_agent_turn_max_iterations():
     """Agent turn stops after max_iterations and returns warning."""
@@ -121,7 +144,7 @@ async def test_agent_turn_tool_result_truncated():
     assert len(tool_msgs) == 1
     # Last round's tool results stay uncompacted so the LLM can read them
     assert "_compacted" not in tool_msgs[0]
-    assert "[truncated]" in tool_msgs[0]["content"]
+    assert "[truncated" in tool_msgs[0]["content"]
 
 
 class TestAgentCompaction:

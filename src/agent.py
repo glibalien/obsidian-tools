@@ -31,11 +31,23 @@ SYSTEM_PROMPT_FILE = PROJECT_ROOT / "system_prompt.txt"
 SYSTEM_PROMPT_EXAMPLE = PROJECT_ROOT / "system_prompt.txt.example"
 
 
-def truncate_tool_result(result: str) -> str:
-    """Truncate tool result if it exceeds the character limit."""
+def truncate_tool_result(result: str, tool_call_id: str | None = None) -> str:
+    """Truncate tool result if it exceeds the character limit.
+
+    When tool_call_id is provided, the truncation marker includes it
+    so the LLM can call get_continuation to retrieve more.
+    """
     if len(result) <= MAX_TOOL_RESULT_CHARS:
         return result
-    return result[:MAX_TOOL_RESULT_CHARS] + "\n\n[truncated]"
+    truncated = result[:MAX_TOOL_RESULT_CHARS]
+    if tool_call_id:
+        truncated += (
+            f"\n\n[truncated — showing {MAX_TOOL_RESULT_CHARS}/{len(result)} chars. "
+            f'Call get_continuation with tool_call_id="{tool_call_id}" to read more]'
+        )
+    else:
+        truncated += "\n\n[truncated]"
+    return truncated
 
 
 def load_system_prompt() -> str:
