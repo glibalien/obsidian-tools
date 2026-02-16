@@ -619,7 +619,7 @@ Tool-specific stubs:
 - **`web_search`**: Keeps `title` and `url` per result, drops snippets
 - **Generic fallback**: Extracts `status`, `error`, `message`, `path`, `result_count`, `files` (from `source` keys), `has_content`/`content_length`, `date`
 
-The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API.
+The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API, then restored afterward so `compact_tool_messages` skips already-compacted stubs (re-compaction degrades them).
 
 **Token management — tool result truncation:**
 Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (4000) characters before being appended to message history. Truncated results include the `tool_call_id` and character counts so the LLM can call `get_continuation(tool_call_id, offset)` to retrieve more.
