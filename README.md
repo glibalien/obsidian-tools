@@ -1,6 +1,6 @@
 # Obsidian Tools
 
-**Talk to your Obsidian vault.** Ask questions in natural language, search across hundreds of notes semantically, transcribe meeting recordings, manage files and metadata — all through conversation. Works as an Obsidian sidebar plugin, a CLI chat agent, or an HTTP API.
+**An agentic Obsidian vault manager.** Ask questions in natural language, search across notes semantically, explore wikilinks, transcribe meeting recordings, manipulate and organize files and metadata, all conversationally. Works as an Obsidian sidebar plugin, a CLI chat agent, or an HTTP API.
 
 <!-- TODO: Add a screenshot of the Obsidian chat sidebar here -->
 
