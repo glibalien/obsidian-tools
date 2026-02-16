@@ -15,7 +15,6 @@ from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
 from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH
-from services.compaction import compact_tool_messages
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +142,6 @@ async def agent_turn(
                 "Agent turn hit iteration cap (%d). Stopping.", max_iterations
             )
             return last_content + "\n\n[Tool call limit reached]"
-        # Strip internal _compacted flags before sending to LLM API
-        for msg in messages:
-            msg.pop("_compacted", None)
-
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -191,9 +186,6 @@ async def agent_turn(
         # Log assistant reasoning that accompanies tool calls
         if last_content:
             logger.info("Assistant text: %s", last_content)
-
-        # Compact prior tool results before adding new ones
-        compact_tool_messages(messages)
 
         # Execute each tool call
         for tool_call in assistant_message.tool_calls:
