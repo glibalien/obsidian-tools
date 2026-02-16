@@ -26,7 +26,7 @@ def semantic_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
     results = collection.query(query_texts=[query], n_results=n_results)
 
     return [
-        {"source": metadata["source"], "content": doc[:500]}
+        {"source": metadata["source"], "content": doc[:500], "heading": metadata.get("heading", "")}
         for doc, metadata in zip(results["documents"][0], results["metadatas"][0])
     ]
 
@@ -82,10 +82,11 @@ def keyword_search(query: str, n_results: int = 5) -> list[dict[str, str]]:
             entry["hits"] += 1
             entry["source"] = metadata["source"]
             entry["content"] = doc[:500]
+            entry["heading"] = metadata.get("heading", "")
 
     ranked = sorted(chunk_hits.values(), key=lambda x: x["hits"], reverse=True)
     return [
-        {"source": r["source"], "content": r["content"]}
+        {"source": r["source"], "content": r["content"], "heading": r["heading"]}
         for r in ranked[:n_results]
     ]
 

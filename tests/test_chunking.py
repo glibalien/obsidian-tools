@@ -240,3 +240,48 @@ class TestIndexFileMetadata:
             assert "chunk_type" in metadata
             assert "source" in metadata
             assert "chunk" in metadata
+
+
+class TestSearchHeadingMetadata:
+    """Tests for heading metadata in search results."""
+
+    @patch("hybrid_search.get_collection")
+    def test_semantic_search_includes_heading(self, mock_get_collection):
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["Some content"]],
+            "metadatas": [[{"source": "file.md", "heading": "## Notes", "chunk_type": "section"}]],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("test query", n_results=1)
+        assert results[0]["heading"] == "## Notes"
+
+    @patch("hybrid_search.get_collection")
+    def test_semantic_search_missing_heading_defaults(self, mock_get_collection):
+        """Old chunks without heading metadata should get a default."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["Some content"]],
+            "metadatas": [[{"source": "file.md"}]],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("test query", n_results=1)
+        assert results[0]["heading"] == ""
+
+    @patch("hybrid_search.get_collection")
+    def test_keyword_search_includes_heading(self, mock_get_collection):
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["Some searchable content"],
+            "metadatas": [{"source": "file.md", "heading": "## Tasks", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        results = keyword_search("searchable content", n_results=1)
+        assert results[0]["heading"] == "## Tasks"
