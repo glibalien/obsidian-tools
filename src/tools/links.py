@@ -1,36 +1,66 @@
 """Link tools - backlinks, outlinks, folder search."""
 
+import json as _json
+import os
 import re
+from pathlib import Path
 
 from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import err, get_vault_files, ok, resolve_dir, resolve_file
 
 
-def find_backlinks(note_name: str) -> str:
+def find_backlinks(note_name: str, limit: int = 100, offset: int = 0) -> str:
     """Find all vault files that contain wikilinks to a given note.
 
-    Searches for both [[note_name]] and [[note_name|alias]] patterns.
+    Uses a pre-built link index for O(1) lookups when available,
+    falling back to a full vault scan if the index doesn't exist.
 
     Args:
         note_name: The note name to search for (without brackets or .md extension).
-                   Example: "CNP MVP" to find links like [[CNP MVP]] or [[CNP MVP|alias]].
+        limit: Maximum number of results to return (default 100).
+        offset: Number of results to skip (default 0).
 
     Returns:
-        Newline-separated list of file paths (relative to vault) that link to the note,
-        or a message if no backlinks found.
+        JSON response with list of file paths that link to the note.
     """
     if not note_name or not note_name.strip():
         return err("note_name cannot be empty")
 
     note_name = note_name.strip()
-
-    # Remove .md extension if provided
     if note_name.endswith(".md"):
         note_name = note_name[:-3]
 
-    # Pattern: [[note_name]] or [[note_name|alias]]
-    pattern = rf"\[\[{re.escape(note_name)}(?:\|[^\]]+)?\]\]"
+    # Try link index first
+    from config import CHROMA_PATH
+    index_path = os.path.join(CHROMA_PATH, "link_index.json")
 
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                link_index = _json.load(f)
+            sources = link_index.get(note_name.lower(), [])
+            vault_resolved = VAULT_PATH.resolve()
+            all_results = sorted(
+                str(Path(s).relative_to(vault_resolved))
+                for s in sources
+                if Path(s).exists()
+            )
+        except Exception:
+            all_results = _scan_backlinks(note_name)
+    else:
+        all_results = _scan_backlinks(note_name)
+
+    if not all_results:
+        return ok(f"No backlinks found to [[{note_name}]]", results=[], total=0)
+
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return ok(results=page, total=total)
+
+
+def _scan_backlinks(note_name: str) -> list[str]:
+    """Fallback: scan all vault files for backlinks (O(n))."""
+    pattern = rf"\[\[{re.escape(note_name)}(?:\|[^\]]+)?\]\]"
     backlinks = []
     vault_resolved = VAULT_PATH.resolve()
 
@@ -39,25 +69,23 @@ def find_backlinks(note_name: str) -> str:
             content = md_file.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-
         if re.search(pattern, content, re.IGNORECASE):
             rel_path = md_file.relative_to(vault_resolved)
             backlinks.append(str(rel_path))
 
-    if not backlinks:
-        return ok(f"No backlinks found to [[{note_name}]]", results=[])
-
-    return ok(results=sorted(backlinks))
+    return sorted(backlinks)
 
 
-def find_outlinks(path: str) -> str:
+def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     """Extract all wikilinks from a vault file.
 
     Args:
         path: Path to the note (relative to vault or absolute).
+        limit: Maximum number of results to return (default 100).
+        offset: Number of results to skip (default 0).
 
     Returns:
-        Newline-separated list of linked note names (without brackets),
+        JSON response with list of linked note names (without brackets),
         or a message if no outlinks found.
     """
     file_path, error = resolve_file(path)
@@ -74,24 +102,31 @@ def find_outlinks(path: str) -> str:
     matches = re.findall(pattern, content)
 
     if not matches:
-        return ok(f"No outlinks found in {path}", results=[])
+        return ok(f"No outlinks found in {path}", results=[], total=0)
 
     # Deduplicate and sort
-    return ok(results=sorted(set(matches)))
+    all_results = sorted(set(matches))
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return ok(results=page, total=total)
 
 
 def search_by_folder(
     folder: str,
     recursive: bool = False,
+    limit: int = 100,
+    offset: int = 0,
 ) -> str:
     """List all markdown files in a vault folder.
 
     Args:
         folder: Path to the folder (relative to vault or absolute).
         recursive: If True, include files in subfolders. Default: False.
+        limit: Maximum number of results to return (default 100).
+        offset: Number of results to skip (default 0).
 
     Returns:
-        Newline-separated list of file paths (relative to vault),
+        JSON response with list of file paths (relative to vault),
         or a message if no files found.
     """
     folder_path, error = resolve_dir(folder)
@@ -112,6 +147,9 @@ def search_by_folder(
 
     if not files:
         mode = "recursively " if recursive else ""
-        return ok(f"No markdown files found {mode}in {folder}", results=[])
+        return ok(f"No markdown files found {mode}in {folder}", results=[], total=0)
 
-    return ok(results=sorted(files))
+    all_results = sorted(files)
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return ok(results=page, total=total)

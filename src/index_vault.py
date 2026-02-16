@@ -2,6 +2,7 @@
 """Index the Obsidian vault into ChromaDB for semantic search."""
 
 import hashlib
+import json as _json
 import os
 import re
 import sys
@@ -11,6 +12,9 @@ from pathlib import Path
 from config import VAULT_PATH, CHROMA_PATH
 from services.chroma import get_client, get_collection
 from services.vault import get_vault_files
+
+
+LINK_INDEX_FILE = os.path.join(CHROMA_PATH, "link_index.json")
 
 
 def get_last_run_file() -> str:
@@ -233,6 +237,29 @@ def chunk_markdown(text: str, max_chunk_size: int = 1500) -> list[dict]:
     return all_chunks
 
 
+def _extract_wikilinks(text: str) -> list[str]:
+    """Extract wikilink targets from text, lowercased."""
+    return [m.lower() for m in re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", text)]
+
+
+def build_link_index(files: list[Path]) -> dict[str, list[str]]:
+    """Build a reverse link index: {target_name_lower: [source_paths]}.
+
+    Scans wikilinks from each file and builds a mapping from link target
+    to the files that contain that link.
+    """
+    index: dict[str, list[str]] = {}
+    for md_file in files:
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        targets = _extract_wikilinks(content)
+        for target in set(targets):  # dedupe within same file
+            index.setdefault(target, []).append(str(md_file))
+    return index
+
+
 def index_file(md_file: Path) -> None:
     """Index a single markdown file, replacing any existing chunks."""
     collection = get_collection()
@@ -249,19 +276,24 @@ def index_file(md_file: Path) -> None:
     content = md_file.read_text(encoding='utf-8', errors='ignore')
     chunks = chunk_markdown(content)
 
-    # Index each chunk
+    if not chunks:
+        return
+
+    # Batch upsert all chunks at once
+    ids = []
+    documents = []
+    metadatas = []
     for i, chunk in enumerate(chunks):
-        doc_id = hashlib.md5(f"{md_file}_{i}".encode()).hexdigest()
-        collection.upsert(
-            ids=[doc_id],
-            documents=[f"[{md_file.stem}] {chunk['text']}"],
-            metadatas=[{
-                "source": str(md_file),
-                "chunk": i,
-                "heading": chunk["heading"],
-                "chunk_type": chunk["chunk_type"],
-            }],
-        )
+        ids.append(hashlib.md5(f"{md_file}_{i}".encode()).hexdigest())
+        documents.append(f"[{md_file.stem}] {chunk['text']}")
+        metadatas.append({
+            "source": str(md_file),
+            "chunk": i,
+            "heading": chunk["heading"],
+            "chunk_type": chunk["chunk_type"],
+        })
+
+    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
 
 def prune_deleted_files(valid_sources: set[str]) -> int:
@@ -306,7 +338,12 @@ def index_vault(full: bool = False) -> None:
     
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources)
-    
+
+    # Build and save link index
+    link_index = build_link_index(all_files)
+    with open(LINK_INDEX_FILE, "w", encoding="utf-8") as f:
+        _json.dump(link_index, f)
+
     mark_run()
     collection = get_collection()
     print(f"Done. Indexed {indexed} new/modified files. Pruned {pruned} stale entries. Total chunks: {collection.count()}")

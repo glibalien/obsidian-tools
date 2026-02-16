@@ -1,7 +1,9 @@
 """Tests for structure-aware markdown chunking."""
 
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -381,3 +383,64 @@ class TestKeywordSearchOptimization:
         call_kwargs = mock_collection.get.call_args[1]
         assert "limit" in call_kwargs
         assert call_kwargs["limit"] == 200
+
+
+class TestLinkIndex:
+    """Tests for wikilink index building."""
+
+    def test_build_link_index_basic(self, tmp_path):
+        """Should extract wikilinks and build reverse index."""
+        (tmp_path / "a.md").write_text("Link to [[B]] and [[C|alias]].")
+        (tmp_path / "b.md").write_text("Link to [[C]].")
+        (tmp_path / "c.md").write_text("No links here.")
+
+        from index_vault import build_link_index
+        index = build_link_index([tmp_path / "a.md", tmp_path / "b.md", tmp_path / "c.md"])
+
+        assert sorted(index["b"]) == [str(tmp_path / "a.md")]
+        assert sorted(index["c"]) == [str(tmp_path / "a.md"), str(tmp_path / "b.md")]
+
+    def test_build_link_index_case_insensitive(self, tmp_path):
+        """Link targets should be lowercased for case-insensitive lookup."""
+        (tmp_path / "a.md").write_text("Link to [[MyNote]].")
+
+        from index_vault import build_link_index
+        index = build_link_index([tmp_path / "a.md"])
+
+        assert "mynote" in index
+
+    def test_build_link_index_empty(self, tmp_path):
+        """Files with no wikilinks produce empty index."""
+        (tmp_path / "a.md").write_text("No links.")
+
+        from index_vault import build_link_index
+        index = build_link_index([tmp_path / "a.md"])
+
+        assert index == {}
+
+
+class TestIndexFileBatching:
+    """Tests for batched upsert in index_file."""
+
+    @patch("index_vault.get_collection")
+    def test_single_upsert_call_per_file(self, mock_get_collection):
+        """index_file should call upsert once with all chunks, not once per chunk."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": []}
+        mock_get_collection.return_value = mock_collection
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+            f.write("# Section 1\n\nContent one.\n\n# Section 2\n\nContent two.\n")
+            tmp_path = Path(f.name)
+
+        try:
+            from index_vault import index_file
+            index_file(tmp_path)
+
+            assert mock_collection.upsert.call_count == 1
+            call_args = mock_collection.upsert.call_args[1]
+            assert len(call_args["ids"]) >= 2
+            assert len(call_args["documents"]) == len(call_args["ids"])
+            assert len(call_args["metadatas"]) == len(call_args["ids"])
+        finally:
+            tmp_path.unlink()

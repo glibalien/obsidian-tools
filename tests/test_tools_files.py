@@ -76,6 +76,15 @@ class TestReadFile:
         assert result["success"] is False
         assert "offset" in result["error"].lower()
 
+    def test_read_file_utf8_encoding(self, vault_config):
+        """Should handle UTF-8 content including non-ASCII characters."""
+        content = "# Café\n\nRésumé with émojis: 🎉"
+        (vault_config / "utf8.md").write_text(content, encoding="utf-8")
+        result = json.loads(read_file("utf8.md"))
+        assert result["success"] is True
+        assert "Café" in result["content"]
+        assert "🎉" in result["content"]
+
     def test_custom_length(self, vault_config):
         """Custom length parameter should control chunk size."""
         content = "C" * 500
