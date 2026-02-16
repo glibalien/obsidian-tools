@@ -10,10 +10,44 @@ from config import VAULT_PATH
 from services.vault import get_vault_note_names
 
 
+# Patterns for protected zones (order matters: fenced blocks first)
+_FENCED_BLOCK = re.compile(r"```[\s\S]*?```|~~~[\s\S]*?~~~")
+_INLINE_CODE = re.compile(r"`[^`]+`")
+_URL = re.compile(r"https?://\S+")
+_WIKILINK = re.compile(r"\[\[[^\]]+\]\]")
+
+
+def _protect_zones(text: str) -> tuple[str, list[str]]:
+    """Replace protected zones with placeholders. Returns (text, originals)."""
+    originals: list[str] = []
+
+    def _replace(match: re.Match) -> str:
+        originals.append(match.group(0))
+        return f"\x00{len(originals) - 1}\x00"
+
+    for pattern in (_FENCED_BLOCK, _INLINE_CODE, _URL, _WIKILINK):
+        text = pattern.sub(_replace, text)
+    return text, originals
+
+
+def _restore_zones(text: str, originals: list[str]) -> str:
+    """Restore placeholders with original content."""
+    for i, original in enumerate(originals):
+        text = text.replace(f"\x00{i}\x00", original)
+    return text
+
+
 def add_wikilinks(text: str, note_names: set[str]) -> str:
-    """Replace references to known notes with wikilinks."""
+    """Replace references to known notes with wikilinks.
+
+    Protects fenced code blocks, inline code, URLs, and existing
+    wikilinks from being modified.
+    """
     if not note_names:
         return text
+
+    # Strip protected zones
+    text, originals = _protect_zones(text)
 
     # Sort by length descending to match longer names first
     sorted_names = sorted(note_names, key=len, reverse=True)
@@ -28,6 +62,8 @@ def add_wikilinks(text: str, note_names: set[str]) -> str:
         replacement = f'[[{name}]]'
         text = re.sub(pattern, replacement, text)
 
+    # Restore protected zones
+    text = _restore_zones(text, originals)
     return text
 
 
