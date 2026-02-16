@@ -315,7 +315,7 @@ async def chat_loop():
         # Set up LLM client
         client = create_llm_client()
 
-        # Build system prompt with preferences if available
+        # Build initial system prompt with preferences
         system_prompt = SYSTEM_PROMPT
         preferences = load_preferences()
         if preferences:
@@ -337,6 +337,13 @@ async def chat_loop():
                 break
             if not user_input:
                 continue
+
+            # Reload preferences each turn so mid-session changes take effect
+            updated_prompt = SYSTEM_PROMPT
+            preferences = load_preferences()
+            if preferences:
+                updated_prompt += preferences
+            messages[0]["content"] = updated_prompt
 
             messages.append({"role": "user", "content": user_input})
 

@@ -291,6 +291,34 @@ def test_handle_get_continuation_missing_id():
     assert "error" in parsed
 
 
+def test_load_preferences_reloaded_each_turn(tmp_path):
+    """Preferences are re-read from disk so mid-session changes take effect."""
+    from agent import load_preferences, SYSTEM_PROMPT
+    import agent as agent_module
+
+    prefs_file = tmp_path / "Preferences.md"
+    original_prefs_file = agent_module.PREFERENCES_FILE
+
+    try:
+        agent_module.PREFERENCES_FILE = prefs_file
+
+        # No file yet → None
+        assert load_preferences() is None
+
+        # Create preferences mid-session
+        prefs_file.write_text("- Always respond in French")
+        result = load_preferences()
+        assert result is not None
+        assert "Always respond in French" in result
+
+        # Update preferences mid-session
+        prefs_file.write_text("- Always respond in Spanish")
+        result = load_preferences()
+        assert "Always respond in Spanish" in result
+    finally:
+        agent_module.PREFERENCES_FILE = original_prefs_file
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 
