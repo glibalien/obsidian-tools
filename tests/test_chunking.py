@@ -7,7 +7,12 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from index_vault import _fixed_chunk_text, chunk_markdown
+from index_vault import (
+    _fixed_chunk_text,
+    _strip_wikilink_brackets,
+    chunk_markdown,
+    format_frontmatter_for_indexing,
+)
 
 
 # --- _fixed_chunk_text tests ---
@@ -59,8 +64,8 @@ class TestChunkMarkdownFrontmatter:
         assert len(chunks) >= 1
         assert any("Some body content" in c["text"] for c in chunks)
 
-    def test_frontmatter_only(self):
-        """File with only frontmatter and no body returns empty list."""
+    def test_frontmatter_only_no_dict(self):
+        """File with only frontmatter and no frontmatter dict returns empty list."""
         text = "---\ntitle: Empty\n---\n"
         chunks = chunk_markdown(text)
         assert chunks == []
@@ -417,6 +422,117 @@ class TestLinkIndex:
         index = build_link_index([tmp_path / "a.md"])
 
         assert index == {}
+
+
+class TestStripWikilinkBrackets:
+    """Tests for wikilink bracket stripping."""
+
+    def test_simple_wikilink(self):
+        assert _strip_wikilink_brackets("[[kerri del bene]]") == "kerri del bene"
+
+    def test_aliased_wikilink(self):
+        assert _strip_wikilink_brackets("[[kerri del bene|Kerri]]") == "Kerri"
+
+    def test_no_wikilinks(self):
+        assert _strip_wikilink_brackets("plain text") == "plain text"
+
+    def test_multiple_wikilinks(self):
+        result = _strip_wikilink_brackets("met [[alice]] and [[bob|Robert]]")
+        assert result == "met alice and Robert"
+
+
+class TestFormatFrontmatterForIndexing:
+    """Tests for frontmatter-to-text conversion."""
+
+    def test_simple_fields(self):
+        fm = {"tags": "meeting", "company": "Acme"}
+        result = format_frontmatter_for_indexing(fm)
+        assert "tags: meeting" in result
+        assert "company: Acme" in result
+
+    def test_list_values(self):
+        fm = {"tags": ["meeting", "project"]}
+        result = format_frontmatter_for_indexing(fm)
+        assert "tags: meeting, project" in result
+
+    def test_wikilinks_stripped(self):
+        fm = {"people": ["[[kerri del bene]]", "[[alice smith]]"]}
+        result = format_frontmatter_for_indexing(fm)
+        assert "kerri del bene" in result
+        assert "[[" not in result
+
+    def test_excluded_fields(self):
+        fm = {"cssclass": "wide", "aliases": ["test"], "tags": "meeting"}
+        result = format_frontmatter_for_indexing(fm)
+        assert "cssclass" not in result
+        assert "aliases" not in result
+        assert "tags: meeting" in result
+
+    def test_none_values_skipped(self):
+        fm = {"title": None, "tags": "meeting"}
+        result = format_frontmatter_for_indexing(fm)
+        assert "title" not in result
+        assert "tags: meeting" in result
+
+    def test_empty_dict(self):
+        assert format_frontmatter_for_indexing({}) == ""
+
+
+class TestFrontmatterIndexing:
+    """Tests for frontmatter chunk generation in chunk_markdown."""
+
+    def test_frontmatter_chunk_created(self):
+        text = "---\ntags: meeting\n---\n\n# Heading\n\nBody."
+        fm = {"tags": "meeting"}
+        chunks = chunk_markdown(text, frontmatter=fm)
+        fm_chunks = [c for c in chunks if c["chunk_type"] == "frontmatter"]
+        assert len(fm_chunks) == 1
+        assert "tags: meeting" in fm_chunks[0]["text"]
+        assert fm_chunks[0]["heading"] == "frontmatter"
+
+    def test_frontmatter_chunk_is_first(self):
+        text = "---\ntags: meeting\n---\n\n# Heading\n\nBody."
+        fm = {"tags": "meeting"}
+        chunks = chunk_markdown(text, frontmatter=fm)
+        assert chunks[0]["chunk_type"] == "frontmatter"
+
+    def test_wikilinks_stripped_in_frontmatter_chunk(self):
+        text = "---\npeople:\n  - '[[kerri del bene]]'\n---\n\n# H\n\nBody."
+        fm = {"people": ["[[kerri del bene]]"]}
+        chunks = chunk_markdown(text, frontmatter=fm)
+        fm_chunk = [c for c in chunks if c["chunk_type"] == "frontmatter"][0]
+        assert "kerri del bene" in fm_chunk["text"]
+        assert "[[" not in fm_chunk["text"]
+
+    def test_frontmatter_only_file_indexed(self):
+        text = "---\ntags: person\ncompany: Acme\n---\n"
+        fm = {"tags": "person", "company": "Acme"}
+        chunks = chunk_markdown(text, frontmatter=fm)
+        assert len(chunks) == 1
+        assert chunks[0]["chunk_type"] == "frontmatter"
+
+    def test_no_frontmatter_param_no_extra_chunk(self):
+        text = "# Heading\n\nBody."
+        chunks = chunk_markdown(text)
+        assert all(c["chunk_type"] != "frontmatter" for c in chunks)
+
+    def test_none_frontmatter_no_extra_chunk(self):
+        text = "# Heading\n\nBody."
+        chunks = chunk_markdown(text, frontmatter=None)
+        assert all(c["chunk_type"] != "frontmatter" for c in chunks)
+
+    def test_empty_frontmatter_no_chunk(self):
+        text = "# Heading\n\nBody."
+        chunks = chunk_markdown(text, frontmatter={})
+        assert all(c["chunk_type"] != "frontmatter" for c in chunks)
+
+    def test_body_chunks_unchanged(self):
+        """Body chunks are identical whether or not frontmatter is passed."""
+        text = "---\ntags: meeting\n---\n\n# Heading\n\nBody text here."
+        chunks_without = chunk_markdown(text)
+        chunks_with = chunk_markdown(text, frontmatter={"tags": "meeting"})
+        body_chunks = [c for c in chunks_with if c["chunk_type"] != "frontmatter"]
+        assert body_chunks == chunks_without
 
 
 class TestIndexFileBatching:

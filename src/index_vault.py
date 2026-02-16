@@ -9,12 +9,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from config import VAULT_PATH, CHROMA_PATH
 from services.chroma import get_client, get_collection
 from services.vault import get_vault_files, is_fence_line
 
 
 LINK_INDEX_FILE = os.path.join(CHROMA_PATH, "link_index.json")
+
+# Frontmatter fields excluded from search indexing (display/config only)
+FRONTMATTER_EXCLUDE = {"cssclass", "cssclasses", "aliases", "publish", "permalink"}
 
 
 def get_last_run_file() -> str:
@@ -59,6 +64,57 @@ def _strip_frontmatter(text: str) -> str:
     # Skip past closing --- and the newline after it
     body = text[end + 4:]
     return body
+
+
+def _parse_frontmatter(text: str) -> dict:
+    """Parse YAML frontmatter from markdown text, returning dict or {}."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    try:
+        return yaml.safe_load(text[4:end]) or {}
+    except Exception:
+        return {}
+
+
+def _strip_wikilink_brackets(text: str) -> str:
+    """Strip [[]] from wikilinks. Aliased links keep the display name."""
+    return re.sub(
+        r"\[\[([^\]|]*?)(?:\|([^\]]*?))?\]\]",
+        lambda m: m.group(2) or m.group(1),
+        text,
+    )
+
+
+def _format_frontmatter_value(value) -> str:
+    """Convert a frontmatter value to searchable text."""
+    if isinstance(value, list):
+        return ", ".join(_strip_wikilink_brackets(str(v)) for v in value)
+    if isinstance(value, dict):
+        parts = [f"{k}: {_format_frontmatter_value(v)}" for k, v in value.items()]
+        return "; ".join(parts)
+    return _strip_wikilink_brackets(str(value))
+
+
+def format_frontmatter_for_indexing(frontmatter: dict) -> str:
+    """Convert frontmatter dict to a searchable text block.
+
+    Each field becomes a 'key: value' line. Wikilink brackets are stripped
+    so that names are searchable as plain text. Fields in FRONTMATTER_EXCLUDE
+    are omitted.
+    """
+    lines = []
+    for key, value in frontmatter.items():
+        if key.lower() in FRONTMATTER_EXCLUDE:
+            continue
+        if value is None:
+            continue
+        formatted = _format_frontmatter_value(value)
+        if formatted.strip():
+            lines.append(f"{key}: {formatted}")
+    return "\n".join(lines)
 
 
 def _split_by_headings(text: str) -> list[tuple[str, str]]:
@@ -201,37 +257,48 @@ def _chunk_text_block(
     return _chunk_sentences(text, heading, max_chunk_size)
 
 
-def chunk_markdown(text: str, max_chunk_size: int = 1500) -> list[dict]:
+def chunk_markdown(
+    text: str, max_chunk_size: int = 1500, frontmatter: dict | None = None,
+) -> list[dict]:
     """Chunk markdown text using structure-aware splitting.
 
     Strips frontmatter, splits on headings, then chunks each section
     by paragraph and sentence boundaries as needed. Falls back to
     fixed character splitting for text with no natural boundaries.
 
+    If frontmatter is provided, creates a dedicated frontmatter chunk
+    prepended to the result list so metadata is searchable.
+
     Returns list of dicts with keys: text, heading, chunk_type.
-    chunk_type is one of: section, paragraph, sentence, fragment.
+    chunk_type is one of: frontmatter, section, paragraph, sentence, fragment.
     """
     if not text or not text.strip():
         return []
 
-    body = _strip_frontmatter(text)
-    if not body.strip():
-        return []
-
-    sections = _split_by_headings(body)
     all_chunks: list[dict] = []
 
-    for heading, content in sections:
-        # Build the chunk text: include heading for search context
-        if heading == "top-level":
-            block = content.strip()
-        else:
-            block = (heading + "\n" + content).strip()
+    # Create frontmatter chunk if provided
+    if frontmatter:
+        fm_text = format_frontmatter_for_indexing(frontmatter)
+        if fm_text.strip():
+            all_chunks.append({
+                "text": fm_text,
+                "heading": "frontmatter",
+                "chunk_type": "frontmatter",
+            })
 
-        if not block:
-            continue
-
-        all_chunks.extend(_chunk_text_block(block, heading, max_chunk_size))
+    # Chunk the body content
+    body = _strip_frontmatter(text)
+    if body.strip():
+        sections = _split_by_headings(body)
+        for heading, content in sections:
+            if heading == "top-level":
+                block = content.strip()
+            else:
+                block = (heading + "\n" + content).strip()
+            if not block:
+                continue
+            all_chunks.extend(_chunk_text_block(block, heading, max_chunk_size))
 
     return all_chunks
 
@@ -271,9 +338,10 @@ def index_file(md_file: Path) -> None:
     if existing['ids']:
         collection.delete(ids=existing['ids'])
     
-    # Read and chunk the file
+    # Read and chunk the file (including frontmatter for search)
     content = md_file.read_text(encoding='utf-8', errors='ignore')
-    chunks = chunk_markdown(content)
+    frontmatter = _parse_frontmatter(content)
+    chunks = chunk_markdown(content, frontmatter=frontmatter)
 
     if not chunks:
         return
