@@ -188,6 +188,9 @@ async def agent_turn(
         if last_content:
             logger.info("Assistant text: %s", last_content)
 
+        # Compact prior tool results before adding new ones
+        compact_tool_messages(messages)
+
         # Execute each tool call
         for tool_call in assistant_message.tool_calls:
             tool_name = tool_call.function.name
@@ -214,8 +217,6 @@ async def agent_turn(
                 }
             )
 
-        # Compact tool results to manage token usage
-        compact_tool_messages(messages)
 
 
 async def chat_loop():
