@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from log_chat import log_chat
+from services.vault import ok, err
 
 
 def log_interaction(
@@ -27,9 +28,9 @@ def log_interaction(
     try:
         path = log_chat(task_description, query, summary, files, full_response)
     except Exception as e:
-        return f"Logging failed: {e}"
+        return err(f"Logging failed: {e}")
 
-    return f"Logged to {path}"
+    return ok(f"Logged to {path}")
 
 
 def get_current_date() -> str:
@@ -38,4 +39,4 @@ def get_current_date() -> str:
     Returns:
         Current date as a string in YYYY-MM-DD format.
     """
-    return datetime.now().strftime("%Y-%m-%d")
+    return ok(date=datetime.now().strftime("%Y-%m-%d"))
