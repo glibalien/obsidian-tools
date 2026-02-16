@@ -133,6 +133,57 @@ async def execute_tool_call(
         return f"Failed to execute tool {tool_name}: {e}"
 
 
+GET_CONTINUATION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_continuation",
+        "description": (
+            "Retrieve the next chunk of a truncated tool result. "
+            "Use when a previous tool result shows [truncated]."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tool_call_id": {
+                    "type": "string",
+                    "description": "The tool_call_id from the truncation message",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Character offset to read from",
+                },
+            },
+            "required": ["tool_call_id"],
+        },
+    },
+}
+
+
+def _handle_get_continuation(cache: dict[str, str], arguments: dict) -> str:
+    """Serve the next chunk of a cached truncated tool result."""
+    tc_id = arguments.get("tool_call_id", "")
+    offset = arguments.get("offset", MAX_TOOL_RESULT_CHARS)
+
+    full_result = cache.get(tc_id)
+    if full_result is None:
+        return json.dumps({"error": f"No cached result for tool_call_id '{tc_id}'"})
+
+    chunk = full_result[offset : offset + MAX_TOOL_RESULT_CHARS]
+    if not chunk:
+        return json.dumps({"error": "Offset beyond end of result"})
+
+    end = offset + len(chunk)
+    remaining = len(full_result) - end
+    if remaining > 0:
+        chunk += (
+            f"\n\n[truncated — showing {offset}-{end}/{len(full_result)} chars. "
+            f"{remaining} chars remaining. Call get_continuation with "
+            f'tool_call_id="{tc_id}" offset={end} to read more]'
+        )
+
+    return chunk
+
+
 async def agent_turn(
     client: OpenAI,
     session: ClientSession,
@@ -145,8 +196,10 @@ async def agent_turn(
     turn_completion_tokens = 0
     llm_calls = 0
     last_content = ""
+    truncated_results: dict[str, str] = {}
     # Tool names excluded from the iteration cap count
-    UNCOUNTED_TOOLS = {"log_interaction"}
+    UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
+    all_tools = tools + [GET_CONTINUATION_TOOL]
 
     while True:
         if llm_calls >= max_iterations:
@@ -157,8 +210,8 @@ async def agent_turn(
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            tools=tools if tools else None,
-            tool_choice="auto" if tools else None,
+            tools=all_tools if all_tools else None,
+            tool_choice="auto" if all_tools else None,
         )
 
         # Count this iteration unless all tool calls are uncounted tools
@@ -208,14 +261,20 @@ async def agent_turn(
                 arguments = {}
 
             logger.info("Tool call: %s args=%s", tool_name, arguments)
-            result = await execute_tool_call(session, tool_name, arguments)
-            raw_len = len(result)
-            result = truncate_tool_result(result, tool_call_id=tool_call.id)
-            truncated = len(result) < raw_len
-            logger.info(
-                "Tool result: %s chars=%d truncated=%s",
-                tool_name, raw_len, truncated,
-            )
+
+            if tool_name == "get_continuation":
+                result = _handle_get_continuation(truncated_results, arguments)
+                logger.info("Tool result: %s chars=%d", tool_name, len(result))
+            else:
+                result = await execute_tool_call(session, tool_name, arguments)
+                raw_len = len(result)
+                if raw_len > MAX_TOOL_RESULT_CHARS:
+                    truncated_results[tool_call.id] = result
+                result = truncate_tool_result(result, tool_call_id=tool_call.id)
+                logger.info(
+                    "Tool result: %s chars=%d truncated=%s",
+                    tool_name, raw_len, raw_len > MAX_TOOL_RESULT_CHARS,
+                )
 
             messages.append(
                 {
