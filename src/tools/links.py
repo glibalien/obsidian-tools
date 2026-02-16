@@ -3,7 +3,7 @@
 import re
 
 from config import EXCLUDED_DIRS, VAULT_PATH
-from services.vault import get_vault_files, resolve_dir, resolve_file
+from services.vault import err, get_vault_files, ok, resolve_dir, resolve_file
 
 
 def find_backlinks(note_name: str) -> str:
@@ -20,7 +20,7 @@ def find_backlinks(note_name: str) -> str:
         or a message if no backlinks found.
     """
     if not note_name or not note_name.strip():
-        return "Error: note_name cannot be empty"
+        return err("note_name cannot be empty")
 
     note_name = note_name.strip()
 
@@ -45,9 +45,9 @@ def find_backlinks(note_name: str) -> str:
             backlinks.append(str(rel_path))
 
     if not backlinks:
-        return f"No backlinks found to [[{note_name}]]"
+        return ok(f"No backlinks found to [[{note_name}]]", results=[])
 
-    return "\n".join(sorted(backlinks))
+    return ok(results=sorted(backlinks))
 
 
 def find_outlinks(path: str) -> str:
@@ -62,23 +62,22 @@ def find_outlinks(path: str) -> str:
     """
     file_path, error = resolve_file(path)
     if error:
-        return f"Error: {error}"
+        return err(error)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        return f"Error reading file: {e}"
+        return err(f"Reading file failed: {e}")
 
     # Pattern captures note name before optional |alias
     pattern = r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]"
     matches = re.findall(pattern, content)
 
     if not matches:
-        return f"No outlinks found in {path}"
+        return ok(f"No outlinks found in {path}", results=[])
 
     # Deduplicate and sort
-    unique_links = sorted(set(matches))
-    return "\n".join(unique_links)
+    return ok(results=sorted(set(matches)))
 
 
 def search_by_folder(
@@ -97,7 +96,7 @@ def search_by_folder(
     """
     folder_path, error = resolve_dir(folder)
     if error:
-        return f"Error: {error}"
+        return err(error)
 
     # Use rglob for recursive, glob for non-recursive
     pattern_func = folder_path.rglob if recursive else folder_path.glob
@@ -113,6 +112,6 @@ def search_by_folder(
 
     if not files:
         mode = "recursively " if recursive else ""
-        return f"No markdown files found {mode}in {folder}"
+        return ok(f"No markdown files found {mode}in {folder}", results=[])
 
-    return "\n".join(sorted(files))
+    return ok(results=sorted(files))
