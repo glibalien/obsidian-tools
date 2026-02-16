@@ -103,7 +103,10 @@ always explore backlinks, don't rely solely on search.
 - find_outlinks: Find all notes that a given note links FROM.
 
 ### File Operations
-- read_file: Read full content of a note.
+- read_file: Read content of a note. For long files, returns the first 4000
+  chars with a continuation marker. Use the offset parameter to page through
+  the rest. Always check for truncation markers before concluding content
+  isn't in a file.
 - create_file: Create a new note with optional frontmatter.
 - append_to_file: Append content to the end of a note.
 - prepend_to_file: Add content to the beginning of a note (after frontmatter).
