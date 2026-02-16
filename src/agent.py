@@ -143,6 +143,10 @@ async def agent_turn(
                 "Agent turn hit iteration cap (%d). Stopping.", max_iterations
             )
             return last_content + "\n\n[Tool call limit reached]"
+        # Strip internal _compacted flags before sending to LLM API
+        for msg in messages:
+            msg.pop("_compacted", None)
+
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
