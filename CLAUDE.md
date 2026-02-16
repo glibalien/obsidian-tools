@@ -19,6 +19,7 @@ src/
 ├── mcp_server.py        # Entry point - registers tools from submodules
 ├── services/
 │   ├── chroma.py        # Shared ChromaDB connection management
+│   ├── compaction.py    # Tool message compaction (shared by API + CLI)
 │   └── vault.py         # Path resolution, response helpers, utilities
 ├── tools/
 │   ├── files.py         # read_file, create_file, move_file, append_to_file
@@ -60,12 +61,13 @@ services/
 - **mcp_server.py**: Entry point that registers all tools with FastMCP
 - **services/chroma.py**: Shared ChromaDB connection management (lazy singletons)
 - **services/vault.py**: Shared utilities for path resolution, response formatting, section finding, file scanning
-- **tools/**: Tool implementations organized by category
+- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by both API server and CLI agent
+- **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management and tool compaction
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap and tool result truncation
-- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Returns `heading` metadata from chunks in search results.
-- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Runs via systemd, not manually. Use `--full` flag to force full reindex.
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and tool message compaction
+- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
+- **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes
 
 ## MCP Tools
@@ -76,16 +78,16 @@ These tools are exposed by the MCP server. Documentation here is for development
 |----------|---------|------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
 | `read_file` | Read content of a vault note | `path` (string: relative to vault or absolute), `offset` (int, default 0), `length` (int, default 4000) |
-| `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains") |
+| `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains"), `limit` (int, default 100), `offset` (int, default 0) |
 | `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `batch_update_frontmatter` | Apply frontmatter update to multiple files | `paths` (list[str]), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `move_file` | Relocate a file within the vault | `source` (string), `destination` (string) |
 | `batch_move_files` | Move multiple files to new locations | `moves` (list[dict] with "source" and "destination" keys) |
 | `create_file` | Create a new markdown note | `path` (string), `content` (string, default ""), `frontmatter` (JSON string, optional) |
-| `find_backlinks` | Find files linking to a note | `note_name` (string: note name without brackets or .md) |
-| `search_by_date_range` | Find files by date range | `start_date` (YYYY-MM-DD), `end_date` (YYYY-MM-DD), `date_type` ("created"\|"modified", default "modified") |
-| `find_outlinks` | Extract wikilinks from a file | `path` (string: relative to vault or absolute) |
-| `search_by_folder` | List files in a folder | `folder` (string), `recursive` (bool, default false) |
+| `find_backlinks` | Find files linking to a note | `note_name` (string: note name without brackets or .md), `limit` (int, default 100), `offset` (int, default 0) |
+| `search_by_date_range` | Find files by date range | `start_date` (YYYY-MM-DD), `end_date` (YYYY-MM-DD), `date_type` ("created"\|"modified", default "modified"), `limit` (int, default 100), `offset` (int, default 0) |
+| `find_outlinks` | Extract wikilinks from a file | `path` (string: relative to vault or absolute), `limit` (int, default 100), `offset` (int, default 0) |
+| `search_by_folder` | List files in a folder | `folder` (string), `recursive` (bool, default false), `limit` (int, default 100), `offset` (int, default 0) |
 | `log_interaction` | Log interactions to daily note | `task_description`, `query`, `summary`, `files` (optional list), `full_response` (optional string) |
 | `save_preference` | Save a user preference | `preference` (string) |
 | `list_preferences` | List all saved preferences | (none) |
@@ -133,6 +135,9 @@ Finds vault files matching frontmatter criteria. Useful for queries like "find a
 - `field`: The frontmatter field to check (e.g., `tags`, `company`, `project`)
 - `value`: The value to match
 - `match_type`: `"contains"` checks if value is in a list or substring of a string; `"equals"` requires exact match
+- `limit`: Maximum results to return (default 100)
+- `offset`: Number of results to skip (default 0)
+- Returns matching file paths with `total` count
 
 ### update_frontmatter
 
@@ -172,25 +177,31 @@ Creates a new markdown note in the vault.
 
 ### find_backlinks
 
-Finds all vault files containing wikilinks to a given note name.
+Finds all vault files containing wikilinks to a given note name. Uses a pre-built link index (`link_index.json` in `CHROMA_PATH`) for O(1) lookups, falling back to a full vault scan if the index doesn't exist.
 - `note_name`: The note name to search for (without `[[]]` brackets or `.md` extension)
+- `limit`: Maximum results to return (default 100)
+- `offset`: Number of results to skip (default 0)
 - Matches both `[[note_name]]` and `[[note_name|alias]]` patterns
 - Case-insensitive matching (matches Obsidian behavior)
-- Returns sorted list of relative file paths
+- Returns sorted list of relative file paths with `total` count
 
 ### search_by_date_range
 
 Finds vault files within a specified date range.
 - `start_date`, `end_date`: Date range (inclusive), format YYYY-MM-DD
 - `date_type`: `"created"` uses frontmatter `Date` field (falls back to filesystem creation time), `"modified"` uses filesystem mtime
+- `limit`: Maximum results to return (default 100)
+- `offset`: Number of results to skip (default 0)
 - Handles wikilink date format in frontmatter (`[[2023-08-11]]`)
-- Returns sorted list of relative file paths
+- Returns sorted list of relative file paths with `total` count
 
 ### find_outlinks
 
 Extracts all wikilinks from a given vault file.
 - `path`: Path to the note to analyze
-- Returns deduplicated, sorted list of linked note names
+- `limit`: Maximum results to return (default 100)
+- `offset`: Number of results to skip (default 0)
+- Returns deduplicated, sorted list of linked note names with `total` count
 - Handles aliased links: `[[note|alias]]` returns just "note"
 
 ### search_by_folder
@@ -198,7 +209,9 @@ Extracts all wikilinks from a given vault file.
 Lists all markdown files in a vault folder.
 - `folder`: Path to the folder to list
 - `recursive`: If `true`, include files in subfolders (default: `false`)
-- Returns sorted list of relative file paths
+- `limit`: Maximum results to return (default 100)
+- `offset`: Number of results to skip (default 0)
+- Returns sorted list of relative file paths with `total` count
 
 ### log_interaction
 
@@ -344,7 +357,7 @@ The `services/vault.py` module provides shared utilities used across all tools.
 
 ### Response Helpers
 
-All tools that perform actions should use these helpers for consistent JSON responses:
+All tools use these helpers for consistent JSON responses:
 
 ```python
 from services.vault import ok, err
@@ -442,13 +455,14 @@ The project includes a pytest test suite in `tests/`.
 ```
 tests/
 ├── conftest.py                  # Fixtures: temp_vault, vault_config
-├── test_agent.py                # Tests for agent loop cap and tool result truncation
+├── test_agent.py                # Tests for agent loop cap, truncation, compaction
 ├── test_api_context.py          # Tests for API context handling
+├── test_chunking.py             # Tests for chunking, search, keyword optimization, link index, batch upsert
 ├── test_session_management.py   # Tests for tool compaction, session routing, /chat integration
 ├── test_vault_service.py        # Tests for services/vault.py
 ├── test_tools_files.py          # Tests for file operations
 ├── test_tools_sections.py       # Tests for section manipulation
-├── test_tools_links.py          # Tests for link operations
+├── test_tools_links.py          # Tests for link operations, pagination
 └── test_tools_audio.py          # Tests for audio transcription
 ```
 
@@ -460,17 +474,20 @@ tests/
 
 ### Writing New Tests
 
+All tools return JSON strings. Parse with `json.loads()` and assert on structured fields:
+
 ```python
+import json
+
 def test_my_tool(vault_config):
     """vault_config fixture patches VAULT_PATH to temp directory."""
     # Create test file
     (vault_config / "test.md").write_text("# Test")
 
-    # Call tool
-    result = my_tool("test.md")
-
-    # Assert
-    assert "expected" in result
+    # Call tool and parse JSON response
+    result = json.loads(my_tool("test.md"))
+    assert result["success"] is True
+    assert "expected" in result["content"]
 ```
 
 ## Installation
@@ -509,7 +526,6 @@ Additional configuration in `config.py`:
 - `LLM_MODEL`: Backward compat alias for `FIREWORKS_MODEL`
 - `API_PORT`: API server port (default: `8000`, env: `API_PORT`)
 - `INDEX_INTERVAL`: Indexer interval in minutes (default: `60`, env: `INDEX_INTERVAL`)
-- `EMBEDDING_MODEL`: Model name for embeddings (default: `all-MiniLM-L6-v2`, env: `EMBEDDING_MODEL`)
 - `WHISPER_MODEL`: Whisper model for audio transcription (default: `whisper-v3`, env: `WHISPER_MODEL`)
 
 Constants in `agent.py`:
@@ -564,7 +580,7 @@ Sessions are keyed by `active_file`, not by UUID. This prevents token explosion 
 - Switching back to a previously used file resumes that file's session
 
 **Token management — tool compaction:**
-After each agent turn completes, all `role: "tool"` messages in the session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results (search results, file contents) from accumulating and exploding the prompt size.
+After each agent turn completes, all `role: "tool"` messages in the session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results (search results, file contents) from accumulating and exploding the prompt size. Compaction logic lives in `services/compaction.py` and is used by both the API server and the CLI agent.
 
 Example stub:
 ```json
