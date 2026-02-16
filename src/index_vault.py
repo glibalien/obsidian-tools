@@ -11,7 +11,7 @@ from pathlib import Path
 
 from config import VAULT_PATH, CHROMA_PATH
 from services.chroma import get_client, get_collection
-from services.vault import get_vault_files
+from services.vault import get_vault_files, is_fence_line
 
 
 LINK_INDEX_FILE = os.path.join(CHROMA_PATH, "link_index.json")
@@ -74,9 +74,8 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     in_fence = False
 
     for line in lines:
-        stripped = line.strip()
         # Track code fence state
-        if stripped.startswith("```") or stripped.startswith("~~~"):
+        if is_fence_line(line):
             in_fence = not in_fence
 
         # Check for heading (only outside code fences)
