@@ -15,7 +15,7 @@ from mcp.client.stdio import stdio_client
 from pydantic import BaseModel
 
 from config import API_PORT
-from services.compaction import build_tool_stub, compact_tool_messages
+from services.compaction import compact_tool_messages
 from agent import (
     PROJECT_ROOT,
     SYSTEM_PROMPT,
@@ -128,6 +128,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
     """Process a chat message and return the agent's response."""
     session = get_or_create_session(request.active_file, app.state.system_prompt)
     messages = session.messages
+
+    # Strip internal _compacted flags so they aren't sent to the LLM API
+    for msg in messages:
+        msg.pop("_compacted", None)
 
     # Add user message with context prefix
     context_prefix = format_context_prefix(request.active_file)
