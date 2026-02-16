@@ -54,11 +54,16 @@ General approach for any research or summarization task:
    or from those starting points
 3. Read the most relevant linked notes to build a complete picture
 
+When search results contain enough information to answer the question
+(especially when the heading metadata matches what the user asked about),
+answer directly from the search results. Only use read_file when you
+need additional context beyond what search returned.
+
 This is important because many relationships in the vault are structural
 (expressed through wikilinks and frontmatter properties) rather than
 textual. A task may reference its parent project only via a frontmatter
 wikilink like project: "[[Project Name]]" with no mention of the project
-in the note body. Text search will miss these — only backlink traversal
+in the note body. Text search will miss these, only backlink traversal
 will find them.
 
 Common structural relationships:
@@ -69,7 +74,7 @@ Common structural relationships:
 - Projects link to related projects, persons, and meetings
 
 When asked to summarize, review, or find everything related to a topic,
-always explore backlinks — don't rely solely on search.
+always explore backlinks, don't rely solely on search.
 
 ## Available Tools
 
