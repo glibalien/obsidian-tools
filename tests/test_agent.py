@@ -149,6 +149,148 @@ async def test_agent_turn_tool_result_truncated():
     assert str(MAX_TOOL_RESULT_CHARS) in tool_msgs[0]["content"]
 
 
+@pytest.mark.anyio
+async def test_agent_turn_get_continuation():
+    """Agent handles get_continuation for truncated results."""
+    big_result = "A" * 3000 + "B" * 3000 + "C" * 2000  # 8000 chars total
+
+    # LLM call 1: calls transcribe_audio, gets truncated result
+    mock_tool_call_1 = MagicMock()
+    mock_tool_call_1.id = "call_transcribe"
+    mock_tool_call_1.function.name = "transcribe_audio"
+    mock_tool_call_1.function.arguments = '{"path": "note.md"}'
+
+    mock_msg_1 = MagicMock()
+    mock_msg_1.tool_calls = [mock_tool_call_1]
+    mock_msg_1.content = None
+    mock_msg_1.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_transcribe", "function": {"name": "transcribe_audio", "arguments": '{"path": "note.md"}'}, "type": "function"}],
+    }
+
+    # LLM call 2: calls get_continuation to get the rest
+    mock_tool_call_2 = MagicMock()
+    mock_tool_call_2.id = "call_cont"
+    mock_tool_call_2.function.name = "get_continuation"
+    mock_tool_call_2.function.arguments = json.dumps({"tool_call_id": "call_transcribe", "offset": MAX_TOOL_RESULT_CHARS})
+
+    mock_msg_2 = MagicMock()
+    mock_msg_2.tool_calls = [mock_tool_call_2]
+    mock_msg_2.content = None
+    mock_msg_2.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_cont", "function": {"name": "get_continuation", "arguments": mock_tool_call_2.function.arguments}, "type": "function"}],
+    }
+
+    # LLM call 3: final response
+    mock_msg_final = MagicMock()
+    mock_msg_final.tool_calls = None
+    mock_msg_final.content = "Here is the summary."
+    mock_msg_final.model_dump.return_value = {"role": "assistant", "content": "Here is the summary."}
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_1)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_2)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_final)], usage=mock_usage),
+    ]
+
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=big_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "summarize"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+    assert result == "Here is the summary."
+
+    # MCP was called only once (transcribe_audio), NOT for get_continuation
+    mock_session.call_tool.assert_called_once_with("transcribe_audio", {"path": "note.md"})
+
+    # Verify tool messages
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    # First: truncated with marker
+    assert "call_transcribe" in tool_msgs[0]["content"]
+    # Second: continuation chunk contains B's
+    assert "B" in tool_msgs[1]["content"]
+
+
+@pytest.mark.anyio
+async def test_agent_turn_get_continuation_invalid_id():
+    """get_continuation with unknown tool_call_id returns error."""
+    mock_tool_call = MagicMock()
+    mock_tool_call.id = "call_cont"
+    mock_tool_call.function.name = "get_continuation"
+    mock_tool_call.function.arguments = json.dumps({"tool_call_id": "nonexistent", "offset": 0})
+
+    mock_msg_1 = MagicMock()
+    mock_msg_1.tool_calls = [mock_tool_call]
+    mock_msg_1.content = None
+    mock_msg_1.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_cont", "function": {"name": "get_continuation", "arguments": mock_tool_call.function.arguments}, "type": "function"}],
+    }
+
+    mock_msg_final = MagicMock()
+    mock_msg_final.tool_calls = None
+    mock_msg_final.content = "No cached result."
+    mock_msg_final.model_dump.return_value = {"role": "assistant", "content": "No cached result."}
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_1)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_final)], usage=mock_usage),
+    ]
+
+    mock_session = AsyncMock()
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "continue"}]
+
+    await agent_turn(mock_client, mock_session, messages, [])
+
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 1
+    parsed = json.loads(tool_msgs[0]["content"])
+    assert "error" in parsed
+
+
+def test_handle_get_continuation_valid():
+    """Returns correct chunk from cache."""
+    from agent import _handle_get_continuation, MAX_TOOL_RESULT_CHARS
+    cache = {"call_1": "A" * 10000}
+    result = _handle_get_continuation(cache, {"tool_call_id": "call_1", "offset": MAX_TOOL_RESULT_CHARS})
+    assert result.startswith("A")
+    assert "remaining" in result  # still has more (10000 - 4000 - 4000 = 2000 remaining)
+
+
+def test_handle_get_continuation_final_chunk():
+    """Final chunk has no truncation marker."""
+    from agent import _handle_get_continuation, MAX_TOOL_RESULT_CHARS
+    cache = {"call_1": "A" * 5000}
+    result = _handle_get_continuation(cache, {"tool_call_id": "call_1", "offset": MAX_TOOL_RESULT_CHARS})
+    assert "truncated" not in result
+    assert len(result) == 1000  # 5000 - 4000
+
+
+def test_handle_get_continuation_missing_id():
+    """Returns error for unknown tool_call_id."""
+    from agent import _handle_get_continuation
+    result = _handle_get_continuation({}, {"tool_call_id": "bad"})
+    parsed = json.loads(result)
+    assert "error" in parsed
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 
