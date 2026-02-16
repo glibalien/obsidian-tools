@@ -75,7 +75,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | MCP Tool | Purpose | Parameters |
 |----------|---------|------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
-| `read_file` | Read full content of a vault note | `path` (string: relative to vault or absolute) |
+| `read_file` | Read content of a vault note | `path` (string: relative to vault or absolute), `offset` (int, default 0), `length` (int, default 4000) |
 | `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains") |
 | `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `batch_update_frontmatter` | Apply frontmatter update to multiple files | `paths` (list[str]), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
@@ -114,7 +114,16 @@ The `heading` field indicates which markdown section the result came from (e.g.,
 
 ### read_file
 
-Reads the full content of a vault note. Accepts either a relative path (from vault root) or an absolute path. Security measures:
+Reads content of a vault note with pagination for long files. Accepts either a relative path (from vault root) or an absolute path.
+
+Parameters:
+- `path`: Path to the note (relative to vault root or absolute)
+- `offset`: Character position to start reading from (default 0)
+- `length`: Maximum characters to return (default 4000)
+
+For files that fit within `length`, returns the full content with no markers (backward compatible). For longer files, appends a truncation marker with the offset needed to read the next chunk. When reading with a non-zero offset, prepends a continuation header.
+
+Security measures:
 - Rejects paths that escape the vault (path traversal protection)
 - Blocks access to excluded directories (`.obsidian`, `.git`, etc.)
 
