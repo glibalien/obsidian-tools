@@ -77,7 +77,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 | MCP Tool | Purpose | Parameters |
 |----------|---------|------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query` (string), `n_results` (int, default 5), `mode` (string: "hybrid"\|"semantic"\|"keyword", default "hybrid") |
-| `read_file` | Read content of a vault note | `path` (string: relative to vault or absolute), `offset` (int, default 0), `length` (int, default 4000) |
+| `read_file` | Read content of a vault note | `path` (string: relative to vault or absolute), `offset` (int, default 0), `length` (int, default 3500) |
 | `list_files_by_frontmatter` | Find files by frontmatter criteria | `field` (string), `value` (string), `match_type` (string: "contains"\|"equals", default "contains"), `limit` (int, default 100), `offset` (int, default 0) |
 | `update_frontmatter` | Modify frontmatter on a vault file | `path` (string), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
 | `batch_update_frontmatter` | Apply frontmatter update to multiple files | `paths` (list[str]), `field` (string), `value` (string, optional), `operation` (string: "set"\|"remove"\|"append", default "set") |
@@ -121,7 +121,7 @@ Reads content of a vault note with pagination for long files. Accepts either a r
 Parameters:
 - `path`: Path to the note (relative to vault root or absolute)
 - `offset`: Character position to start reading from (default 0)
-- `length`: Maximum characters to return (default 4000)
+- `length`: Maximum characters to return (default 3500)
 
 For files that fit within `length`, returns the full content with no markers (backward compatible). For longer files, appends a truncation marker with the offset needed to read the next chunk. When reading with a non-zero offset, prepends a continuation header.
 
