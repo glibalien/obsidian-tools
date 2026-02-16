@@ -65,7 +65,7 @@ services/
 - **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management; compacts tool messages between requests
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and synthetic `get_continuation` tool for retrieving truncated results in chunks
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and synthetic `get_continuation` tool for retrieving truncated results in chunks. See **System Prompt** section below for prompt structure.
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Also builds a wikilink reverse index (`link_index.json`) for O(1) backlink lookups. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
@@ -234,6 +234,21 @@ Removes a preference by its line number.
 - Returns error if line number is out of range
 
 **Note**: The LLM agent loads its system prompt from `system_prompt.txt` at startup (falling back to `system_prompt.txt.example` with a warning). It also loads `Preferences.md` and appends it as a "User Preferences" section that the agent follows.
+
+### System Prompt Structure
+
+The system prompt (`system_prompt.txt.example`) is organized into 8 sections:
+
+1. **Vault Structure**: Folder layout and frontmatter category conventions (tailored to actual vault)
+2. **Vault Relationships**: Structural linking patterns (tasks→projects via frontmatter wikilinks)
+3. **Choosing the Right Tool**: Decision tree mapping user intent → correct tool. Includes intent-to-tool table, key distinctions (exhaustive vs relevant, structural vs textual, known path vs discovery), and common mistakes to avoid. This section is critical for preventing the agent from defaulting to `search_vault` for everything.
+4. **Vault Navigation Strategy**: Multi-step research pattern — search for entry points, use `find_backlinks`/`find_outlinks` to discover related notes, read relevant linked notes. Emphasizes that backlinks use a pre-built index and catch frontmatter wikilinks invisible to text search.
+5. **Available Tools**: Detailed docs for all MCP tools grouped by category (Search & Discovery, Relationships, File Operations, Section Editing, Frontmatter, Preferences, Utility). Includes pagination parameters, heading metadata, batch operation formats, and section operation specifics.
+6. **Handling Large Results**: Three truncation/pagination mechanisms — list tool pagination (limit/offset/total), `get_continuation` for truncated tool results (>4000 chars), and `read_file` offset for long files. Explicitly distinguishes the latter two to prevent confusion.
+7. **Tool Usage Guidelines**: General principles (use exact paths, cite sources, report errors accurately)
+8. **Interaction Logging**: When and how to call `log_interaction`
+
+When adding new MCP tools, update both the tool reference in section 5 and the decision tree in section 3 if the tool serves a distinct user intent.
 
 ### get_current_date
 
