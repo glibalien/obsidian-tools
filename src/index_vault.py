@@ -268,7 +268,7 @@ def index_file(md_file: Path) -> None:
         doc_id = hashlib.md5(f"{md_file}_{i}".encode()).hexdigest()
         collection.upsert(
             ids=[doc_id],
-            documents=[chunk["text"]],
+            documents=[f"[{md_file.stem}] {chunk['text']}"],
             metadatas=[{
                 "source": str(md_file),
                 "chunk": i,

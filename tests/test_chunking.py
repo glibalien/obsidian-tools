@@ -241,6 +241,23 @@ class TestIndexFileMetadata:
             assert "source" in metadata
             assert "chunk" in metadata
 
+    @patch("index_vault.get_collection")
+    def test_index_file_prepends_note_name(self, mock_get_collection, tmp_path):
+        md_file = tmp_path / "Obsidian Tools.md"
+        md_file.write_text("# Title\n\nContent.")
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": []}
+        mock_get_collection.return_value = mock_collection
+
+        from index_vault import index_file
+        index_file(md_file)
+
+        assert mock_collection.upsert.called
+        for call in mock_collection.upsert.call_args_list:
+            doc_text = call[1]["documents"][0]
+            assert doc_text.startswith("[Obsidian Tools] ")
+
 
 class TestSearchHeadingMetadata:
     """Tests for heading metadata in search results."""
