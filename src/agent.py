@@ -210,7 +210,7 @@ async def agent_turn(
             logger.info("Tool call: %s args=%s", tool_name, arguments)
             result = await execute_tool_call(session, tool_name, arguments)
             raw_len = len(result)
-            result = truncate_tool_result(result)
+            result = truncate_tool_result(result, tool_call_id=tool_call.id)
             truncated = len(result) < raw_len
             logger.info(
                 "Tool result: %s chars=%d truncated=%s",
