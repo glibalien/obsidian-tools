@@ -15,6 +15,7 @@ from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
 from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH
+from services.compaction import compact_tool_messages
 
 logger = logging.getLogger(__name__)
 
@@ -352,8 +353,21 @@ async def chat_loop():
 
             messages.append({"role": "user", "content": user_input})
 
+            # Strip _compacted flags before LLM call (Fireworks rejects them),
+            # remembering which messages were already compacted.
+            compacted_indices = {
+                i for i, msg in enumerate(messages) if msg.get("_compacted")
+            }
+            for msg in messages:
+                msg.pop("_compacted", None)
+
             try:
                 response = await agent_turn(client, session, messages, tools)
+                # Restore compacted flags so compact_tool_messages skips
+                # already-compacted stubs (re-compaction degrades them).
+                for i in compacted_indices:
+                    messages[i]["_compacted"] = True
+                compact_tool_messages(messages)
                 print(f"\nAssistant: {response}\n")
             except Exception as e:
                 print(f"\nError: {e}\n", file=sys.stderr)
