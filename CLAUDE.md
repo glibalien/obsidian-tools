@@ -139,7 +139,7 @@ Security measures:
 Finds vault files matching frontmatter criteria. Useful for queries like "find all meeting notes" or "find files tagged as person".
 - `field`: The frontmatter field to check (e.g., `tags`, `company`, `project`)
 - `value`: The value to match
-- `match_type`: `"contains"` checks if value is in a list or substring of a string; `"equals"` requires exact match
+- `match_type`: `"contains"` checks if value is a substring of a string or substring of any element in a list (handles wikilinked values like `[[Adam Bird]]` matching `"Adam Bird"`); `"equals"` requires exact match
 - `limit`: Maximum results to return (default 100)
 - `offset`: Number of results to skip (default 0)
 - Returns matching file paths with `total` count
