@@ -5,6 +5,7 @@ import hashlib
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -33,11 +34,18 @@ def get_last_run() -> float:
     return 0
 
 
-def mark_run() -> None:
-    """Mark the current time as last run."""
+def mark_run(timestamp: float | None = None) -> None:
+    """Mark the given timestamp (or current time) as last run.
+
+    Args:
+        timestamp: Unix timestamp to record. Defaults to current time.
+    """
     os.makedirs(CHROMA_PATH, exist_ok=True)
-    with open(get_last_run_file(), 'w') as f:
+    marker = get_last_run_file()
+    with open(marker, 'w') as f:
         f.write(datetime.now().isoformat())
+    if timestamp is not None:
+        os.utime(marker, (timestamp, timestamp))
 
 
 def _fixed_chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
@@ -364,8 +372,9 @@ def prune_deleted_files(valid_sources: set[str]) -> int:
 
 def index_vault(full: bool = False) -> None:
     """Index the vault, updating only changed files unless full=True."""
+    scan_start = time.time()
     last_run = 0 if full else get_last_run()
-    
+
     # Get all valid markdown files
     all_files = get_vault_files(VAULT_PATH)
     valid_sources = set(str(f) for f in all_files)
@@ -382,7 +391,7 @@ def index_vault(full: bool = False) -> None:
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources)
 
-    mark_run()
+    mark_run(scan_start)
     collection = get_collection()
     print(f"Done. Indexed {indexed} new/modified files. Pruned {pruned} stale entries. Total chunks: {collection.count()}")
 
