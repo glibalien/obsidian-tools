@@ -140,6 +140,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     context_prefix = format_context_prefix(request.active_file)
     messages.append({"role": "user", "content": context_prefix + request.message})
 
+    def _restore_compacted_flags():
+        for i in compacted_indices:
+            if i < len(messages):
+                messages[i]["_compacted"] = True
+
     try:
         response = await agent_turn(
             app.state.llm_client,
@@ -147,13 +152,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
             messages,
             app.state.tools,
         )
-        # Restore compacted flags so compact_tool_messages skips
-        # already-compacted stubs (re-compaction degrades them).
-        for i in compacted_indices:
-            messages[i]["_compacted"] = True
+        _restore_compacted_flags()
         compact_tool_messages(messages)
         return ChatResponse(response=response, session_id=session.session_id)
     except Exception as e:
+        _restore_compacted_flags()
         messages.pop()
         raise HTTPException(status_code=500, detail=str(e))
 
