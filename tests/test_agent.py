@@ -343,3 +343,69 @@ class TestAgentCompaction:
         assert tool_msg["_compacted"] is True
         parsed = json.loads(tool_msg["content"])
         assert parsed["status"] == "success"
+
+    @pytest.mark.anyio
+    async def test_cli_compacts_after_agent_turn(self):
+        """CLI chat_loop compacts tool messages after each agent_turn."""
+        # Simulate what chat_loop does: strip flags, call agent_turn, restore + compact
+        search_result = json.dumps({
+            "success": True,
+            "results": [
+                {"source": "note.md", "content": "A very long search result " * 50, "heading": "## Intro"}
+            ],
+        })
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "search for something"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+            ]},
+            {"role": "tool", "tool_call_id": "call_1", "content": search_result},
+            {"role": "assistant", "content": "Found results."},
+        ]
+
+        # First turn: compact (simulating end of chat_loop turn)
+        compacted_indices = {i for i, msg in enumerate(messages) if msg.get("_compacted")}
+        for msg in messages:
+            msg.pop("_compacted", None)
+        # (agent_turn would run here)
+        for i in compacted_indices:
+            messages[i]["_compacted"] = True
+        compact_tool_messages(messages)
+
+        # Tool message should now be compacted
+        tool_msg = messages[3]
+        assert tool_msg["_compacted"] is True
+        parsed = json.loads(tool_msg["content"])
+        assert "snippet" in parsed["results"][0]  # search_vault stub format
+        original_content = search_result
+        assert len(tool_msg["content"]) < len(original_content)
+
+        # Second turn: add new tool call, compact again — old stub should survive
+        messages.append({"role": "user", "content": "read that file"})
+        messages.append({
+            "role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_2", "function": {"name": "read_file"}, "type": "function"}
+            ],
+        })
+        messages.append({
+            "role": "tool", "tool_call_id": "call_2",
+            "content": json.dumps({"success": True, "content": "File body " * 100, "path": "note.md"}),
+        })
+        messages.append({"role": "assistant", "content": "Here is the file."})
+
+        # Strip, "run agent_turn", restore, compact
+        compacted_indices = {i for i, msg in enumerate(messages) if msg.get("_compacted")}
+        for msg in messages:
+            msg.pop("_compacted", None)
+        for i in compacted_indices:
+            messages[i]["_compacted"] = True
+        compact_tool_messages(messages)
+
+        # Old search stub should still have snippet (not re-compacted/degraded)
+        old_stub = json.loads(messages[3]["content"])
+        assert "snippet" in old_stub["results"][0]
+        # New read_file should now be compacted too
+        new_stub = json.loads(messages[7]["content"])
+        assert "content_preview" in new_stub  # read_file stub format
+        assert messages[7]["_compacted"] is True
