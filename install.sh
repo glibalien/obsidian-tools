@@ -327,7 +327,7 @@ main() {
     local api_key vault_path fireworks_model chroma_path api_port index_interval
 
     api_key="$(prompt_value "Fireworks API key" "FIREWORKS_API_KEY" "" "true")"
-    fireworks_model="$(prompt_value "Fireworks model (default: DeepSeek V3.1)" "FIREWORKS_MODEL" "accounts/fireworks/models/deepseek-v3p1")"
+    fireworks_model="$(prompt_value "Fireworks model (default: OpenAI gpt-oss-120b)" "FIREWORKS_MODEL" "accounts/fireworks/models/gpt-oss-120b")"
     vault_path="$(prompt_vault_path)"
     chroma_path="$(prompt_value "ChromaDB path" "CHROMA_PATH" "./.chroma_db")"
     api_port="$(prompt_value "API server port" "API_PORT" "8000")"

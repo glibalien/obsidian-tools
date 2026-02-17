@@ -230,7 +230,7 @@ function Main {
     Write-Host ""
 
     $apiKey         = Read-Prompt "Fireworks API key" -Required $true
-    $fireworksModel = Read-Prompt "Fireworks model (default: DeepSeek V3.1)" -Default "accounts/fireworks/models/deepseek-v3p1"
+    $fireworksModel = Read-Prompt "Fireworks model (default: OpenAI gpt-oss-120b)" -Default "accounts/fireworks/models/gpt-oss-120b"
     $vaultPath      = Read-VaultPath
     $chromaPath     = Read-Prompt "ChromaDB path" -Default "./.chroma_db"
     $apiPort        = Read-Prompt "API server port" -Default "8000"
