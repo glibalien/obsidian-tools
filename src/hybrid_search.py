@@ -8,7 +8,12 @@ from services.chroma import get_collection
 
 logger = logging.getLogger(__name__)
 
-STOPWORDS = {"the", "a", "an", "is", "in", "of", "and", "or", "to", "for", "it", "on", "at", "by", "be"}
+STOPWORDS = {
+    "the", "a", "an", "is", "in", "of", "and", "or", "to", "for", "it",
+    "on", "at", "by", "be", "this", "that", "with", "from", "have", "has",
+    "was", "were", "been", "not", "but", "are", "can", "will", "just",
+    "about", "into", "over", "also",
+}
 RRF_K = 60  # Standard reciprocal rank fusion constant
 KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 
@@ -98,10 +103,10 @@ def keyword_search(
     scored = []
     for doc, metadata in zip(matches["documents"], matches["metadatas"]):
         doc_lower = doc.lower()
-        hits = sum(1 for t in terms if t in doc_lower)
+        hits = sum(doc_lower.count(t) for t in terms)
         scored.append({
             "source": metadata["source"],
-            "content": doc[:500],
+            "content": doc,
             "heading": metadata.get("heading", ""),
             "hits": hits,
         })
