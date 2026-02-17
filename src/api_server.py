@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """FastAPI HTTP wrapper for the LLM agent."""
 
-import json
 import logging
 import sys
 import uuid
+from collections import OrderedDict
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 
@@ -14,7 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic import BaseModel
 
-from config import API_PORT
+from config import API_PORT, MAX_SESSIONS, MAX_SESSION_MESSAGES
 from services.compaction import compact_tool_messages
 from agent import (
     PROJECT_ROOT,
@@ -34,14 +34,23 @@ class Session:
     messages: list[dict] = field(default_factory=list)
 
 
-# File-keyed session storage: active_file -> Session
-file_sessions: dict[str | None, Session] = {}
+# File-keyed session storage: active_file -> Session (LRU order)
+file_sessions: OrderedDict[str | None, Session] = OrderedDict()
 
 
 def get_or_create_session(active_file: str | None, system_prompt: str) -> Session:
-    """Get existing session for a file or create a new one."""
+    """Get existing session for a file or create a new one.
+
+    Uses LRU eviction: accessed sessions move to end, oldest evicted
+    when MAX_SESSIONS is exceeded.
+    """
     if active_file in file_sessions:
+        file_sessions.move_to_end(active_file)
         return file_sessions[active_file]
+
+    # Evict oldest session if at capacity
+    while len(file_sessions) >= MAX_SESSIONS:
+        file_sessions.popitem(last=False)
 
     session = Session(
         session_id=str(uuid.uuid4()),
@@ -50,6 +59,35 @@ def get_or_create_session(active_file: str | None, system_prompt: str) -> Sessio
     )
     file_sessions[active_file] = session
     return session
+
+
+def trim_messages(messages: list[dict]) -> None:
+    """Trim messages to MAX_SESSION_MESSAGES, preserving system prompt.
+
+    Keeps messages[0] (system prompt) + the most recent messages.
+    Avoids splitting tool call groups by advancing the trim point
+    to the next user message.
+    """
+    if len(messages) <= MAX_SESSION_MESSAGES:
+        return
+
+    # How many non-system messages to keep
+    keep = MAX_SESSION_MESSAGES - 1
+    trim_index = len(messages) - keep
+
+    # Don't trim the system prompt
+    if trim_index <= 1:
+        return
+
+    # Advance trim point to avoid splitting a tool call group:
+    # find the first 'user' message at or after trim_index
+    while trim_index < len(messages) and messages[trim_index].get("role") != "user":
+        trim_index += 1
+
+    if trim_index >= len(messages):
+        return
+
+    del messages[1:trim_index]
 
 
 class ChatRequest(BaseModel):
@@ -154,6 +192,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
         _restore_compacted_flags()
         compact_tool_messages(messages)
+        trim_messages(messages)
         return ChatResponse(response=response, session_id=session.session_id)
     except Exception as e:
         _restore_compacted_flags()

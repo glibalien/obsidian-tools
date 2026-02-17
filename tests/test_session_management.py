@@ -304,7 +304,7 @@ class TestCompactToolMessages:
         assert "content_preview" in read_stub
 
 
-from api_server import Session, get_or_create_session, file_sessions
+from api_server import Session, get_or_create_session, file_sessions, trim_messages
 
 
 class TestSessionRouting:
@@ -498,3 +498,124 @@ class TestChatEndpointIntegration:
             client.post("/chat", json={"message": "more", "active_file": "prefs.md"})
             assert "User Preferences" in session.messages[0]["content"]
             assert "Always be concise" in session.messages[0]["content"]
+
+
+class TestLRUEviction:
+    """Tests for LRU session eviction."""
+
+    def setup_method(self):
+        file_sessions.clear()
+
+    @patch("api_server.MAX_SESSIONS", 3)
+    def test_oldest_evicted_when_full(self):
+        """When MAX_SESSIONS is reached, the least recently used session is evicted."""
+        get_or_create_session("a.md", "prompt")
+        get_or_create_session("b.md", "prompt")
+        get_or_create_session("c.md", "prompt")
+        assert len(file_sessions) == 3
+
+        # Adding a 4th should evict "a.md" (oldest)
+        get_or_create_session("d.md", "prompt")
+        assert len(file_sessions) == 3
+        assert "a.md" not in file_sessions
+        assert "d.md" in file_sessions
+
+    @patch("api_server.MAX_SESSIONS", 3)
+    def test_accessed_session_not_evicted(self):
+        """Accessing a session moves it to end, protecting it from eviction."""
+        get_or_create_session("a.md", "prompt")
+        get_or_create_session("b.md", "prompt")
+        get_or_create_session("c.md", "prompt")
+
+        # Access "a.md" to make it most recently used
+        get_or_create_session("a.md", "prompt")
+
+        # Adding new session should evict "b.md" (now the oldest)
+        get_or_create_session("d.md", "prompt")
+        assert "a.md" in file_sessions
+        assert "b.md" not in file_sessions
+
+    @patch("api_server.MAX_SESSIONS", 2)
+    def test_null_file_participates_in_lru(self):
+        """None active_file sessions are subject to LRU eviction too."""
+        get_or_create_session(None, "prompt")
+        get_or_create_session("a.md", "prompt")
+
+        # This should evict the None session
+        get_or_create_session("b.md", "prompt")
+        assert None not in file_sessions
+        assert "b.md" in file_sessions
+
+
+class TestTrimMessages:
+    """Tests for per-session message trimming."""
+
+    @patch("api_server.MAX_SESSION_MESSAGES", 5)
+    def test_trims_old_messages(self):
+        """Messages beyond MAX_SESSION_MESSAGES are trimmed, keeping system prompt."""
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "msg1"},
+            {"role": "assistant", "content": "resp1"},
+            {"role": "user", "content": "msg2"},
+            {"role": "assistant", "content": "resp2"},
+            {"role": "user", "content": "msg3"},
+            {"role": "assistant", "content": "resp3"},
+        ]
+        trim_messages(messages)
+        assert len(messages) == 5
+        assert messages[0]["role"] == "system"
+        assert messages[1]["content"] == "msg2"
+
+    @patch("api_server.MAX_SESSION_MESSAGES", 10)
+    def test_no_trim_when_under_limit(self):
+        """Messages under the limit are not trimmed."""
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "msg1"},
+            {"role": "assistant", "content": "resp1"},
+        ]
+        trim_messages(messages)
+        assert len(messages) == 3
+
+    @patch("api_server.MAX_SESSION_MESSAGES", 5)
+    def test_preserves_tool_call_groups(self):
+        """Trim point advances past tool call groups to avoid orphaning tool messages."""
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "msg1"},
+            {"role": "assistant", "content": "resp1"},
+            # This is a tool call group that would be split by naive trimming
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+            ]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "result"},
+            {"role": "assistant", "content": "Found it."},
+            # Recent messages
+            {"role": "user", "content": "msg2"},
+            {"role": "assistant", "content": "resp2"},
+        ]
+        trim_messages(messages)
+        # Should skip past the tool group and trim at "msg2"
+        assert messages[0]["role"] == "system"
+        # No orphaned tool messages — first non-system message should be user
+        roles = [m["role"] for m in messages[1:]]
+        assert roles[0] == "user"
+        # Tool message should not appear without its preceding assistant+tool_calls
+        for i, m in enumerate(messages[1:], 1):
+            if m.get("role") == "tool":
+                # Preceding message should be assistant with tool_calls
+                assert messages[i - 1].get("tool_calls") is not None
+
+    @patch("api_server.MAX_SESSION_MESSAGES", 5)
+    def test_system_prompt_always_preserved(self):
+        """System prompt is never trimmed regardless of message count."""
+        messages = [
+            {"role": "system", "content": "important system prompt"},
+        ] + [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg{i}"}
+            for i in range(10)
+        ]
+        trim_messages(messages)
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == "important system prompt"
