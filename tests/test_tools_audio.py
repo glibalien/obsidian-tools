@@ -85,6 +85,20 @@ class TestResolveAudioFile:
         assert path is None
         assert "not found" in error
 
+    def test_path_traversal_blocked(self, vault_config):
+        """Path traversal attempts are rejected."""
+        path, error = _resolve_audio_file("../../../etc/passwd")
+        assert path is None
+        assert "Invalid audio file path" in error
+
+    def test_path_traversal_with_dotdot(self, vault_config):
+        """Dotdot in filename is rejected even if it resolves to a real file."""
+        # Create a file outside Attachments but reachable via traversal
+        (vault_config / "secret.m4a").write_bytes(b"secret")
+        path, error = _resolve_audio_file("../secret.m4a")
+        assert path is None
+        assert "Invalid audio file path" in error
+
 
 class TestTranscribeAudio:
     """Tests for transcribe_audio tool."""

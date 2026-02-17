@@ -38,7 +38,13 @@ def _resolve_audio_file(filename: str) -> tuple[Path | None, str | None]:
     Returns:
         Tuple of (resolved_path, None) on success, or (None, error_message) on failure.
     """
-    audio_path = ATTACHMENTS_DIR / filename
+    audio_path = (ATTACHMENTS_DIR / filename).resolve()
+
+    # Prevent path traversal outside the Attachments directory
+    try:
+        audio_path.relative_to(ATTACHMENTS_DIR.resolve())
+    except ValueError:
+        return None, f"Invalid audio file path: {filename}"
 
     if not audio_path.exists():
         return None, f"Audio file not found: {filename}"
