@@ -66,7 +66,7 @@ services/
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management (LRU eviction, message trimming); compacts tool messages between requests
 - **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, tool message compaction between turns, and synthetic `get_continuation` tool for retrieving truncated results in chunks. See **System Prompt** section below for prompt structure.
-- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
+- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200`, ranks by term frequency (occurrence count, not just presence), and filters an expanded stopword list. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
 
@@ -105,7 +105,7 @@ These tools are exposed by the MCP server. Documentation here is for development
 Searches the Obsidian vault using hybrid search (semantic + keyword by default). The `mode` parameter controls the search strategy:
 - `"hybrid"` (default): Runs both semantic and keyword search, merges results using Reciprocal Rank Fusion.
 - `"semantic"`: Vector similarity search only.
-- `"keyword"`: Exact keyword matching only, ranked by number of query terms found.
+- `"keyword"`: Exact keyword matching only, ranked by term frequency (occurrence count).
 
 The optional `chunk_type` parameter filters results to a specific type of indexed chunk:
 - `"frontmatter"`: YAML metadata only (tags, people, company, etc.). Use this to search across metadata fields without body content noise.
