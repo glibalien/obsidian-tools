@@ -547,7 +547,7 @@ All paths are configured via `.env`:
 - `VAULT_PATH`: Path to Obsidian vault (default: `~/Documents/obsidian-vault`)
 - `CHROMA_PATH`: Path to ChromaDB database (default: `./.chroma_db` relative to project)
 - `FIREWORKS_API_KEY`: API key for Fireworks (used by LLM agent)
-- `FIREWORKS_MODEL`: Fireworks model ID (default: `accounts/fireworks/models/kimi-k2p5`, env: `FIREWORKS_MODEL`). Falls back to `LLM_MODEL` env var for backward compatibility.
+- `FIREWORKS_MODEL`: Fireworks model ID (default: `accounts/fireworks/models/gpt-oss-120b`, env: `FIREWORKS_MODEL`). Falls back to `LLM_MODEL` env var for backward compatibility.
 - `API_PORT`: Port for the HTTP API server (default: `8000`)
 - `INDEX_INTERVAL`: How often the vault indexer runs, in minutes (default: `60`). Used by the install scripts to configure service timer intervals.
 
