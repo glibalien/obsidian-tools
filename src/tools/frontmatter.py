@@ -49,7 +49,7 @@ def list_files_by_frontmatter(
         matches = False
         if match_type == "contains":
             if isinstance(field_value, list):
-                matches = value in field_value
+                matches = any(value in str(item) for item in field_value)
             elif isinstance(field_value, str):
                 matches = value in field_value
         elif match_type == "equals":
