@@ -1,7 +1,9 @@
 """Tests for structure-aware markdown chunking."""
 
+import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +14,8 @@ from index_vault import (
     _strip_wikilink_brackets,
     chunk_markdown,
     format_frontmatter_for_indexing,
+    get_last_run,
+    mark_run,
 )
 
 
@@ -680,3 +684,65 @@ class TestIndexFileBatching:
             assert len(call_args["metadatas"]) == len(call_args["ids"])
         finally:
             tmp_path.unlink()
+
+
+class TestMarkRun:
+    """Tests for scan-start timestamp recording."""
+
+    def test_mark_run_with_timestamp(self, tmp_path):
+        """mark_run records the given timestamp, not current time."""
+        import index_vault as iv
+        original = iv.CHROMA_PATH
+        try:
+            iv.CHROMA_PATH = str(tmp_path)
+            past_time = time.time() - 3600  # 1 hour ago
+            mark_run(past_time)
+            recorded = get_last_run()
+            # Should be close to past_time, not current time
+            assert abs(recorded - past_time) < 1.0
+        finally:
+            iv.CHROMA_PATH = original
+
+    def test_mark_run_without_timestamp(self, tmp_path):
+        """mark_run without timestamp uses current time (backward compat)."""
+        import index_vault as iv
+        original = iv.CHROMA_PATH
+        try:
+            iv.CHROMA_PATH = str(tmp_path)
+            before = time.time()
+            mark_run()
+            recorded = get_last_run()
+            assert recorded >= before - 1.0
+        finally:
+            iv.CHROMA_PATH = original
+
+    def test_scan_start_prevents_race(self, tmp_path):
+        """Files modified during indexing are not skipped on next run.
+
+        Simulates the race condition: a file modified after scan_start
+        should still be picked up on the next incremental run because
+        mark_run uses scan_start, not completion time.
+        """
+        import index_vault as iv
+        original = iv.CHROMA_PATH
+        try:
+            iv.CHROMA_PATH = str(tmp_path)
+
+            scan_start = time.time()
+            time.sleep(0.05)
+
+            # File modified after scan_start
+            modified_file = tmp_path / "note.md"
+            modified_file.write_text("modified during indexing")
+            file_mtime = modified_file.stat().st_mtime
+
+            # mark_run with scan_start (before file was modified)
+            mark_run(scan_start)
+            last_run = get_last_run()
+
+            # File should be newer than last_run
+            assert file_mtime > last_run, (
+                "File modified during indexing would be skipped on next run"
+            )
+        finally:
+            iv.CHROMA_PATH = original
