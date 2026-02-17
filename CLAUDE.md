@@ -61,11 +61,11 @@ services/
 - **mcp_server.py**: Entry point that registers all tools with FastMCP
 - **services/chroma.py**: Shared ChromaDB connection management (lazy singletons)
 - **services/vault.py**: Shared utilities for path resolution, response formatting, section finding, file scanning
-- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by the API server between requests. Uses tool-specific stub builders for top tools (dispatched by tool name) with a generic fallback for the rest.
+- **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by both the API server and CLI agent between turns. Uses tool-specific stub builders for top tools (dispatched by tool name) with a generic fallback for the rest.
 - **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
-- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management; compacts tool messages between requests
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, and synthetic `get_continuation` tool for retrieving truncated results in chunks. See **System Prompt** section below for prompt structure.
+- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management (LRU eviction, message trimming); compacts tool messages between requests
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, tool message compaction between turns, and synthetic `get_continuation` tool for retrieving truncated results in chunks. See **System Prompt** section below for prompt structure.
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200` instead of N per-term queries. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
@@ -558,6 +558,8 @@ Additional configuration in `config.py`:
 - `FIREWORKS_MODEL`: Model ID for the LLM agent (reads `FIREWORKS_MODEL` env, falls back to `LLM_MODEL`)
 - `LLM_MODEL`: Backward compat alias for `FIREWORKS_MODEL`
 - `API_PORT`: API server port (default: `8000`, env: `API_PORT`)
+- `MAX_SESSIONS`: Maximum concurrent sessions before LRU eviction (default: `20`, env: `MAX_SESSIONS`, clamped to min 1)
+- `MAX_SESSION_MESSAGES`: Maximum messages per session before trimming (default: `50`, env: `MAX_SESSION_MESSAGES`, clamped to min 2)
 - `INDEX_INTERVAL`: Indexer interval in minutes (default: `60`, env: `INDEX_INTERVAL`)
 - `WHISPER_MODEL`: Whisper model for audio transcription (default: `whisper-v3`, env: `WHISPER_MODEL`)
 
@@ -613,7 +615,7 @@ Sessions are keyed by `active_file`, not by UUID. This prevents token explosion 
 - Switching back to a previously used file resumes that file's session
 
 **Token management — tool compaction:**
-Tool messages in session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results from accumulating across requests and exploding the prompt size. Compaction logic lives in `services/compaction.py` and runs only in `api_server.py` after each `agent_turn` completes — **not** within `agent_turn` itself, so the LLM retains full tool results throughout a single turn for multi-step research queries.
+Tool messages in session history are replaced with compact stubs containing only lightweight metadata. This prevents tool results from accumulating across turns and exploding the prompt size. Compaction logic lives in `services/compaction.py` and runs in both `api_server.py` and `agent.py` after each `agent_turn` completes — **not** within `agent_turn` itself, so the LLM retains full tool results throughout a single turn for multi-step research queries.
 
 `compact_tool_messages` resolves tool names from assistant messages' `tool_calls` (by `tool_call_id`) and dispatches to tool-specific stub builders. Tools without a specific handler use the generic fallback.
 
@@ -624,7 +626,7 @@ Tool-specific stubs:
 - **`web_search`**: Keeps `title` and `url` per result, drops snippets
 - **Generic fallback**: Extracts `status`, `error`, `message`, `path`, `result_count`, `files` (from `source` keys), `has_content`/`content_length`, `date`
 
-The `_compacted` flag on tool messages tracks which have been compacted. It is stripped in `api_server.py` before each `agent_turn` call so it never reaches the Fireworks API, then restored afterward so `compact_tool_messages` skips already-compacted stubs (re-compaction degrades them).
+The `_compacted` flag on tool messages tracks which have been compacted. It is stripped before each `agent_turn` call so it never reaches the Fireworks API, then restored on both success and error paths via `_restore_compacted_flags()` so `compact_tool_messages` skips already-compacted stubs (re-compaction degrades them).
 
 **Token management — tool result truncation:**
 Individual tool results are truncated to `MAX_TOOL_RESULT_CHARS` (100,000) characters before being appended to message history. Truncated results include a short numeric `id` and character counts so the LLM can call `get_continuation(id, offset)` to retrieve more.
@@ -635,8 +637,12 @@ When a tool result is truncated, the full result is cached in-memory for the dur
 **Agent loop safeguard:**
 The `agent_turn` function has a `max_iterations` parameter (default 20). If the LLM keeps requesting tool calls beyond this limit, the loop stops and returns whatever response has been generated so far, appended with `\n\n[Tool call limit reached]`. Calls to `log_interaction` and `get_continuation` are excluded from the count — iterations where all tool calls are uncounted tools do not increment the counter.
 
+**Session bounds:**
+- **LRU eviction**: Sessions are stored in an `OrderedDict`. Accessed sessions move to end. When `MAX_SESSIONS` (default 20) is exceeded, the least recently used session is evicted.
+- **Message trimming**: After compaction, if a session exceeds `MAX_SESSION_MESSAGES` (default 50), old messages are trimmed. The system prompt is always preserved. The trim point advances past tool call groups (assistant + tool messages) to avoid orphaning tool results.
+
 **Storage:**
-- Sessions are stored in-memory as `file_sessions: dict[str | None, Session]` (lost on server restart)
+- Sessions are stored in-memory as `file_sessions: OrderedDict[str | None, Session]` (lost on server restart)
 - Each `Session` holds a `session_id` (UUID), `active_file`, and `messages` list
 - The MCP connection is shared across all sessions
 
