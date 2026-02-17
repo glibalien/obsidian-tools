@@ -36,6 +36,8 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
 
 # Server configuration
 API_PORT = int(os.getenv("API_PORT", "8000"))
+MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "20"))
+MAX_SESSION_MESSAGES = int(os.getenv("MAX_SESSION_MESSAGES", "50"))
 
 # Indexer configuration
 INDEX_INTERVAL = int(os.getenv("INDEX_INTERVAL", "60"))
