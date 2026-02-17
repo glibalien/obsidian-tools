@@ -361,15 +361,18 @@ async def chat_loop():
             for msg in messages:
                 msg.pop("_compacted", None)
 
+            def _restore_compacted_flags():
+                for i in compacted_indices:
+                    if i < len(messages):
+                        messages[i]["_compacted"] = True
+
             try:
                 response = await agent_turn(client, session, messages, tools)
-                # Restore compacted flags so compact_tool_messages skips
-                # already-compacted stubs (re-compaction degrades them).
-                for i in compacted_indices:
-                    messages[i]["_compacted"] = True
+                _restore_compacted_flags()
                 compact_tool_messages(messages)
                 print(f"\nAssistant: {response}\n")
             except Exception as e:
+                _restore_compacted_flags()
                 print(f"\nError: {e}\n", file=sys.stderr)
                 # Remove failed user message to keep history clean
                 messages.pop()
