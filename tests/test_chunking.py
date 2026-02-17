@@ -486,6 +486,64 @@ class TestKeywordSearchOptimization:
 
 
 
+    @patch("hybrid_search.get_collection")
+    def test_term_frequency_ranking(self, mock_get_collection):
+        """Results ranked by term frequency, not just presence."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1", "id2"],
+            "documents": [
+                "project mentioned once",
+                "project project project mentioned many times project",
+            ],
+            "metadatas": [
+                {"source": "once.md", "heading": "", "chunk_type": "section"},
+                {"source": "many.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        results = keyword_search("project", n_results=5)
+
+        # many.md has 4 occurrences, once.md has 1
+        assert results[0]["source"] == "many.md"
+        assert results[1]["source"] == "once.md"
+
+    @patch("hybrid_search.get_collection")
+    def test_keyword_results_not_truncated(self, mock_get_collection):
+        """Keyword results return full chunk content, not truncated to 500 chars."""
+        long_content = "x" * 1000
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": [long_content],
+            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        results = keyword_search("xxx", n_results=5)
+
+        assert len(results[0]["content"]) == 1000
+
+    def test_expanded_stopwords(self):
+        """Common English words are filtered from queries."""
+        from hybrid_search import _extract_query_terms
+        terms = _extract_query_terms("this project has been about will")
+        # "this", "has", "been", "about", "will" are stopwords
+        assert terms == ["project"]
+
+    def test_original_stopwords_still_filtered(self):
+        """Original stopwords remain filtered."""
+        from hybrid_search import _extract_query_terms
+        terms = _extract_query_terms("the project for testing")
+        assert "the" not in terms
+        assert "for" not in terms
+        assert "project" in terms
+        assert "testing" in terms
+
+
 class TestStripWikilinkBrackets:
     """Tests for wikilink bracket stripping."""
 
