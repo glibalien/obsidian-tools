@@ -1,7 +1,10 @@
 """Shared configuration for obsidian-tools."""
 
+import logging
 import os
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -41,3 +44,38 @@ MAX_SESSION_MESSAGES = max(2, int(os.getenv("MAX_SESSION_MESSAGES", "50")))
 
 # Indexer configuration
 INDEX_INTERVAL = int(os.getenv("INDEX_INTERVAL", "60"))
+
+# Logging configuration
+LOG_DIR = Path(os.getenv("LOG_DIR", str(VAULT_PATH / "logs"))).expanduser()
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "3"))
+
+
+def setup_logging(name: str) -> None:
+    """Configure logging with both stderr and rotating file output.
+
+    Args:
+        name: Log file name without extension (e.g. "api", "agent").
+    """
+    fmt = "%(asctime)s %(name)s %(levelname)s %(message)s"
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    # stderr handler (for journalctl)
+    stderr_handler = logging.StreamHandler()
+    stderr_handler.setFormatter(logging.Formatter(fmt))
+    root.addHandler(stderr_handler)
+
+    # Rotating file handler (best-effort — fall back to stderr-only)
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_DIR / f"{name}.log",
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter(fmt))
+        root.addHandler(file_handler)
+    except OSError as e:
+        root.warning(f"Could not set up file logging: {e} — using stderr only")
