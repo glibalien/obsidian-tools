@@ -18,17 +18,21 @@ from services.vault import (
 
 
 def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -> bool:
-    """Check if a frontmatter dict matches a single field condition."""
+    """Check if a frontmatter dict matches a single field condition.
+
+    All comparisons are case-insensitive. Non-string/non-list values are
+    converted to strings before comparison.
+    """
     field_value = frontmatter.get(field)
     if field_value is None:
         return False
+    value_lower = value.lower()
     if match_type == "contains":
         if isinstance(field_value, list):
-            return any(value in str(item) for item in field_value)
-        elif isinstance(field_value, str):
-            return value in field_value
+            return any(value_lower in str(item).lower() for item in field_value)
+        return value_lower in str(field_value).lower()
     elif match_type == "equals":
-        return field_value == value
+        return str(field_value).lower() == value_lower
     return False
 
 
@@ -152,7 +156,7 @@ def list_files_by_frontmatter(
 
     total = len(matching)
     page = matching[offset:offset + limit]
-    return ok(results=page, total=total)
+    return ok(f"Found {total} matching files", results=page, total=total)
 
 
 def update_frontmatter(

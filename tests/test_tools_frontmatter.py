@@ -554,6 +554,94 @@ class TestQueryBasedBatchUpdate:
         assert "either" in result["error"].lower()
 
 
+class TestCaseInsensitiveMatching:
+    """Tests for case-insensitive frontmatter matching."""
+
+    def test_contains_case_insensitive(self, vault_config):
+        """Contains matching should be case-insensitive."""
+        (vault_config / "ci1.md").write_text(
+            "---\nstatus: Open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(field="status", value="open")
+        )
+        assert result["total"] >= 1
+        assert any("ci1.md" in p for p in result["results"])
+
+    def test_equals_case_insensitive(self, vault_config):
+        """Equals matching should be case-insensitive."""
+        (vault_config / "ci2.md").write_text(
+            "---\ncategory: Meeting\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category", value="meeting", match_type="equals"
+            )
+        )
+        assert result["total"] >= 1
+        assert any("ci2.md" in p for p in result["results"])
+
+    def test_filter_case_insensitive(self, vault_config):
+        """Compound filter values should also be case-insensitive."""
+        (vault_config / "ci3.md").write_text(
+            "---\nproject: '[[MyProj]]'\nstatus: OPEN\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project", value="myproj",
+                filters='[{"field": "status", "value": "open", "match_type": "equals"}]',
+            )
+        )
+        assert result["total"] >= 1
+        assert any("ci3.md" in p for p in result["results"])
+
+    def test_list_values_case_insensitive(self, vault_config):
+        """Contains in list values should be case-insensitive."""
+        (vault_config / "ci4.md").write_text(
+            "---\ntags:\n  - Project\n  - Work\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(field="tags", value="work")
+        )
+        assert result["total"] >= 1
+        assert any("ci4.md" in p for p in result["results"])
+
+    def test_non_string_field_value(self, vault_config):
+        """Non-string field values (e.g. int) should be handled via str conversion."""
+        (vault_config / "ci5.md").write_text(
+            "---\npriority: 1\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="priority", value="1", match_type="equals"
+            )
+        )
+        assert result["total"] >= 1
+        assert any("ci5.md" in p for p in result["results"])
+
+
+class TestResultMessage:
+    """Tests for explicit count message in results."""
+
+    def test_found_message_present(self, vault_config):
+        """Non-empty results should include a 'Found N' message."""
+        result = json.loads(
+            list_files_by_frontmatter(field="tags", value="project")
+        )
+        assert result["success"] is True
+        assert result["total"] >= 1
+        assert "Found" in result["message"]
+        assert str(result["total"]) in result["message"]
+
+    def test_no_results_message(self, vault_config):
+        """Empty results should include a 'No files found' message."""
+        result = json.loads(
+            list_files_by_frontmatter(field="nonexistent", value="xyz")
+        )
+        assert result["total"] == 0
+        assert "No files found" in result["message"]
+
+
 class TestSearchByDateRange:
     """Tests for search_by_date_range tool."""
 
