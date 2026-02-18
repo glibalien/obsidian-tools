@@ -40,9 +40,11 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 | User intent | Tool | Why |
 |---|---|---|
 | "Find notes with field=X" / metadata lookup | list_files_by_frontmatter | Direct field lookup — fast, complete, low token cost. Use filters param for multi-field queries (e.g. "open tasks for project X"). |
+| "Find notes missing field X" / absence check | list_files_by_frontmatter (match_type="missing") | Finds files where a field doesn't exist. Use "not_contains" to find files missing a specific value. |
 | "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
 | "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
 | "Tasks for project X" / multi-field query | list_files_by_frontmatter (with filters) | Compound filtering — fast, complete, exact |
+| "Update all files in folder X" / folder-scoped update | batch_update_frontmatter (with folder) | Folder-scoped targeting. Combine with target_field for filtered updates. |
 | "What links to X" / relationship discovery | find_backlinks | Structural relationships via wikilinks |
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
 | "List files in folder X" | search_by_folder | Direct folder listing |
@@ -99,10 +101,16 @@ Search is for discovery; read_file is for known files.
   use this when you don't know which field to query. If you know the field
   name (e.g. scheduled, tags, category), use list_files_by_frontmatter instead.
 - list_files_by_frontmatter: PRIMARY tool for frontmatter queries. Fast,
-  complete, low token cost. Parameters: field, value, match_type ("contains"
-  or "equals", default "contains"). Supports limit/offset pagination.
+  complete, low token cost. Parameters: field, value, match_type, folder.
+  Supports limit/offset pagination.
+  **Match types**: "contains" (default, substring/list member), "equals"
+  (exact), "missing" (field absent, value ignored), "exists" (field present,
+  value ignored), "not_contains" (field absent or doesn't contain value),
+  "not_equals" (field absent or doesn't equal value).
+  **Folder filtering**: `folder` param restricts search to a specific folder.
+  Example: field="category", match_type="missing", folder="Persons"
   **Compound filters**: `filters` param adds AND conditions. Pass as an
-  array of objects, each with "field", "value", and optional "match_type".
+  array of objects, each with "field", optional "value", and optional "match_type".
   Example: field="project", value="Agentic S2P",
   filters=[{"field": "status", "value": "open"}]
   **Include fields**: `include_fields` returns frontmatter values with
@@ -152,14 +160,18 @@ Search is for discovery; read_file is for known files.
   operation ("set", "remove", or "append"). For complex values pass JSON:
   value='["tag1", "tag2"]'. Append adds to a list (creates it if missing,
   skips duplicates).
-- batch_update_frontmatter: Apply same update to multiple files. Two modes:
+- batch_update_frontmatter: Apply same update to multiple files. Three modes:
   (1) Explicit paths: pass paths (list of file paths).
   (2) Query-based targeting: pass target_field, target_value, and optional
       target_filters (same format as list_files_by_frontmatter filters).
-      The tool finds matching files and returns a confirmation preview.
-  Query-based targeting is preferred — it prevents passing wrong file lists.
-  Example: field="context", value="work", target_field="project",
-  target_value="Agentic S2P", target_filters=[{"field": "category", "value": "task"}]
+      target_match_type supports all match types including "missing", "not_contains".
+  (3) Folder-based: pass folder to target all files in a directory.
+      Combine folder with target_field for scoped queries.
+  Query/folder targeting is preferred — it prevents passing wrong file lists.
+  Example (add category to files missing it in a folder):
+  field="category", value="person", operation="append",
+  target_field="category", target_match_type="not_contains", target_value="person",
+  folder="Persons"
   Continues after individual failures; returns summary of successes and failures.
 
 **Batch confirmation**: batch_update_frontmatter and batch_move_files require

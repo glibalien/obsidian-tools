@@ -1066,3 +1066,273 @@ def test_frontmatter_paginated_tools_reject_invalid_pagination(vault_config, kwa
     for result in (list_result, date_result):
         assert result["success"] is False
         assert expected_error in result["error"]
+
+
+class TestNegativeMatching:
+    """Tests for negative and existence match types."""
+
+    def test_missing_finds_files_without_field(self, vault_config):
+        """match_type='missing' finds files where the field is absent."""
+        # note3.md has no frontmatter at all — should match 'missing' on any field
+        result = json.loads(
+            list_files_by_frontmatter(field="company", match_type="missing")
+        )
+        assert result["success"] is True
+        # note3.md has no frontmatter, note1.md has no company field
+        assert any("note3.md" in p for p in result["results"])
+        assert any("note1.md" in p for p in result["results"])
+        # note2.md has company: Acme Corp — should NOT match
+        assert not any("note2.md" in p for p in result["results"])
+
+    def test_missing_excludes_files_with_field(self, vault_config):
+        """match_type='missing' excludes files that have the field."""
+        result = json.loads(
+            list_files_by_frontmatter(field="tags", match_type="missing")
+        )
+        assert result["success"] is True
+        # note1.md has tags — should NOT be in results
+        assert not any("note1.md" in p for p in result["results"])
+        # note3.md has no frontmatter — should be in results
+        assert any("note3.md" in p for p in result["results"])
+
+    def test_exists_finds_files_with_field(self, vault_config):
+        """match_type='exists' finds files where the field is present."""
+        result = json.loads(
+            list_files_by_frontmatter(field="tags", match_type="exists")
+        )
+        assert result["success"] is True
+        assert any("note1.md" in p for p in result["results"])
+        assert any("note2.md" in p for p in result["results"])
+        # note3.md has no frontmatter — should NOT match
+        assert not any("note3.md" in p for p in result["results"])
+
+    def test_not_contains_excludes_matching(self, vault_config):
+        """match_type='not_contains' excludes files containing the value."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="project", match_type="not_contains"
+            )
+        )
+        assert result["success"] is True
+        # note1.md has tags: [project, work] — should be excluded
+        assert not any("note1.md" in p for p in result["results"])
+        # note2.md has tags: [meeting] — should be included
+        assert any("note2.md" in p for p in result["results"])
+
+    def test_not_contains_includes_missing_field(self, vault_config):
+        """match_type='not_contains' includes files where the field is absent."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="project", match_type="not_contains"
+            )
+        )
+        assert result["success"] is True
+        # note3.md has no frontmatter — should be included
+        assert any("note3.md" in p for p in result["results"])
+
+    def test_not_equals(self, vault_config):
+        """match_type='not_equals' excludes exact matches, includes the rest."""
+        (vault_config / "ne1.md").write_text("---\nstatus: open\n---\n")
+        (vault_config / "ne2.md").write_text("---\nstatus: closed\n---\n")
+        (vault_config / "ne3.md").write_text("---\ntitle: no status\n---\n")
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="status", value="open", match_type="not_equals"
+            )
+        )
+        assert result["success"] is True
+        assert not any("ne1.md" in p for p in result["results"])
+        assert any("ne2.md" in p for p in result["results"])
+        # ne3.md has no status field — should be included
+        assert any("ne3.md" in p for p in result["results"])
+
+    def test_missing_in_filter(self, vault_config):
+        """'missing' match_type works in compound FilterCondition."""
+        (vault_config / "mf1.md").write_text("---\ncategory: task\n---\n")
+        (vault_config / "mf2.md").write_text(
+            "---\ncategory: task\nstatus: done\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category",
+                value="task",
+                match_type="equals",
+                filters=[FilterCondition(field="status", match_type="missing")],
+            )
+        )
+        assert result["success"] is True
+        assert any("mf1.md" in p for p in result["results"])
+        assert not any("mf2.md" in p for p in result["results"])
+
+    def test_value_required_for_contains(self, vault_config):
+        """match_type='contains' requires a non-empty value."""
+        result = json.loads(
+            list_files_by_frontmatter(field="tags", value="", match_type="contains")
+        )
+        assert result["success"] is False
+        assert "value" in result["error"].lower()
+
+    def test_invalid_match_type_rejected(self, vault_config):
+        """Unknown match_type returns an error."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="test", match_type="regex"
+            )
+        )
+        assert result["success"] is False
+        assert "match_type" in result["error"]
+
+
+class TestFolderFiltering:
+    """Tests for folder parameter on frontmatter tools."""
+
+    def test_list_with_folder(self, vault_config):
+        """list_files_by_frontmatter with folder restricts to that directory."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="project", folder="projects"
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] >= 1
+        for path in result["results"]:
+            assert path.startswith("projects/")
+
+    def test_list_folder_with_missing(self, vault_config):
+        """folder + match_type='missing' finds files in folder without the field."""
+        # projects/project1.md has tags and status, but no company
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="company", match_type="missing", folder="projects"
+            )
+        )
+        assert result["success"] is True
+        assert any("project1.md" in p for p in result["results"])
+        # Results should all be in the projects folder
+        for path in result["results"]:
+            assert path.startswith("projects/")
+
+    def test_list_folder_excludes_other_folders(self, vault_config):
+        """folder parameter should exclude files outside the folder."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="meeting", folder="projects"
+            )
+        )
+        assert result["success"] is True
+        # note2.md has tags: [meeting] but is in root, not projects/
+        assert not any("note2.md" in p for p in result["results"])
+
+    def test_list_folder_invalid(self, vault_config):
+        """Nonexistent folder returns error."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="test", folder="nonexistent"
+            )
+        )
+        assert result["success"] is False
+
+    def test_batch_folder_only(self, vault_config):
+        """batch_update_frontmatter with folder-only returns confirmation preview."""
+        result = json.loads(
+            batch_update_frontmatter(
+                field="category",
+                value="project",
+                operation="set",
+                folder="projects",
+            )
+        )
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert all("projects/" in f for f in result["files"])
+
+    def test_batch_folder_with_query(self, vault_config):
+        """folder + target_field narrows to files in folder matching the query."""
+        (vault_config / "projects" / "active.md").write_text(
+            "---\nstatus: active\n---\n"
+        )
+        (vault_config / "projects" / "archived.md").write_text(
+            "---\nstatus: archived\n---\n"
+        )
+        result = json.loads(
+            batch_update_frontmatter(
+                field="category",
+                value="project",
+                operation="set",
+                target_field="status",
+                target_value="active",
+                folder="projects",
+            )
+        )
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert any("active.md" in f for f in result["files"])
+        assert not any("archived.md" in f for f in result["files"])
+
+    def test_batch_folder_with_paths_rejected(self, vault_config):
+        """folder + paths returns error."""
+        result = json.loads(
+            batch_update_frontmatter(
+                field="status",
+                value="done",
+                operation="set",
+                paths=["note1.md"],
+                folder="projects",
+            )
+        )
+        assert result["success"] is False
+
+    def test_batch_folder_not_contains_end_to_end(self, vault_config):
+        """End-to-end: folder + not_contains finds and updates only missing files."""
+        # Create person files, some with and some without category
+        persons = vault_config / "persons"
+        persons.mkdir()
+        (persons / "alice.md").write_text(
+            "---\ncategory:\n  - person\n---\n# Alice\n"
+        )
+        (persons / "bob.md").write_text("---\ntags:\n  - colleague\n---\n# Bob\n")
+        (persons / "carol.md").write_text("# Carol\n")  # no frontmatter
+
+        # Query: find files in persons/ where category not_contains person
+        result = json.loads(
+            batch_update_frontmatter(
+                field="category",
+                value="person",
+                operation="append",
+                target_field="category",
+                target_value="person",
+                target_match_type="not_contains",
+                folder="persons",
+            )
+        )
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        # alice.md already has category: person — should NOT be in the list
+        assert not any("alice.md" in f for f in result["files"])
+        # bob.md and carol.md should be in the list
+        assert any("bob.md" in f for f in result["files"])
+        assert any("carol.md" in f for f in result["files"])
+
+    def test_batch_folder_missing_match_type(self, vault_config):
+        """batch with folder + target_match_type='missing' works without target_value."""
+        persons = vault_config / "persons2"
+        persons.mkdir()
+        (persons / "has_cat.md").write_text(
+            "---\ncategory: person\n---\n"
+        )
+        (persons / "no_cat.md").write_text("---\ntags: [test]\n---\n")
+
+        result = json.loads(
+            batch_update_frontmatter(
+                field="category",
+                value="person",
+                operation="set",
+                target_field="category",
+                target_match_type="missing",
+                folder="persons2",
+            )
+        )
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert any("no_cat.md" in f for f in result["files"])
+        assert not any("has_cat.md" in f for f in result["files"])
