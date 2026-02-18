@@ -606,6 +606,35 @@ class TestCaseInsensitiveMatching:
         assert result["total"] >= 1
         assert any("ci4.md" in p for p in result["results"])
 
+    def test_field_name_case_insensitive(self, vault_config):
+        """Field names should match case-insensitively (e.g. Project vs project)."""
+        (vault_config / "ci_field.md").write_text(
+            "---\nProject:\n- '[[MyProj]]'\nStatus: Open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project", value="MyProj",
+                filters='[{"field": "status", "value": "open"}]',
+            )
+        )
+        assert result["total"] >= 1
+        assert any("ci_field.md" in p for p in result["results"])
+
+    def test_include_fields_case_insensitive_key(self, vault_config):
+        """include_fields should find values even when field name case differs."""
+        (vault_config / "ci_inc.md").write_text(
+            "---\nProject:\n- '[[Proj]]'\nStatus: Open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project", value="Proj",
+                include_fields='["status"]',
+            )
+        )
+        assert result["total"] >= 1
+        item = next(r for r in result["results"] if "ci_inc.md" in r["path"])
+        assert item["status"] == "Open"
+
     def test_non_string_field_value(self, vault_config):
         """Non-string field values (e.g. int) should be handled via str conversion."""
         (vault_config / "ci5.md").write_text(

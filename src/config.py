@@ -32,7 +32,7 @@ ATTACHMENTS_DIR = VAULT_PATH / "Attachments"
 # Model configuration
 FIREWORKS_MODEL = os.getenv(
     "FIREWORKS_MODEL",
-    os.getenv("LLM_MODEL", "accounts/fireworks/models/gpt-oss-120b"),
+    os.getenv("LLM_MODEL", "accounts/fireworks/models/deepseek-v3p1"),
 )
 LLM_MODEL = FIREWORKS_MODEL  # backward compat alias
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
