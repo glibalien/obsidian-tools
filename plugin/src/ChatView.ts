@@ -62,14 +62,14 @@ export class ChatView extends ItemView {
 		});
 
 		// Welcome message
-		this.addMessage("assistant", "Hello! I'm your vault assistant. How can I help you today?");
+		await this.addMessage("assistant", "Hello! I'm your vault assistant. How can I help you today?");
 	}
 
 	async onClose(): Promise<void> {
 		// Cleanup if needed
 	}
 
-	private addMessage(role: "user" | "assistant", content: string): void {
+	private async addMessage(role: "user" | "assistant", content: string): Promise<void> {
 		this.messages.push({ role, content });
 
 		const messageEl = this.messagesContainer.createDiv({
@@ -79,7 +79,8 @@ export class ChatView extends ItemView {
 		const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
 
 		if (role === "assistant") {
-			MarkdownRenderer.render(this.app, content, contentEl, "", this);
+			const sourcePath = this.getActiveFilePath() ?? "";
+			await MarkdownRenderer.render(this.app, content, contentEl, sourcePath, this);
 		} else {
 			contentEl.setText(content);
 		}
@@ -111,7 +112,7 @@ export class ChatView extends ItemView {
 		this.sendButton.disabled = true;
 
 		// Add user message
-		this.addMessage("user", message);
+		await this.addMessage("user", message);
 
 		// Show loading
 		const loadingEl = this.showLoading();
@@ -133,12 +134,12 @@ export class ChatView extends ItemView {
 
 			const data = response.json;
 			this.sessionId = data.session_id;
-			this.addMessage("assistant", data.response);
+			await this.addMessage("assistant", data.response);
 
 		} catch (error) {
 			loadingEl.remove();
 			const errorMessage = error instanceof Error ? error.message : "Failed to connect to server";
-			this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`);
+			await this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`);
 		} finally {
 			this.isLoading = false;
 			this.sendButton.disabled = false;
