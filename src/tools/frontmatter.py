@@ -17,13 +17,27 @@ from services.vault import (
 )
 
 
+def _get_field_ci(frontmatter: dict, field: str):
+    """Get a frontmatter value by case-insensitive field name."""
+    # Try exact match first (fast path)
+    value = frontmatter.get(field)
+    if value is not None:
+        return value
+    # Fall back to case-insensitive scan
+    field_lower = field.lower()
+    for key, val in frontmatter.items():
+        if key.lower() == field_lower:
+            return val
+    return None
+
+
 def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -> bool:
     """Check if a frontmatter dict matches a single field condition.
 
-    All comparisons are case-insensitive. Non-string/non-list values are
-    converted to strings before comparison.
+    Both field names and values are compared case-insensitively.
+    Non-string/non-list values are converted to strings before comparison.
     """
-    field_value = frontmatter.get(field)
+    field_value = _get_field_ci(frontmatter, field)
     if field_value is None:
         return False
     value_lower = value.lower()
@@ -96,7 +110,7 @@ def _find_matching_files(
         if include_fields:
             result = {"path": rel_path}
             for inc_field in include_fields:
-                raw = frontmatter.get(inc_field)
+                raw = _get_field_ci(frontmatter, inc_field)
                 result[inc_field] = str(raw) if raw is not None else None
             matching.append(result)
         else:
