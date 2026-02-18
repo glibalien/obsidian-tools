@@ -61,6 +61,7 @@
 .chat-loading .chat-message-content {
 	color: var(--text-muted);
 	font-style: italic;
+	transition: opacity 0.15s ease;
 }
 
 .chat-input-container {
