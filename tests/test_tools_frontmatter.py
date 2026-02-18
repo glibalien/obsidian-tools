@@ -7,6 +7,7 @@ import time
 import pytest
 
 from tools.frontmatter import (
+    FilterCondition,
     batch_update_frontmatter,
     list_files_by_frontmatter,
     search_by_date_range,
@@ -324,7 +325,7 @@ class TestCompoundFiltering:
             list_files_by_frontmatter(
                 field="project",
                 value="MyProject",
-                filters='[{"field": "status", "value": "open"}]',
+                filters=[FilterCondition(field="status", value="open")],
             )
         )
         assert result["success"] is True
@@ -345,7 +346,7 @@ class TestCompoundFiltering:
             list_files_by_frontmatter(
                 field="project",
                 value="X",
-                filters='[{"field": "status", "value": "open"}]',
+                filters=[FilterCondition(field="status", value="open")],
             )
         )
         assert result["success"] is True
@@ -365,53 +366,12 @@ class TestCompoundFiltering:
                 field="category",
                 value="meeting",
                 match_type="equals",
-                filters='[{"field": "status", "value": "open", "match_type": "equals"}]',
+                filters=[FilterCondition(field="status", value="open", match_type="equals")],
             )
         )
         assert result["success"] is True
         assert result["total"] == 1
         assert any("exact.md" in p for p in result["results"])
-
-    def test_filters_invalid_json(self, vault_config):
-        """Should return error for invalid JSON filters."""
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="category",
-                value="task",
-                filters="not valid json",
-            )
-        )
-        assert result["success"] is False
-        assert "json" in result["error"].lower()
-
-    def test_filters_missing_field_key(self, vault_config):
-        """Should return error when filter dict lacks required keys."""
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="category",
-                value="task",
-                filters='[{"value": "open"}]',
-            )
-        )
-        assert result["success"] is False
-        assert "field" in result["error"]
-
-
-    def test_compound_filter_native_list(self, vault_config):
-        """Should accept native list-of-dicts filters (not only JSON strings)."""
-        (vault_config / "native_filter.md").write_text(
-            "---\nproject: '[[MyProject]]'\nstatus: open\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="project",
-                value="MyProject",
-                filters=[{"field": "status", "value": "open", "match_type": "equals"}],
-            )
-        )
-        assert result["success"] is True
-        assert result["total"] >= 1
-        assert any("native_filter.md" in p for p in result["results"])
 
     def test_filters_empty_list(self, vault_config):
         """Empty filters list should work same as no filters."""
@@ -419,7 +379,7 @@ class TestCompoundFiltering:
             list_files_by_frontmatter(field="tags", value="test")
         )
         result_empty = json.loads(
-            list_files_by_frontmatter(field="tags", value="test", filters="[]")
+            list_files_by_frontmatter(field="tags", value="test", filters=[])
         )
         assert result_no_filters["total"] == result_empty["total"]
 
@@ -435,7 +395,7 @@ class TestIncludeFields:
         result = json.loads(
             list_files_by_frontmatter(
                 field="category", value="task", match_type="equals",
-                include_fields='["status", "scheduled"]',
+                include_fields=["status", "scheduled"],
             )
         )
         assert result["success"] is True
@@ -452,7 +412,7 @@ class TestIncludeFields:
         result = json.loads(
             list_files_by_frontmatter(
                 field="category", value="task", match_type="equals",
-                include_fields='["status", "nonexistent"]',
+                include_fields=["status", "nonexistent"],
             )
         )
         assert result["success"] is True
@@ -471,52 +431,25 @@ class TestIncludeFields:
         result = json.loads(
             list_files_by_frontmatter(
                 field="project", value="P1",
-                filters='[{"field": "status", "value": "open"}]',
-                include_fields='["context"]',
+                filters=[FilterCondition(field="status", value="open")],
+                include_fields=["context"],
             )
         )
         assert result["success"] is True
         assert result["total"] == 1
         assert result["results"][0]["context"] == "work"
 
-    def test_include_fields_empty_list(self, vault_config):
+    def test_include_fields_empty_returns_strings(self, vault_config):
         """Empty include_fields should return plain paths like omitting it."""
         result = json.loads(
             list_files_by_frontmatter(
                 field="tags", value="test",
-                include_fields="[]",
+                include_fields=[],
             )
         )
         assert result["success"] is True
         if result["total"] > 0:
             assert isinstance(result["results"][0], str)
-
-
-    def test_include_fields_native_list(self, vault_config):
-        """Should accept native list include_fields for structured tool calls."""
-        (vault_config / "task_native_inc.md").write_text(
-            "---\ncategory: task\nstatus: open\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="category", value="task", match_type="equals",
-                include_fields=["status"],
-            )
-        )
-        assert result["success"] is True
-        item = next(r for r in result["results"] if "task_native_inc.md" in r["path"])
-        assert item["status"] == "open"
-
-    def test_include_fields_invalid_json(self, vault_config):
-        """Bad JSON should return error."""
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="tags", value="test",
-                include_fields="not json",
-            )
-        )
-        assert result["success"] is False
-        assert "json" in result["error"].lower()
 
     def test_without_include_fields_returns_strings(self, vault_config):
         """Without include_fields, results should be plain path strings."""
@@ -677,7 +610,7 @@ class TestQueryBasedBatchUpdate:
             batch_update_frontmatter(
                 field="context", value="work", operation="set",
                 target_field="project", target_value="FP",
-                target_filters='[{"field": "status", "value": "open"}]',
+                target_filters=[FilterCondition(field="status", value="open")],
                 confirm=True,
             )
         )
@@ -685,8 +618,8 @@ class TestQueryBasedBatchUpdate:
         assert "1 succeeded" in result["message"]
 
 
-    def test_query_target_with_native_filter_list(self, vault_config):
-        """Query targeting should accept native list target_filters."""
+    def test_query_target_with_filter_condition_list(self, vault_config):
+        """Query targeting should accept FilterCondition list for target_filters."""
         (vault_config / "open_native.md").write_text(
             "---\nproject: '[[NP]]'\nstatus: open\n---\n"
         )
@@ -697,7 +630,7 @@ class TestQueryBasedBatchUpdate:
             batch_update_frontmatter(
                 field="context", value="work", operation="set",
                 target_field="project", target_value="NP",
-                target_filters=[{"field": "status", "value": "open", "match_type": "equals"}],
+                target_filters=[FilterCondition(field="status", value="open", match_type="equals")],
                 confirm=True,
             )
         )
@@ -763,7 +696,7 @@ class TestCaseInsensitiveMatching:
         result = json.loads(
             list_files_by_frontmatter(
                 field="project", value="myproj",
-                filters='[{"field": "status", "value": "open", "match_type": "equals"}]',
+                filters=[FilterCondition(field="status", value="open", match_type="equals")],
             )
         )
         assert result["total"] >= 1
@@ -788,7 +721,7 @@ class TestCaseInsensitiveMatching:
         result = json.loads(
             list_files_by_frontmatter(
                 field="project", value="MyProj",
-                filters='[{"field": "status", "value": "open"}]',
+                filters=[FilterCondition(field="status", value="open")],
             )
         )
         assert result["total"] >= 1
@@ -802,7 +735,7 @@ class TestCaseInsensitiveMatching:
         result = json.loads(
             list_files_by_frontmatter(
                 field="project", value="Proj",
-                include_fields='["status"]',
+                include_fields=["status"],
             )
         )
         assert result["total"] >= 1
@@ -893,7 +826,7 @@ class TestWikilinkStripping:
         result = json.loads(
             list_files_by_frontmatter(
                 field="category", value="task",
-                filters='[{"field": "project", "value": "Agentic S2P"}]',
+                filters=[FilterCondition(field="project", value="Agentic S2P")],
             )
         )
         assert result["total"] >= 1

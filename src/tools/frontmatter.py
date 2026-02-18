@@ -4,6 +4,8 @@ import json
 import re
 from datetime import datetime
 
+from pydantic import BaseModel
+
 from config import VAULT_PATH
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
@@ -17,6 +19,14 @@ from services.vault import (
     parse_frontmatter_date,
 )
 from tools._validation import validate_pagination
+
+
+class FilterCondition(BaseModel):
+    """A single frontmatter filter condition."""
+
+    field: str
+    value: str
+    match_type: str = "contains"
 
 
 def _get_field_ci(frontmatter: dict, field: str):
@@ -95,37 +105,29 @@ def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -
     return False
 
 
-def _parse_filters(filters: str | None) -> tuple[list[dict], str | None]:
-    """Parse and validate filter conditions.
-
-    Accepts either:
-    - A JSON-encoded string array (legacy behavior), or
-    - A native list of dicts (preferred for structured tool calls).
+def _validate_filters(
+    filters: list[FilterCondition] | None,
+) -> tuple[list[dict], str | None]:
+    """Validate filter conditions and convert to plain dicts.
 
     Returns:
-        (parsed_filters, error_message). error_message is None on success.
+        (filter_dicts, error_message). error_message is None on success.
     """
-    if filters is None:
+    if not filters:
         return [], None
 
-    if isinstance(filters, list):
-        parsed = filters
-    else:
-        try:
-            parsed = json.loads(filters)
-        except (json.JSONDecodeError, TypeError):
-            return [], f"filters must be a valid JSON array, got: {filters!r}"
-    if not isinstance(parsed, list):
-        return [], "filters must be a JSON array"
-    for i, f in enumerate(parsed):
-        if not isinstance(f, dict):
-            return [], f"filters[{i}] must be an object, got {type(f).__name__}"
-        if "field" not in f or "value" not in f:
+    result = []
+    for i, f in enumerate(filters):
+        d = f.model_dump() if isinstance(f, FilterCondition) else dict(f)
+        if "field" not in d or "value" not in d:
             return [], f"filters[{i}] must have 'field' and 'value' keys"
-        fmt = f.get("match_type", "contains")
-        if fmt not in ("contains", "equals"):
-            return [], f"filters[{i}] match_type must be 'contains' or 'equals', got '{fmt}'"
-    return parsed, None
+        if d.get("match_type", "contains") not in ("contains", "equals"):
+            return [], (
+                f"filters[{i}] match_type must be 'contains' or 'equals', "
+                f"got '{d['match_type']}'"
+            )
+        result.append(d)
+    return result, None
 
 
 def _find_matching_files(
@@ -176,8 +178,8 @@ def list_files_by_frontmatter(
     field: str,
     value: str,
     match_type: str = "contains",
-    filters: str | None = None,
-    include_fields: str | None = None,
+    filters: list[FilterCondition] | None = None,
+    include_fields: list[str] | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> str:
@@ -187,8 +189,8 @@ def list_files_by_frontmatter(
         field: Frontmatter field name to match (e.g., 'tags', 'project', 'category').
         value: Value to match against. Wikilink brackets are stripped automatically.
         match_type: 'contains' (substring/list member match) or 'equals' (exact match).
-        filters: JSON array of additional AND conditions. Each object needs 'field', 'value', and optional 'match_type'. Example: '[{"field": "status", "value": "open"}, {"field": "category", "value": "task"}]'
-        include_fields: JSON array of field names whose values to return with each result. Example: '["status", "scheduled"]'
+        filters: Additional AND conditions. Each needs 'field', 'value', and optional 'match_type'.
+        include_fields: Field names whose values to return with each result, e.g. ["status", "scheduled"].
 
     Returns:
         JSON with results (file paths or objects when include_fields is set) and total count.
@@ -196,24 +198,11 @@ def list_files_by_frontmatter(
     if match_type not in ("contains", "equals"):
         return err(f"match_type must be 'contains' or 'equals', got '{match_type}'")
 
-    parsed_filters, filter_err = _parse_filters(filters)
+    parsed_filters, filter_err = _validate_filters(filters)
     if filter_err:
         return err(filter_err)
 
-    # Parse include_fields
-    parsed_include = None
-    if include_fields is not None:
-        if isinstance(include_fields, list):
-            parsed_include = include_fields
-        else:
-            try:
-                parsed_include = json.loads(include_fields)
-            except (json.JSONDecodeError, TypeError):
-                return err(f"include_fields must be a valid JSON array, got: {include_fields!r}")
-        if not isinstance(parsed_include, list):
-            return err("include_fields must be a JSON array")
-        if not parsed_include:
-            parsed_include = None  # Empty list = same as omitted
+    parsed_include = include_fields if include_fields else None
 
     validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
     if pagination_error:
@@ -268,7 +257,7 @@ def batch_update_frontmatter(
     target_field: str | None = None,
     target_value: str | None = None,
     target_match_type: str = "contains",
-    target_filters: str | None = None,
+    target_filters: list[FilterCondition] | None = None,
     confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
@@ -285,7 +274,7 @@ def batch_update_frontmatter(
         target_field: Find files where this frontmatter field matches target_value.
         target_value: Value to match for target_field.
         target_match_type: How to match target_field - 'contains' or 'equals' (default 'contains').
-        target_filters: JSON array of additional targeting conditions (AND logic). Same format as list_files_by_frontmatter filters.
+        target_filters: Additional targeting conditions (AND logic). Same format as list_files_by_frontmatter filters.
         confirm: Must be true to execute when modifying more than 5 files (or any query-based update).
 
     Returns:
@@ -307,7 +296,7 @@ def batch_update_frontmatter(
         if target_match_type not in ("contains", "equals"):
             return err(f"target_match_type must be 'contains' or 'equals', got '{target_match_type}'")
 
-        parsed_target_filters, filter_err = _parse_filters(target_filters)
+        parsed_target_filters, filter_err = _validate_filters(target_filters)
         if filter_err:
             return err(filter_err)
 
