@@ -896,6 +896,8 @@ class TestSearchByDateRange:
         assert result["success"] is True
         assert result["results"] == []
         assert result["total"] == 0
+        assert result["offset"] == 0
+        assert result["limit"] == 100
         assert "No files found" in result["message"]
 
     def test_date_range_invalid_start(self, vault_config):
@@ -975,6 +977,8 @@ class TestSearchByDateRange:
         )
         assert page1["success"] is True
         assert page1["total"] == total
+        assert page1["offset"] == 0
+        assert page1["limit"] == 2
         assert len(page1["results"]) == 2
 
         # Second page: next 2 (or fewer if total <= 3)
@@ -989,6 +993,8 @@ class TestSearchByDateRange:
         )
         assert page2["success"] is True
         assert page2["total"] == total
+        assert page2["offset"] == 2
+        assert page2["limit"] == 2
         # Results across pages should be disjoint
         assert not set(page1["results"]) & set(page2["results"])
         # Combined pages should cover all results

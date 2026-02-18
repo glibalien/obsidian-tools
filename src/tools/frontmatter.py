@@ -437,9 +437,11 @@ def search_by_date_range(
 
     if not matching:
         return ok(
-            f"No files found with {date_type} date between {start_date} and {end_date}",
+            message=f"No files found with {date_type} date between {start_date} and {end_date}",
             results=[],
             total=0,
+            offset=offset,
+            limit=limit,
         )
 
     all_results = sorted(matching)
