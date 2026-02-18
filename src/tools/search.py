@@ -30,9 +30,9 @@ def search_vault(
         return err(f"Search failed: {e}. Is the vault indexed? Run: python src/index_vault.py")
 
     if not results:
-        return ok("No matching documents found", results=[])
+        return ok(message="No matching documents found", results=[], total=0, limit=n_results, offset=0)
 
-    return ok(results=results)
+    return ok(message=f"Found {len(results)} matching documents", results=results, total=len(results), limit=n_results, offset=0)
 
 
 def web_search(query: str) -> str:
@@ -53,11 +53,11 @@ def web_search(query: str) -> str:
         return err(f"Search failed: {e}")
 
     if not results:
-        return ok("No web results found", results=[])
+        return ok(message="No web results found", results=[], total=0, limit=5, offset=0)
 
     # Format results for readability
     formatted = [
         {"title": r.get("title", "No title"), "url": r.get("href", ""), "snippet": r.get("body", "")}
         for r in results
     ]
-    return ok(results=formatted)
+    return ok(message=f"Found {len(formatted)} web results", results=formatted, total=len(formatted), limit=5, offset=0)

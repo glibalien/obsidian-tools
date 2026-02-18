@@ -1,4 +1,33 @@
-"""Vault service - path resolution, file scanning, and utility functions."""
+"""Vault service - path resolution, file scanning, and utility functions.
+
+Response contract for tool results
+----------------------------------
+All tool functions should return JSON serialized through :func:`ok` or
+:func:`err` using this stable envelope contract:
+
+Success envelope (minimum):
+    {
+      "success": true,
+      "message": "human readable summary"  # optional but recommended
+    }
+
+Common success fields:
+    - ``results``: list payload for collection endpoints.
+    - ``item`` / ``result``: object payload for single-resource endpoints.
+    - ``total`` / ``offset`` / ``limit``: pagination metadata when paging applies.
+    - Additional typed keys are allowed for domain-specific metadata.
+
+Error envelope:
+    {
+      "success": false,
+      "error": "error description"
+    }
+
+Notes:
+    - Keep ``message`` stable and human-readable.
+    - Prefer structured objects/lists over pre-formatted display strings.
+    - Retain legacy text only as an additive field for compatibility.
+"""
 
 import json
 import re
@@ -24,7 +53,8 @@ def ok(data: str | dict | list | None = None, **kwargs) -> str:
         **kwargs: Additional fields to include in the response.
 
     Returns:
-        JSON string with {"success": true, ...}.
+        JSON string with {"success": true, ...} following the response
+        contract documented in this module.
     """
     response = {"success": True}
     if data is not None:

@@ -1,7 +1,7 @@
 """Preference tools - save, list, remove user preferences."""
 
 from config import PREFERENCES_FILE
-from services.vault import ok, err
+from services.vault import err, ok
 
 
 def _read_preferences() -> list[str]:
@@ -13,9 +13,8 @@ def _read_preferences() -> list[str]:
     lines = []
     for line in content.splitlines():
         stripped = line.strip()
-        # Only include lines that are bullet points
         if stripped.startswith("- "):
-            lines.append(stripped[2:])  # Remove "- " prefix
+            lines.append(stripped[2:])
     return lines
 
 
@@ -28,14 +27,7 @@ def _write_preferences(preferences: list[str]) -> None:
 
 
 def save_preference(preference: str) -> str:
-    """Save a user preference to Preferences.md in the vault root.
-
-    Args:
-        preference: The preference text to save (will be added as a bullet point).
-
-    Returns:
-        Confirmation message.
-    """
+    """Save a user preference to Preferences.md in the vault root."""
     if not preference or not preference.strip():
         return err("preference cannot be empty")
 
@@ -44,32 +36,24 @@ def save_preference(preference: str) -> str:
     preferences.append(preference)
     _write_preferences(preferences)
 
-    return ok(f"Saved preference: {preference}")
+    item = {"index": len(preferences), "value": preference}
+    return ok(message=f"Saved preference: {preference}", item=item)
 
 
 def list_preferences() -> str:
-    """List all saved user preferences from Preferences.md.
-
-    Returns:
-        Numbered list of preferences, or message if none exist.
-    """
+    """List all saved user preferences from Preferences.md."""
     preferences = _read_preferences()
 
     if not preferences:
-        return ok("No preferences saved.", results=[])
+        return ok(message="No preferences saved.", results=[], total=0)
 
-    return ok(results=[f"{i}. {pref}" for i, pref in enumerate(preferences, start=1)])
+    results = [{"index": i, "value": pref} for i, pref in enumerate(preferences, start=1)]
+    legacy = [f"{item['index']}. {item['value']}" for item in results]
+    return ok(message=f"Found {len(results)} preferences", results=results, legacy_results=legacy, total=len(results))
 
 
 def remove_preference(line_number: int) -> str:
-    """Remove a preference by its line number.
-
-    Args:
-        line_number: The line number of the preference to remove (1-indexed).
-
-    Returns:
-        Confirmation message or error.
-    """
+    """Remove a preference by its line number."""
     preferences = _read_preferences()
 
     if not preferences:
@@ -81,4 +65,4 @@ def remove_preference(line_number: int) -> str:
     removed = preferences.pop(line_number - 1)
     _write_preferences(preferences)
 
-    return ok(f"Removed preference: {removed}")
+    return ok(message=f"Removed preference: {removed}", item={"index": line_number, "value": removed})

@@ -10,7 +10,6 @@ from services.vault import (
     do_update_frontmatter,
     err,
     extract_frontmatter,
-    format_batch_result,
     get_file_creation_time,
     get_vault_files,
     ok,
@@ -191,11 +190,23 @@ def list_files_by_frontmatter(
     matching = _find_matching_files(field, value, match_type, parsed_filters, parsed_include)
 
     if not matching:
-        return ok(f"No files found where {field} {match_type} '{value}'", results=[], total=0)
+        return ok(
+            message=f"No files found where {field} {match_type} '{value}'",
+            results=[],
+            total=0,
+            offset=offset,
+            limit=limit,
+        )
 
     total = len(matching)
     page = matching[offset:offset + limit]
-    return ok(f"Found {total} matching files", results=page, total=total)
+    return ok(
+        message=f"Found {total} matching files",
+        results=page,
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
 
 
 def update_frontmatter(
@@ -231,7 +242,7 @@ def update_frontmatter(
 
     success, message = do_update_frontmatter(path, field, parsed_value, operation)
     if success:
-        return ok(message)
+        return ok(message=message, result={"path": path, "field": field, "operation": operation})
     return err(message)
 
 
@@ -291,7 +302,11 @@ def batch_update_frontmatter(
             target_field, target_value, target_match_type, parsed_target_filters
         )
         if not paths:
-            return ok("No files matched the targeting criteria", results=[], total=0)
+            return ok(
+                message="No files matched the targeting criteria",
+                results=[],
+                total=0,
+            )
 
         # Query-based targeting always requires confirmation
         if not confirm:
@@ -301,7 +316,8 @@ def batch_update_frontmatter(
                 f"target_field='{target_field}', target_value='{target_value}'. "
                 "Show the file list to the user and call again with confirm=true to proceed.",
                 confirmation_required=True,
-                files=paths,
+                files=[{"path": p} for p in paths],
+                total=len(paths),
             )
     elif paths is not None:
         if not paths:
@@ -314,7 +330,8 @@ def batch_update_frontmatter(
                 f"This will {desc} on {len(paths)} files. "
                 "Show the file list to the user and call again with confirm=true to proceed.",
                 confirmation_required=True,
-                files=paths,
+                files=[{"path": p} for p in paths],
+                total=len(paths),
             )
     else:
         return err("Provide either paths or target_field/target_value")
@@ -328,12 +345,30 @@ def batch_update_frontmatter(
             parsed_value = value
 
     # Process each file
-    results = []
-    for path in paths:
+    successes = []
+    failures = []
+    for index, path in enumerate(paths):
         success, message = do_update_frontmatter(path, field, parsed_value, operation)
-        results.append((success, message))
+        item = {"index": index, "path": path, "success": success, "message": message}
+        if success:
+            successes.append(item)
+        else:
+            failures.append(item)
 
-    return ok(format_batch_result("update", results))
+    return ok(
+        message=f"Batch update: {len(successes)} succeeded, {len(failures)} failed",
+        result={
+            "operation": "update",
+            "field": field,
+            "succeeded": len(successes),
+            "failed": len(failures),
+            "successes": successes,
+            "failures": failures,
+        },
+        successes=successes,
+        failures=failures,
+        total=len(successes) + len(failures),
+    )
 
 
 def search_by_date_range(
@@ -410,4 +445,10 @@ def search_by_date_range(
     all_results = sorted(matching)
     total = len(all_results)
     page = all_results[offset:offset + limit]
-    return ok(results=page, total=total)
+    return ok(
+        message=f"Found {total} files",
+        results=page,
+        total=total,
+        offset=offset,
+        limit=limit,
+    )

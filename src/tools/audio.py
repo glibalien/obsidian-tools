@@ -113,7 +113,7 @@ def transcribe_audio(path: str) -> str:
     # Extract audio embeds
     audio_files = _extract_audio_embeds(content)
     if not audio_files:
-        return ok("No audio embeds found", results=[])
+        return ok(message="No audio embeds found", results=[], total=0)
 
     # Initialize Whisper client
     client = OpenAI(
@@ -143,6 +143,12 @@ def transcribe_audio(path: str) -> str:
         return err(f"All transcriptions failed: {'; '.join(errors)}")
 
     if errors:
-        return ok(results=results, errors=errors)
+        return ok(
+            message=f"Transcribed {len(results)} audio file(s) with {len(errors)} error(s)",
+            results=results,
+            errors=errors,
+            total=len(results),
+            failed=len(errors),
+        )
 
-    return ok(results=results)
+    return ok(message=f"Transcribed {len(results)} audio file(s)", results=results, total=len(results))

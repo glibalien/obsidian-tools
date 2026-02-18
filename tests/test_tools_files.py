@@ -216,6 +216,7 @@ class TestBatchMoveConfirmationGate:
         assert result["confirmation_required"] is True
         assert "10 files" in result["message"]
         assert len(result["files"]) == 10
+        assert set(result["files"][0]) == {"source", "destination"}
         # Verify no files were actually moved
         for move in moves:
             assert (vault_config / move["source"]).exists()
@@ -228,6 +229,8 @@ class TestBatchMoveConfirmationGate:
         assert result["success"] is True
         assert "confirmation_required" not in result
         assert "10 succeeded" in result["message"]
+        assert len(result["successes"]) == 10
+        assert result["failures"] == []
 
     def test_executes_under_threshold_without_confirm(self, vault_config):
         """Should execute without confirm when move count is at or below threshold."""
@@ -236,3 +239,5 @@ class TestBatchMoveConfirmationGate:
         assert result["success"] is True
         assert "confirmation_required" not in result
         assert "3 succeeded" in result["message"]
+        assert len(result["successes"]) == 3
+        assert result["failures"] == []

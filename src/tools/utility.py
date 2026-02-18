@@ -30,7 +30,7 @@ def log_interaction(
     except Exception as e:
         return err(f"Logging failed: {e}")
 
-    return ok(f"Logged to {path}")
+    return ok(message=f"Logged to {path}", item={"path": path})
 
 
 def get_current_date() -> str:
@@ -39,4 +39,5 @@ def get_current_date() -> str:
     Returns:
         Current date as a string in YYYY-MM-DD format.
     """
-    return ok(date=datetime.now().strftime("%Y-%m-%d"))
+    today = datetime.now().strftime("%Y-%m-%d")
+    return ok(message=f"Current date is {today}", item={"date": today}, date=today)

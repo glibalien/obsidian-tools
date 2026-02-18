@@ -29,6 +29,8 @@ class TestBatchUpdateFrontmatter:
         assert result["success"] is True
         assert "2 succeeded" in result["message"]
         assert "0 failed" in result["message"]
+        assert len(result["successes"]) == 2
+        assert result["failures"] == []
 
         # Verify both files were actually updated
         import yaml
@@ -53,6 +55,8 @@ class TestBatchUpdateFrontmatter:
         assert result["success"] is True
         assert "2 succeeded" in result["message"]
         assert "0 failed" in result["message"]
+        assert len(result["successes"]) == 2
+        assert result["failures"] == []
 
         # Verify tag was appended on both files
         import re
@@ -155,9 +159,8 @@ class TestBatchUpdateFrontmatter:
         assert result["success"] is True
         assert "1 succeeded" in result["message"]
         assert "1 failed" in result["message"]
-        # Succeeded and failed sections should both appear in the summary
-        assert "Succeeded:" in result["message"]
-        assert "Failed:" in result["message"]
+        assert len(result["successes"]) == 1
+        assert len(result["failures"]) == 1
 
     def test_batch_json_value(self, vault_config):
         """Should parse a JSON list string and store it as a list in frontmatter."""
@@ -171,6 +174,8 @@ class TestBatchUpdateFrontmatter:
         )
         assert result["success"] is True
         assert "1 succeeded" in result["message"]
+        assert len(result["successes"]) == 1
+        assert result["failures"] == []
 
         import re
         import yaml
@@ -433,7 +438,8 @@ class TestBatchConfirmationGate:
         assert result["success"] is True
         assert result["confirmation_required"] is True
         assert "10 files" in result["message"]
-        assert result["files"] == paths
+        assert all("path" in item for item in result["files"])
+        assert [item["path"] for item in result["files"]] == paths
         # Verify no files were actually modified
         for path in paths:
             content = (vault_config / path).read_text()
@@ -542,7 +548,7 @@ class TestQueryBasedBatchUpdate:
         )
         assert result["success"] is True
         assert result["confirmation_required"] is True
-        assert any("qt1.md" in f for f in result["files"])
+        assert any("qt1.md" in f["path"] for f in result["files"])
 
     def test_query_target_with_filters(self, vault_config):
         """Compound targeting should narrow results."""
@@ -562,6 +568,8 @@ class TestQueryBasedBatchUpdate:
         )
         assert result["success"] is True
         assert "1 succeeded" in result["message"]
+        assert len(result["successes"]) == 1
+        assert result["failures"] == []
 
 
     def test_query_target_with_native_filter_list(self, vault_config):

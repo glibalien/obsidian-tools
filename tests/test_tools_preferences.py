@@ -90,7 +90,12 @@ def test_list_preferences_numbered(prefs_file):
 
     result = json.loads(list_preferences())
     assert result["success"] is True
-    assert result["results"] == ["1. Alpha", "2. Beta", "3. Gamma"]
+    assert result["results"] == [
+        {"index": 1, "value": "Alpha"},
+        {"index": 2, "value": "Beta"},
+        {"index": 3, "value": "Gamma"},
+    ]
+    assert result["legacy_results"] == ["1. Alpha", "2. Beta", "3. Gamma"]
 
 
 def test_remove_preference_basic(prefs_file):
@@ -150,7 +155,7 @@ def test_round_trip(prefs_file):
     listed = json.loads(list_preferences())
     assert listed["success"] is True
     assert len(listed["results"]) == 3
-    assert listed["results"][1] == "2. Pref two"
+    assert listed["results"][1] == {"index": 2, "value": "Pref two"}
 
     removed = json.loads(remove_preference(2))
     assert removed["success"] is True
@@ -159,4 +164,7 @@ def test_round_trip(prefs_file):
     listed_after = json.loads(list_preferences())
     assert listed_after["success"] is True
     assert len(listed_after["results"]) == 2
-    assert listed_after["results"] == ["1. Pref one", "2. Pref three"]
+    assert listed_after["results"] == [
+        {"index": 1, "value": "Pref one"},
+        {"index": 2, "value": "Pref three"},
+    ]
