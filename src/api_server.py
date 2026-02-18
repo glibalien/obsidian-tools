@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """FastAPI HTTP wrapper for the LLM agent."""
 
+import asyncio
+import json
 import logging
 import sys
 import uuid
@@ -10,6 +12,7 @@ from dataclasses import dataclass, field
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic import BaseModel
@@ -198,6 +201,74 @@ async def chat(request: ChatRequest) -> ChatResponse:
         _restore_compacted_flags()
         messages.pop()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Process a chat message and stream events as SSE."""
+    system_prompt = app.state.system_prompt
+    preferences = load_preferences()
+    if preferences:
+        system_prompt += preferences
+
+    session = get_or_create_session(request.active_file, system_prompt)
+    messages = session.messages
+    messages[0]["content"] = system_prompt
+
+    compacted_indices = {i for i, msg in enumerate(messages) if msg.get("_compacted")}
+    for msg in messages:
+        msg.pop("_compacted", None)
+
+    context_prefix = format_context_prefix(request.active_file)
+    messages.append({"role": "user", "content": context_prefix + request.message})
+
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    async def on_event(event_type: str, data: dict) -> None:
+        await queue.put({"type": event_type, **data})
+
+    def _restore_compacted_flags():
+        for i in compacted_indices:
+            if i < len(messages):
+                messages[i]["_compacted"] = True
+
+    async def run_agent():
+        try:
+            await agent_turn(
+                app.state.llm_client,
+                app.state.mcp_session,
+                messages,
+                app.state.tools,
+                on_event=on_event,
+            )
+            _restore_compacted_flags()
+            compact_tool_messages(messages)
+            trim_messages(messages)
+        except Exception as e:
+            _restore_compacted_flags()
+            messages.pop()
+            await queue.put({"type": "error", "error": str(e)})
+        finally:
+            await queue.put({"type": "done", "session_id": session.session_id})
+            await queue.put(None)  # sentinel
+
+    async def event_generator():
+        task = asyncio.create_task(run_agent())
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            if not task.done():
+                await task
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def main():
