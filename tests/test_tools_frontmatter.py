@@ -649,6 +649,83 @@ class TestCaseInsensitiveMatching:
         assert any("ci5.md" in p for p in result["results"])
 
 
+class TestWikilinkStripping:
+    """Tests for wikilink bracket stripping in frontmatter matching."""
+
+    def test_contains_strips_brackets_from_stored_value(self, vault_config):
+        """'Agentic S2P' should match frontmatter containing '[[Agentic S2P]]'."""
+        (vault_config / "wl1.md").write_text(
+            "---\nProject:\n- '[[Agentic S2P]]'\nstatus: open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(field="project", value="Agentic S2P")
+        )
+        assert result["total"] >= 1
+        assert any("wl1.md" in p for p in result["results"])
+
+    def test_contains_strips_brackets_from_search_value(self, vault_config):
+        """'[[Agentic S2P]]' search value should also match."""
+        (vault_config / "wl2.md").write_text(
+            "---\nProject:\n- '[[Agentic S2P]]'\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(field="project", value="[[Agentic S2P]]")
+        )
+        assert result["total"] >= 1
+        assert any("wl2.md" in p for p in result["results"])
+
+    def test_equals_with_wikilink_list(self, vault_config):
+        """equals match_type should work with wikilinked list values."""
+        (vault_config / "wl3.md").write_text(
+            "---\nProject:\n- '[[Agentic S2P]]'\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project", value="Agentic S2P", match_type="equals"
+            )
+        )
+        assert result["total"] >= 1
+        assert any("wl3.md" in p for p in result["results"])
+
+    def test_equals_with_wikilink_string(self, vault_config):
+        """equals should strip brackets from non-list string values too."""
+        (vault_config / "wl4.md").write_text(
+            "---\nproject: '[[Agentic S2P]]'\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project", value="Agentic S2P", match_type="equals"
+            )
+        )
+        assert result["total"] >= 1
+        assert any("wl4.md" in p for p in result["results"])
+
+    def test_aliased_wikilink(self, vault_config):
+        """Aliased wikilinks like '[[Foo|Bar]]' should match on 'Foo'."""
+        (vault_config / "wl5.md").write_text(
+            "---\nproject: '[[Agentic S2P|S2P Project]]'\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(field="project", value="Agentic S2P")
+        )
+        assert result["total"] >= 1
+        assert any("wl5.md" in p for p in result["results"])
+
+    def test_compound_filter_strips_wikilinks(self, vault_config):
+        """Wikilink stripping should also apply to compound filter values."""
+        (vault_config / "wl6.md").write_text(
+            "---\nProject:\n- '[[Agentic S2P]]'\nstatus: open\ncategory: task\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category", value="task",
+                filters='[{"field": "project", "value": "Agentic S2P"}]',
+            )
+        )
+        assert result["total"] >= 1
+        assert any("wl6.md" in p for p in result["results"])
+
+
 class TestResultMessage:
     """Tests for explicit count message in results."""
 
