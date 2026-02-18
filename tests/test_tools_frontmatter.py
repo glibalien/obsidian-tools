@@ -10,6 +10,7 @@ from tools.frontmatter import (
     batch_update_frontmatter,
     list_files_by_frontmatter,
     search_by_date_range,
+    update_frontmatter,
 )
 
 
@@ -183,6 +184,126 @@ class TestBatchUpdateFrontmatter:
         assert "meeting" in fm["tags"]
         assert "important" in fm["tags"]
         assert "q1" in fm["tags"]
+
+    def test_batch_set_native_list_value(self, vault_config):
+        """Should accept a native list value without JSON string encoding."""
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=["note2.md"],
+                field="tags",
+                value=["meeting", "important", "q2"],
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+
+        import re
+        import yaml
+
+        content = (vault_config / "note2.md").read_text()
+        match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+        assert match
+        fm = yaml.safe_load(match.group(1))
+        assert fm["tags"] == ["meeting", "important", "q2"]
+
+    def test_batch_set_native_dict_value(self, vault_config):
+        """Should accept a native dict value without JSON string encoding."""
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=["note1.md"],
+                field="metadata",
+                value={"owner": "alice", "priority": 2},
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+
+        import re
+        import yaml
+
+        content = (vault_config / "note1.md").read_text()
+        match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+        assert match
+        fm = yaml.safe_load(match.group(1))
+        assert fm["metadata"] == {"owner": "alice", "priority": 2}
+
+    def test_batch_set_native_bool_value(self, vault_config):
+        """Should accept a native bool value without JSON string encoding."""
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=["note1.md"],
+                field="published",
+                value=True,
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+
+        import re
+        import yaml
+
+        content = (vault_config / "note1.md").read_text()
+        match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+        assert match
+        fm = yaml.safe_load(match.group(1))
+        assert fm["published"] is True
+
+
+class TestUpdateFrontmatterValueNormalization:
+    """Tests for update_frontmatter value normalization behavior."""
+
+    def test_update_frontmatter_accepts_native_bool(self, monkeypatch):
+        """Native boolean values should pass through unchanged."""
+        captured = {}
+
+        def fake_update(path, field, value, operation):
+            captured["value"] = value
+            return True, "ok"
+
+        monkeypatch.setattr("tools.frontmatter.do_update_frontmatter", fake_update)
+
+        result = json.loads(
+            update_frontmatter(path="note1.md", field="published", value=False, operation="set")
+        )
+        assert result["success"] is True
+        assert captured["value"] is False
+
+    def test_update_frontmatter_legacy_json_string_list(self, monkeypatch):
+        """Legacy JSON string containers should still be parsed."""
+        captured = {}
+
+        def fake_update(path, field, value, operation):
+            captured["value"] = value
+            return True, "ok"
+
+        monkeypatch.setattr("tools.frontmatter.do_update_frontmatter", fake_update)
+
+        result = json.loads(
+            update_frontmatter(
+                path="note1.md",
+                field="tags",
+                value='["a", "b"]',
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+        assert captured["value"] == ["a", "b"]
+
+    def test_update_frontmatter_plain_string_remains_string(self, monkeypatch):
+        """Plain strings should not be treated as JSON."""
+        captured = {}
+
+        def fake_update(path, field, value, operation):
+            captured["value"] = value
+            return True, "ok"
+
+        monkeypatch.setattr("tools.frontmatter.do_update_frontmatter", fake_update)
+
+        result = json.loads(
+            update_frontmatter(path="note1.md", field="status", value="archived", operation="set")
+        )
+        assert result["success"] is True
+        assert captured["value"] == "archived"
 
 
 class TestCompoundFiltering:
