@@ -64,8 +64,8 @@ services/
 - **services/compaction.py**: Tool message compaction (`build_tool_stub`, `compact_tool_messages`) used by both the API server and CLI agent between turns. Uses tool-specific stub builders for top tools (dispatched by tool name) with a generic fallback for the rest.
 - **tools/**: Tool implementations organized by category. All tools return structured JSON via `ok()`/`err()` helpers.
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
-- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management (LRU eviction, message trimming); compacts tool messages between requests
-- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, tool message compaction between turns, and synthetic `get_continuation` tool for retrieving truncated results in chunks. See **System Prompt** section below for prompt structure.
+- **api_server.py**: FastAPI HTTP wrapper with file-keyed session management (LRU eviction, message trimming); compacts tool messages between requests. CORS middleware enabled (safe — server binds 127.0.0.1 only). `_prepare_turn` and `_restore_compacted_flags` shared by `/chat` and `/chat/stream`.
+- **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, tool message compaction between turns, and synthetic `get_continuation` tool for retrieving truncated results in chunks. `agent_turn` accepts optional `on_event: EventCallback` async callback that emits `tool_call`, `tool_result`, and `response` events during the agent loop (used by `/chat/stream` SSE endpoint). See **System Prompt** section below for prompt structure.
 - **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200`, ranks by term frequency (occurrence count, not just presence), and filters an expanded stopword list. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Incremental indexing uses scan-start time (not completion time) to avoid missing files modified during a run. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
@@ -604,6 +604,17 @@ Send a message and receive the agent's response.
 - `session_id` is returned for reference but routing is by `active_file`
 - Include `active_file` to provide context about the currently viewed note (enables "this note" references)
 
+### POST /chat/stream
+
+Same request body as `/chat`. Returns SSE (`text/event-stream`) with events:
+- `tool_call`: `{"type": "tool_call", "tool": "search_vault", "args": {...}}`
+- `tool_result`: `{"type": "tool_result", "tool": "search_vault", "success": true}`
+- `response`: `{"type": "response", "content": "..."}`
+- `error`: `{"type": "error", "error": "..."}`
+- `done`: `{"type": "done", "session_id": "..."}`
+
+Uses `asyncio.Queue` to bridge `agent_turn`'s `on_event` callback to `StreamingResponse`. Shares session management with `/chat`.
+
 ### Session Management
 
 Sessions are keyed by `active_file`, not by UUID. This prevents token explosion from unbounded conversation history.
@@ -663,6 +674,11 @@ plugin/
 ├── tsconfig.json      # TypeScript config
 └── esbuild.config.mjs # Build script
 ```
+
+**Key implementation details:**
+- Uses `MarkdownRenderer.render()` for assistant messages (not `setText`). `sourcePath` is captured at request time, not render time, to avoid race conditions when user switches notes during API round-trip.
+- Uses browser `fetch` + `ReadableStream` for SSE streaming from `/chat/stream` (not Obsidian's `requestUrl`, which doesn't support streaming). This requires CORS middleware on the API server.
+- `plugin/main.js` is gitignored — build output, not committed.
 
 ### Building the Plugin
 
