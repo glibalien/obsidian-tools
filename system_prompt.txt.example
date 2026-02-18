@@ -40,9 +40,9 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 
 | User intent | Tool | Why |
 |---|---|---|
-| "Find all notes tagged/categorized as X" | list_files_by_frontmatter | Exhaustive scan by metadata — guaranteed complete |
+| "Find notes with field=X" / metadata lookup | list_files_by_frontmatter | Direct field lookup — fast, complete, low token cost |
 | "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
-| "Find notes whose metadata mentions X" | search_vault (chunk_type="frontmatter") | Searches only frontmatter fields — tags, people, company etc. |
+| "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
 | "What links to X" / tasks for a project | find_backlinks | Structural relationships via wikilinks |
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
 | "List files in folder X" | search_by_folder | Direct folder listing |
@@ -64,6 +64,11 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
   sample, not a complete list. Use find_backlinks on the project note instead.
 - Using search_vault to find "all meetings" — use list_files_by_frontmatter
   with field="category", value="meeting" for a complete list.
+- Using search_vault with chunk_type="frontmatter" when you know the field name —
+  use list_files_by_frontmatter instead. It's faster, complete, and returns compact
+  results. For example, "what's scheduled for tomorrow" → list_files_by_frontmatter
+  with field="scheduled", value="2026-02-19". Only fall back to search_vault
+  chunk_type="frontmatter" when you don't know which field to look in.
 - Searching for today's daily note instead of reading "Daily Notes/YYYY-MM-DD.md".
 
 ## Vault Navigation Strategy
@@ -105,10 +110,14 @@ rather than search_vault. Search is for discovery; read_file is for known files.
   chunk came from — use this to answer without reading the full file.
   Optional chunk_type parameter filters by indexed chunk type: "frontmatter"
   (YAML metadata only), "section", "paragraph", "sentence", or "fragment".
-  Use chunk_type="frontmatter" to search across tags, people, company, and
-  other metadata fields without noise from note body content.
-- list_files_by_frontmatter: Filter notes by frontmatter properties. Best
-  for exhaustive queries (e.g. "all tasks", "all meetings with status: open").
+  chunk_type="frontmatter" searches across all metadata fields at once — only
+  use this when you don't know which field to query. If you know the field
+  name (e.g. scheduled, tags, category), use list_files_by_frontmatter instead.
+- list_files_by_frontmatter: Look up notes by a known frontmatter field.
+  This is the PRIMARY tool for any frontmatter query where you know the field
+  name — scheduled dates, categories, tags, status, project, company, etc.
+  Prefer this over search_vault with chunk_type="frontmatter" because it is
+  faster, returns compact results (just paths), and is guaranteed complete.
   Parameters: field, value, match_type ("contains" or "equals", default
   "contains"). Supports limit/offset pagination (default limit=100).
   Returns results with total count.
