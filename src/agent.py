@@ -7,6 +7,7 @@ import os
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
+from typing import Awaitable, Callable
 
 import anyio
 from dotenv import load_dotenv
@@ -185,14 +186,23 @@ def _handle_get_continuation(cache: dict[str, str], arguments: dict) -> str:
     return chunk
 
 
+EventCallback = Callable[[str, dict], Awaitable[None]]
+
+
 async def agent_turn(
     client: OpenAI,
     session: ClientSession,
     messages: list[dict],
     tools: list[dict],
     max_iterations: int = 20,
+    on_event: EventCallback | None = None,
 ) -> str:
     """Execute one agent turn, handling tool calls until final response."""
+
+    async def _emit(event_type: str, data: dict) -> None:
+        if on_event is not None:
+            await on_event(event_type, data)
+
     turn_prompt_tokens = 0
     turn_completion_tokens = 0
     llm_calls = 0
@@ -208,7 +218,9 @@ async def agent_turn(
             logger.warning(
                 "Agent turn hit iteration cap (%d). Stopping.", max_iterations
             )
-            return last_content + "\n\n[Tool call limit reached]"
+            content = last_content + "\n\n[Tool call limit reached]"
+            await _emit("response", {"content": content})
+            return content
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -248,7 +260,9 @@ async def agent_turn(
                 turn_completion_tokens,
                 turn_prompt_tokens + turn_completion_tokens,
             )
-            return assistant_message.content or ""
+            content = assistant_message.content or ""
+            await _emit("response", {"content": content})
+            return content
 
         # Log assistant reasoning that accompanies tool calls
         if last_content:
@@ -263,6 +277,11 @@ async def agent_turn(
                 arguments = {}
 
             logger.info("Tool call: %s args=%s", tool_name, arguments)
+            brief_args = {
+                k: (v[:80] + "..." if isinstance(v, str) and len(v) > 80 else v)
+                for k, v in arguments.items()
+            }
+            await _emit("tool_call", {"tool": tool_name, "args": brief_args})
 
             if tool_name == "get_continuation":
                 result = _handle_get_continuation(truncated_results, arguments)
@@ -289,6 +308,12 @@ async def agent_turn(
                     "content": result,
                 }
             )
+            try:
+                parsed = json.loads(result)
+                success = parsed.get("success", True)
+            except (json.JSONDecodeError, AttributeError):
+                success = True
+            await _emit("tool_result", {"tool": tool_name, "success": success})
 
 
 
