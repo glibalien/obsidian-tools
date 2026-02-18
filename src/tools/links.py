@@ -4,6 +4,7 @@ import re
 
 from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import err, get_vault_files, ok, resolve_dir, resolve_file
+from tools._validation import validate_pagination
 
 
 def find_backlinks(note_name: str, limit: int = 100, offset: int = 0) -> str:
@@ -24,13 +25,17 @@ def find_backlinks(note_name: str, limit: int = 100, offset: int = 0) -> str:
     if note_name.endswith(".md"):
         note_name = note_name[:-3]
 
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     all_results = _scan_backlinks(note_name)
 
     if not all_results:
         return ok(f"No backlinks found to [[{note_name}]]", results=[], total=0)
 
     total = len(all_results)
-    page = all_results[offset:offset + limit]
+    page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)
 
 
@@ -68,6 +73,10 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     if error:
         return err(error)
 
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
@@ -83,7 +92,7 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     # Deduplicate and sort
     all_results = sorted(set(matches))
     total = len(all_results)
-    page = all_results[offset:offset + limit]
+    page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)
 
 
@@ -105,6 +114,10 @@ def search_by_folder(
         JSON response with list of file paths (relative to vault),
         or a message if no files found.
     """
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     folder_path, error = resolve_dir(folder)
     if error:
         return err(error)
@@ -127,5 +140,5 @@ def search_by_folder(
 
     all_results = sorted(files)
     total = len(all_results)
-    page = all_results[offset:offset + limit]
+    page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)
