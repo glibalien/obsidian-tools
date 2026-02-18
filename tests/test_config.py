@@ -155,7 +155,7 @@ def test_fireworks_model_default(monkeypatch):
     monkeypatch.delenv("FIREWORKS_MODEL", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     config = _reload(monkeypatch)
-    assert config.FIREWORKS_MODEL == "accounts/fireworks/models/deepseek-v3p1"
+    assert config.FIREWORKS_MODEL == "accounts/fireworks/models/gpt-oss-120b"
 
 
 def test_fireworks_model_env(monkeypatch):
