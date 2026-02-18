@@ -15,7 +15,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
-from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH
+from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH, setup_logging
 from services.compaction import compact_tool_messages
 
 logger = logging.getLogger(__name__)
@@ -405,10 +405,7 @@ async def chat_loop():
 
 def main():
     """Entry point for the agent."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
+    setup_logging("agent")
     anyio.run(chat_loop)
 
 

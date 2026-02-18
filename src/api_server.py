@@ -18,7 +18,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic import BaseModel
 
-from config import API_PORT, MAX_SESSIONS, MAX_SESSION_MESSAGES
+from config import API_PORT, MAX_SESSIONS, MAX_SESSION_MESSAGES, setup_logging
 from services.compaction import compact_tool_messages
 from agent import (
     PROJECT_ROOT,
@@ -271,10 +271,7 @@ async def chat_stream(request: ChatRequest):
 
 def main():
     """Run the API server."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
+    setup_logging("api")
     uvicorn.run(
         "api_server:app",
         host="127.0.0.1",
