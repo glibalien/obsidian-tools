@@ -16,6 +16,7 @@ from services.vault import (
     ok,
     parse_frontmatter_date,
 )
+from tools._validation import validate_pagination
 
 
 def _get_field_ci(frontmatter: dict, field: str):
@@ -188,13 +189,17 @@ def list_files_by_frontmatter(
         if not parsed_include:
             parsed_include = None  # Empty list = same as omitted
 
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     matching = _find_matching_files(field, value, match_type, parsed_filters, parsed_include)
 
     if not matching:
         return ok(f"No files found where {field} {match_type} '{value}'", results=[], total=0)
 
     total = len(matching)
-    page = matching[offset:offset + limit]
+    page = matching[validated_offset:validated_offset + validated_limit]
     return ok(f"Found {total} matching files", results=page, total=total)
 
 
@@ -356,6 +361,10 @@ def search_by_date_range(
         Newline-separated list of matching file paths (relative to vault),
         or a message if no files found.
     """
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     if date_type not in ("created", "modified"):
         return err(f"date_type must be 'created' or 'modified', got '{date_type}'")
 
@@ -409,5 +418,5 @@ def search_by_date_range(
 
     all_results = sorted(matching)
     total = len(all_results)
-    page = all_results[offset:offset + limit]
+    page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)

@@ -985,3 +985,30 @@ class TestSearchByDateRange:
         assert not set(page1["results"]) & set(page2["results"])
         # Combined pages should cover all results
         assert set(page1["results"]) | set(page2["results"]) == set(full_result["results"][:4])
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_error"),
+    [
+        ({"offset": -1}, "offset must be >= 0"),
+        ({"limit": 0}, "limit must be >= 1"),
+        ({"limit": 501}, "limit must be <= 500"),
+    ],
+)
+def test_frontmatter_paginated_tools_reject_invalid_pagination(vault_config, kwargs, expected_error):
+    """Frontmatter paginated tools should return a consistent pagination validation error."""
+    list_result = json.loads(
+        list_files_by_frontmatter(field="tags", value="test", **kwargs)
+    )
+    date_result = json.loads(
+        search_by_date_range(
+            start_date="1990-01-01",
+            end_date="2099-12-31",
+            date_type="modified",
+            **kwargs,
+        )
+    )
+
+    for result in (list_result, date_result):
+        assert result["success"] is False
+        assert expected_error in result["error"]
