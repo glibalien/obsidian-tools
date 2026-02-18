@@ -6,7 +6,11 @@ import time
 
 import pytest
 
-from tools.frontmatter import batch_update_frontmatter, search_by_date_range
+from tools.frontmatter import (
+    batch_update_frontmatter,
+    list_files_by_frontmatter,
+    search_by_date_range,
+)
 
 
 class TestBatchUpdateFrontmatter:
@@ -179,6 +183,107 @@ class TestBatchUpdateFrontmatter:
         assert "meeting" in fm["tags"]
         assert "important" in fm["tags"]
         assert "q1" in fm["tags"]
+
+
+class TestCompoundFiltering:
+    """Tests for list_files_by_frontmatter compound filtering."""
+
+    def test_compound_filter_two_fields(self, vault_config):
+        """Should return files matching both the primary field and filter."""
+        (vault_config / "task_open.md").write_text(
+            "---\nproject: '[[MyProject]]'\nstatus: open\ncategory: task\n---\n# Open task\n"
+        )
+        (vault_config / "task_done.md").write_text(
+            "---\nproject: '[[MyProject]]'\nstatus: done\ncategory: task\n---\n# Done task\n"
+        )
+        (vault_config / "task_other.md").write_text(
+            "---\nproject: '[[OtherProject]]'\nstatus: open\ncategory: task\n---\n# Other\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project",
+                value="MyProject",
+                filters='[{"field": "status", "value": "open"}]',
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] == 1
+        assert any("task_open.md" in p for p in result["results"])
+        assert not any("task_done.md" in p for p in result["results"])
+        assert not any("task_other.md" in p for p in result["results"])
+
+    def test_compound_filter_no_match(self, vault_config):
+        """Should return empty when conditions match individually but not together."""
+        (vault_config / "a.md").write_text(
+            "---\nproject: '[[X]]'\nstatus: done\n---\n"
+        )
+        (vault_config / "b.md").write_text(
+            "---\nproject: '[[Y]]'\nstatus: open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project",
+                value="X",
+                filters='[{"field": "status", "value": "open"}]',
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] == 0
+        assert result["results"] == []
+
+    def test_compound_filter_with_match_type_equals(self, vault_config):
+        """Should respect match_type in filter conditions."""
+        (vault_config / "exact.md").write_text(
+            "---\ncategory: meeting\nstatus: open\n---\n"
+        )
+        (vault_config / "partial.md").write_text(
+            "---\ncategory: meeting\nstatus: open-review\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category",
+                value="meeting",
+                match_type="equals",
+                filters='[{"field": "status", "value": "open", "match_type": "equals"}]',
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] == 1
+        assert any("exact.md" in p for p in result["results"])
+
+    def test_filters_invalid_json(self, vault_config):
+        """Should return error for invalid JSON filters."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category",
+                value="task",
+                filters="not valid json",
+            )
+        )
+        assert result["success"] is False
+        assert "json" in result["error"].lower()
+
+    def test_filters_missing_field_key(self, vault_config):
+        """Should return error when filter dict lacks required keys."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category",
+                value="task",
+                filters='[{"value": "open"}]',
+            )
+        )
+        assert result["success"] is False
+        assert "field" in result["error"]
+
+    def test_filters_empty_list(self, vault_config):
+        """Empty filters list should work same as no filters."""
+        result_no_filters = json.loads(
+            list_files_by_frontmatter(field="tags", value="test")
+        )
+        result_empty = json.loads(
+            list_files_by_frontmatter(field="tags", value="test", filters="[]")
+        )
+        assert result_no_filters["total"] == result_empty["total"]
 
 
 class TestBatchConfirmationGate:

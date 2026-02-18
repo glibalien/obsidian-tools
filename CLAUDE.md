@@ -58,7 +58,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 |----------|---------|----------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query`, `n_results` (5), `mode` ("hybrid"/"semantic"/"keyword"), `chunk_type` ("frontmatter"/"section"/"paragraph"/"sentence"/"fragment") |
 | `read_file` | Read vault note with pagination | `path`, `offset` (0), `length` (3500) |
-| `list_files_by_frontmatter` | Find files by frontmatter field | `field`, `value`, `match_type` ("contains"/"equals") |
+| `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"), `filters` (JSON array for compound AND conditions) |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value`, `operation` ("set"/"remove"/"append") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `paths` (list), `field`, `value`, `operation` |
 | `move_file` | Relocate vault file | `source`, `destination` |
