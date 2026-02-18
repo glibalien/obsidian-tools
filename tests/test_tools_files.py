@@ -111,16 +111,30 @@ class TestCreateFile:
         content = (vault_config / "new_note.md").read_text()
         assert "# New Note" in content
 
-    def test_create_file_with_frontmatter(self, vault_config):
-        """Should create file with JSON frontmatter."""
+    def test_create_file_with_frontmatter_dict(self, vault_config):
+        """Should create file with native dict frontmatter."""
         result = json.loads(create_file(
-            "with_fm.md",
+            "with_fm_dict.md",
+            "Content",
+            frontmatter={"tags": ["test"], "status": "draft"}
+        ))
+        assert result["success"] is True
+
+        content = (vault_config / "with_fm_dict.md").read_text()
+        assert "---" in content
+        assert "tags:" in content
+        assert "test" in content
+
+    def test_create_file_with_frontmatter_json_string(self, vault_config):
+        """Should create file with JSON string frontmatter for backward compatibility."""
+        result = json.loads(create_file(
+            "with_fm_json.md",
             "Content",
             frontmatter='{"tags": ["test"], "status": "draft"}'
         ))
         assert result["success"] is True
 
-        content = (vault_config / "with_fm.md").read_text()
+        content = (vault_config / "with_fm_json.md").read_text()
         assert "---" in content
         assert "tags:" in content
         assert "test" in content
@@ -142,6 +156,12 @@ class TestCreateFile:
         result = json.loads(create_file("test.md", "content", frontmatter="not valid json"))
         assert result["success"] is False
         assert "invalid frontmatter json" in result["error"].lower()
+
+    def test_create_file_non_object_frontmatter_json(self, vault_config):
+        """Should return error when frontmatter JSON is not an object."""
+        result = json.loads(create_file("test.md", "content", frontmatter='["not", "an", "object"]'))
+        assert result["success"] is False
+        assert "expected a json object" in result["error"].lower()
 
 
 class TestMoveFile:
