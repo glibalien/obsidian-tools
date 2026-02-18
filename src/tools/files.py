@@ -65,7 +65,7 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
 def create_file(
     path: str,
     content: str = "",
-    frontmatter: dict | str | None = None,
+    frontmatter: str | None = None,
 ) -> str:
     """Create a new markdown note in the vault.
 
