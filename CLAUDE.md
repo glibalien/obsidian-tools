@@ -58,9 +58,9 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 |----------|---------|----------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query`, `n_results` (5), `mode` ("hybrid"/"semantic"/"keyword"), `chunk_type` ("frontmatter"/"section"/"paragraph"/"sentence"/"fragment") |
 | `read_file` | Read vault note with pagination | `path`, `offset` (0), `length` (3500) |
-| `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings) |
+| `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"/"missing"/"exists"/"not_contains"/"not_equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings), `folder` |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value`, `operation` ("set"/"remove"/"append") |
-| `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation`, `paths` OR `target_field`/`target_value`/`target_filters` (query-based), `confirm` |
+| `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation`, `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
 | `move_file` | Relocate vault file | `source`, `destination` |
 | `batch_move_files` | Move multiple files | `moves` (list of {source, destination}) |
 | `create_file` | Create new note | `path`, `content`, `frontmatter` (JSON string) |
@@ -82,7 +82,8 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 
 - **search_vault**: `heading` field shows which section a result came from. `chunk_type="frontmatter"` searches YAML metadata only.
 - **read_file**: Path traversal protection. Truncation marker shows offset for next chunk.
-- **list_files_by_frontmatter**: `"contains"` match handles wikilinked values (`[[Adam Bird]]` matches `"Adam Bird"`).
+- **list_files_by_frontmatter**: `"contains"` match handles wikilinked values (`[[Adam Bird]]` matches `"Adam Bird"`). `"missing"`/`"exists"` check field presence (value ignored). `"not_contains"`/`"not_equals"` match files where field is absent or doesn't match. `folder` restricts search to a directory.
+- **batch_update_frontmatter**: Three targeting modes: `paths` (explicit), `target_field`/`target_value` (query-based), or `folder` (all files in directory). `folder` can combine with `target_field` for scoped queries. All match types supported in `target_match_type`.
 - **find_backlinks**: Case-insensitive, matches `[[note]]` and `[[note|alias]]` patterns. Uses direct vault scan.
 - **search_by_date_range**: `"created"` uses frontmatter `Date` field (falls back to filesystem). Handles wikilink date format.
 - **replace_section / append_to_section**: Case-insensitive heading match, heading level must match exactly. Ignores headings inside code fences. Errors on multiple matches (reports line numbers).

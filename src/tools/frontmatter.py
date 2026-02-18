@@ -3,6 +3,7 @@
 import json
 import re
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -17,6 +18,7 @@ from services.vault import (
     get_vault_files,
     ok,
     parse_frontmatter_date,
+    resolve_dir,
 )
 from tools._validation import validate_pagination
 
@@ -25,7 +27,7 @@ class FilterCondition(BaseModel):
     """A single frontmatter filter condition."""
 
     field: str
-    value: str
+    value: str = ""
     match_type: str = "contains"
 
 
@@ -45,6 +47,9 @@ def _get_field_ci(frontmatter: dict, field: str):
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 _JSON_SCALAR_RE = re.compile(r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
+
+VALID_MATCH_TYPES = ("contains", "equals", "missing", "exists", "not_contains", "not_equals")
+NO_VALUE_MATCH_TYPES = ("missing", "exists")
 
 
 def _strip_wikilinks(text: str) -> str:
@@ -89,11 +94,27 @@ def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -
     Both field names and values are compared case-insensitively.
     Wikilink brackets are stripped before comparison so "Foo" matches "[[Foo]]".
     Non-string/non-list values are converted to strings before comparison.
+
+    Match types:
+        contains/equals: positive matching (field must exist and match).
+        missing: field must be absent (value ignored).
+        exists: field must be present (value ignored).
+        not_contains/not_equals: field absent OR doesn't match.
     """
     field_value = _get_field_ci(frontmatter, field)
+
+    # Existence/absence checks — value is ignored
+    if match_type == "missing":
+        return field_value is None
+    if match_type == "exists":
+        return field_value is not None
+
+    # Field absent: positive matches fail, negative matches succeed
     if field_value is None:
-        return False
+        return match_type in ("not_contains", "not_equals")
+
     value_lower = _strip_wikilinks(value).lower()
+
     if match_type == "contains":
         if isinstance(field_value, list):
             return any(value_lower in _strip_wikilinks(str(item)).lower() for item in field_value)
@@ -102,6 +123,14 @@ def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -
         if isinstance(field_value, list):
             return any(_strip_wikilinks(str(item)).lower() == value_lower for item in field_value)
         return _strip_wikilinks(str(field_value)).lower() == value_lower
+    elif match_type == "not_contains":
+        if isinstance(field_value, list):
+            return not any(value_lower in _strip_wikilinks(str(item)).lower() for item in field_value)
+        return value_lower not in _strip_wikilinks(str(field_value)).lower()
+    elif match_type == "not_equals":
+        if isinstance(field_value, list):
+            return not any(_strip_wikilinks(str(item)).lower() == value_lower for item in field_value)
+        return _strip_wikilinks(str(field_value)).lower() != value_lower
     return False
 
 
@@ -119,32 +148,37 @@ def _validate_filters(
     result = []
     for i, f in enumerate(filters):
         d = f.model_dump() if isinstance(f, FilterCondition) else dict(f)
-        if "field" not in d or "value" not in d:
-            return [], f"filters[{i}] must have 'field' and 'value' keys"
-        if d.get("match_type", "contains") not in ("contains", "equals"):
+        if "field" not in d:
+            return [], f"filters[{i}] must have a 'field' key"
+        mt = d.get("match_type", "contains")
+        if mt not in VALID_MATCH_TYPES:
             return [], (
-                f"filters[{i}] match_type must be 'contains' or 'equals', "
-                f"got '{d['match_type']}'"
+                f"filters[{i}] match_type must be one of {VALID_MATCH_TYPES}, "
+                f"got '{mt}'"
             )
+        if mt not in NO_VALUE_MATCH_TYPES and not d.get("value"):
+            return [], f"filters[{i}] requires 'value' for match_type '{mt}'"
         result.append(d)
     return result, None
 
 
 def _find_matching_files(
-    field: str,
+    field: str | None,
     value: str,
     match_type: str,
     parsed_filters: list[dict],
     include_fields: list[str] | None = None,
+    folder: Path | None = None,
 ) -> list[str | dict]:
     """Scan vault and return files matching all frontmatter conditions.
 
     Args:
-        field: Primary field to match.
+        field: Primary field to match, or None to skip primary matching (folder-only mode).
         value: Primary value to match.
         match_type: Match strategy for primary field.
         parsed_filters: Additional filter conditions (already validated).
         include_fields: If provided, return dicts with path + these field values.
+        folder: If provided, restrict scan to files within this directory.
 
     Returns:
         Sorted list of path strings or dicts (when include_fields is set).
@@ -152,15 +186,25 @@ def _find_matching_files(
     matching = []
     vault_resolved = VAULT_PATH.resolve()
 
-    for md_file in get_vault_files():
+    files = get_vault_files()
+    if folder:
+        folder_resolved = folder.resolve()
+        files = [f for f in files if f.resolve().is_relative_to(folder_resolved)]
+
+    for md_file in files:
         frontmatter = extract_frontmatter(md_file)
-        if not _matches_field(frontmatter, field, value, match_type):
-            continue
+
+        # Primary field match (skip when field is None for folder-only mode)
+        if field is not None:
+            if not _matches_field(frontmatter, field, value, match_type):
+                continue
+
         if not all(
             _matches_field(frontmatter, f["field"], f["value"], f.get("match_type", "contains"))
             for f in parsed_filters
         ):
             continue
+
         rel_path = str(md_file.resolve().relative_to(vault_resolved))
         if include_fields:
             result = {"path": rel_path}
@@ -176,27 +220,41 @@ def _find_matching_files(
 
 def list_files_by_frontmatter(
     field: str,
-    value: str,
+    value: str = "",
     match_type: str = "contains",
     filters: list[FilterCondition] | None = None,
     include_fields: list[str] | None = None,
+    folder: str = "",
     limit: int = 100,
     offset: int = 0,
 ) -> str:
-    """Find vault files by frontmatter metadata. Use this for structured queries like "find open tasks for project X" or "list all notes tagged Y".
+    """Find vault files by frontmatter metadata. Use this for structured queries like "find open tasks for project X", "list all notes tagged Y", or "find notes missing field Z".
 
     Args:
         field: Frontmatter field name to match (e.g., 'tags', 'project', 'category').
         value: Value to match against. Wikilink brackets are stripped automatically.
-        match_type: 'contains' (substring/list member match) or 'equals' (exact match).
-        filters: Additional AND conditions. Each needs 'field', 'value', and optional 'match_type'.
+            Not required for 'missing' or 'exists' match types.
+        match_type: How to match the field value:
+            'contains' - substring/list member match (default).
+            'equals' - exact match.
+            'missing' - field is absent (value ignored).
+            'exists' - field is present with any value (value ignored).
+            'not_contains' - field is absent or doesn't contain value.
+            'not_equals' - field is absent or doesn't equal value.
+        filters: Additional AND conditions. Each needs 'field', optional 'value', and optional 'match_type'.
         include_fields: Field names whose values to return with each result, e.g. ["status", "scheduled"].
+        folder: Restrict search to files within this folder (relative to vault root).
 
     Returns:
         JSON with results (file paths or objects when include_fields is set) and total count.
     """
-    if match_type not in ("contains", "equals"):
-        return err(f"match_type must be 'contains' or 'equals', got '{match_type}'")
+    if match_type not in VALID_MATCH_TYPES:
+        return err(
+            f"match_type must be one of {VALID_MATCH_TYPES}, got '{match_type}'"
+        )
+
+    if match_type not in NO_VALUE_MATCH_TYPES and not value:
+        return err(f"value is required for match_type '{match_type}'")
 
     parsed_filters, filter_err = _validate_filters(filters)
     if filter_err:
@@ -208,7 +266,15 @@ def list_files_by_frontmatter(
     if pagination_error:
         return err(pagination_error)
 
-    matching = _find_matching_files(field, value, match_type, parsed_filters, parsed_include)
+    folder_path = None
+    if folder:
+        folder_path, folder_err = resolve_dir(folder)
+        if folder_err:
+            return err(folder_err)
+
+    matching = _find_matching_files(
+        field, value, match_type, parsed_filters, parsed_include, folder_path
+    )
 
     if not matching:
         return ok(f"No files found where {field} {match_type} '{value}'", results=[], total=0)
@@ -258,24 +324,29 @@ def batch_update_frontmatter(
     target_value: str | None = None,
     target_match_type: str = "contains",
     target_filters: list[FilterCondition] | None = None,
+    folder: str = "",
     confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
 
-    Files can be specified in two ways (mutually exclusive):
+    Files can be specified in three ways:
     - paths: Explicit list of file paths.
     - target_field/target_value: Query-based targeting using frontmatter criteria.
+    - folder: Target all files in a folder (can combine with target_field to narrow).
 
     Args:
         field: Frontmatter field name to update.
         value: Value to set. For complex values use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
-        paths: List of file paths (relative to vault or absolute).
+        paths: List of file paths (relative to vault or absolute). Cannot combine with folder.
         target_field: Find files where this frontmatter field matches target_value.
-        target_value: Value to match for target_field.
-        target_match_type: How to match target_field - 'contains' or 'equals' (default 'contains').
+        target_value: Value to match for target_field. Not required for 'missing'/'exists' match types.
+        target_match_type: How to match target_field - 'contains', 'equals', 'missing',
+            'exists', 'not_contains', or 'not_equals' (default 'contains').
         target_filters: Additional targeting conditions (AND logic). Same format as list_files_by_frontmatter filters.
-        confirm: Must be true to execute when modifying more than 5 files (or any query-based update).
+        folder: Restrict targeting to files within this folder (relative to vault root).
+            Can be used alone (all files in folder) or with target_field (scoped query).
+        confirm: Must be true to execute when modifying more than 5 files (or any query/folder-based update).
 
     Returns:
         Summary of successes and failures, or confirmation preview for large batches.
@@ -286,22 +357,35 @@ def batch_update_frontmatter(
     if operation in ("set", "append") and value is None:
         return err(f"value is required for '{operation}' operation")
 
+    # Resolve folder if provided
+    folder_path = None
+    if folder:
+        if paths is not None:
+            return err("Cannot combine 'folder' with explicit 'paths'")
+        folder_path, folder_err = resolve_dir(folder)
+        if folder_err:
+            return err(folder_err)
+
     # Resolve target files
     if target_field is not None and paths is not None:
         return err("Provide either paths or target_field/target_value, not both")
 
     if target_field is not None:
-        if target_value is None:
-            return err("target_value is required when using target_field")
-        if target_match_type not in ("contains", "equals"):
-            return err(f"target_match_type must be 'contains' or 'equals', got '{target_match_type}'")
+        if target_match_type not in VALID_MATCH_TYPES:
+            return err(
+                f"target_match_type must be one of {VALID_MATCH_TYPES}, "
+                f"got '{target_match_type}'"
+            )
+        if target_match_type not in NO_VALUE_MATCH_TYPES and target_value is None:
+            return err(f"target_value is required for target_match_type '{target_match_type}'")
 
         parsed_target_filters, filter_err = _validate_filters(target_filters)
         if filter_err:
             return err(filter_err)
 
         paths = _find_matching_files(
-            target_field, target_value, target_match_type, parsed_target_filters
+            target_field, target_value or "", target_match_type,
+            parsed_target_filters, folder=folder_path,
         )
         if not paths:
             return ok("No files matched the targeting criteria", results=[], total=0)
@@ -309,13 +393,32 @@ def batch_update_frontmatter(
         # Query-based targeting always requires confirmation
         if not confirm:
             desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
+            folder_note = f" in folder '{folder}'" if folder else ""
             return ok(
                 f"This will {desc} on {len(paths)} files matched by "
-                f"target_field='{target_field}', target_value='{target_value}'. "
+                f"target_field='{target_field}', target_value='{target_value}'"
+                f"{folder_note}. "
                 "Show the file list to the user and call again with confirm=true to proceed.",
                 confirmation_required=True,
                 files=paths,
             )
+
+    elif folder_path is not None:
+        # Folder-only mode: target all files in the folder
+        paths = _find_matching_files(None, "", "contains", [], folder=folder_path)
+        if not paths:
+            return ok(f"No files found in folder '{folder}'", results=[], total=0)
+
+        # Folder-only always requires confirmation
+        if not confirm:
+            desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
+            return ok(
+                f"This will {desc} on {len(paths)} files in folder '{folder}'. "
+                "Show the file list to the user and call again with confirm=true to proceed.",
+                confirmation_required=True,
+                files=paths,
+            )
+
     elif paths is not None:
         if not paths:
             return err("paths list is empty")
@@ -330,7 +433,7 @@ def batch_update_frontmatter(
                 files=paths,
             )
     else:
-        return err("Provide either paths or target_field/target_value")
+        return err("Provide paths, target_field/target_value, or folder")
 
     # Normalize value once (same for all files)
     parsed_value = _normalize_frontmatter_value(value)
