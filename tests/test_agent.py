@@ -323,6 +323,98 @@ def test_load_preferences_reloaded_each_turn(tmp_path):
         agent_module.PREFERENCES_FILE = original_prefs_file
 
 
+@pytest.mark.anyio
+async def test_agent_turn_on_event_tool_call():
+    """on_event callback is called with tool_call events."""
+    events = []
+
+    async def on_event(event_type, data):
+        events.append((event_type, data))
+
+    mock_tool_call = MagicMock()
+    mock_tool_call.id = "call_1"
+    mock_tool_call.function.name = "search_vault"
+    mock_tool_call.function.arguments = '{"query": "test"}'
+
+    mock_msg_with_tool = MagicMock()
+    mock_msg_with_tool.tool_calls = [mock_tool_call]
+    mock_msg_with_tool.content = None
+    mock_msg_with_tool.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_1", "function": {"name": "search_vault", "arguments": '{"query": "test"}'}, "type": "function"}],
+    }
+
+    mock_msg_final = MagicMock()
+    mock_msg_final.tool_calls = None
+    mock_msg_final.content = "Found results."
+    mock_msg_final.model_dump.return_value = {"role": "assistant", "content": "Found results."}
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_with_tool)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_final)], usage=mock_usage),
+    ]
+
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text='{"success": true, "results": []}')]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "search"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [], on_event=on_event)
+    assert result == "Found results."
+
+    # Should have: tool_call, tool_result, response
+    event_types = [e[0] for e in events]
+    assert "tool_call" in event_types
+    assert "tool_result" in event_types
+    assert "response" in event_types
+
+    # Verify tool_call event data
+    tool_call_event = next(e for e in events if e[0] == "tool_call")
+    assert tool_call_event[1]["tool"] == "search_vault"
+
+    # Verify tool_result event data
+    tool_result_event = next(e for e in events if e[0] == "tool_result")
+    assert tool_result_event[1]["tool"] == "search_vault"
+    assert "success" in tool_result_event[1]
+
+    # Verify response event data
+    response_event = next(e for e in events if e[0] == "response")
+    assert response_event[1]["content"] == "Found results."
+
+
+@pytest.mark.anyio
+async def test_agent_turn_no_callback_unchanged():
+    """agent_turn works exactly as before when no on_event is passed."""
+    mock_msg_final = MagicMock()
+    mock_msg_final.tool_calls = None
+    mock_msg_final.content = "Hello"
+    mock_msg_final.model_dump.return_value = {"role": "assistant", "content": "Hello"}
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=mock_msg_final)], usage=mock_usage,
+    )
+
+    mock_session = AsyncMock()
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "hi"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+    assert result == "Hello"
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 
