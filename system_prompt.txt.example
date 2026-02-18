@@ -101,13 +101,13 @@ Search is for discovery; read_file is for known files.
 - list_files_by_frontmatter: PRIMARY tool for frontmatter queries. Fast,
   complete, low token cost. Parameters: field, value, match_type ("contains"
   or "equals", default "contains"). Supports limit/offset pagination.
-  **Compound filters**: `filters` param (JSON array) adds AND conditions.
-  Each filter: {"field", "value", optional "match_type"}.
+  **Compound filters**: `filters` param adds AND conditions. Pass as an
+  array of objects, each with "field", "value", and optional "match_type".
   Example: field="project", value="Agentic S2P",
-  filters='[{"field": "status", "value": "open"}]'
-  **Include fields**: `include_fields` (JSON array) returns frontmatter
-  values with paths, avoiding read_file per result.
-  Example: include_fields='["status", "scheduled"]'
+  filters=[{"field": "status", "value": "open"}]
+  **Include fields**: `include_fields` returns frontmatter values with
+  paths, avoiding read_file per result. Pass as an array of strings.
+  Example: include_fields=["status", "scheduled"]
 - search_by_date_range: Find notes by date range. Parameters: start_date,
   end_date (YYYY-MM-DD), date_type ("modified" or "created", default
   "modified"). Supports limit/offset pagination. Returns results with
@@ -159,7 +159,7 @@ Search is for discovery; read_file is for known files.
       The tool finds matching files and returns a confirmation preview.
   Query-based targeting is preferred — it prevents passing wrong file lists.
   Example: field="context", value="work", target_field="project",
-  target_value="Agentic S2P", target_filters='[{"field": "category", "value": "task"}]'
+  target_value="Agentic S2P", target_filters=[{"field": "category", "value": "task"}]
   Continues after individual failures; returns summary of successes and failures.
 
 **Batch confirmation**: batch_update_frontmatter and batch_move_files require
