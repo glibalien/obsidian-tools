@@ -157,6 +157,37 @@ def _parse_frontmatter(frontmatter: dict | str | None) -> tuple[dict, str | None
     return parsed, None
 
 
+def _parse_frontmatter(frontmatter: dict | str | None) -> tuple[dict, str | None]:
+    """Normalize frontmatter input into a dictionary.
+
+    Accepts None, a native dict, or a JSON object string.
+    """
+    if frontmatter is None:
+        return {}, None
+
+    if isinstance(frontmatter, dict):
+        return frontmatter, None
+
+    if not isinstance(frontmatter, str):
+        return {}, (
+            "Invalid frontmatter type: expected dict, JSON object string, or null. "
+            f"Got {type(frontmatter).__name__}."
+        )
+
+    try:
+        parsed = json.loads(frontmatter)
+    except json.JSONDecodeError as e:
+        return {}, f"Invalid frontmatter JSON: {e}"
+
+    if not isinstance(parsed, dict):
+        return {}, (
+            "Invalid frontmatter JSON: expected a JSON object "
+            f"(e.g., {{\"tags\": [\"meeting\"]}}), got {type(parsed).__name__}."
+        )
+
+    return parsed, None
+
+
 def move_file(
     source: str,
     destination: str,
