@@ -69,7 +69,7 @@ export class ChatView extends ItemView {
 		// Cleanup if needed
 	}
 
-	private async addMessage(role: "user" | "assistant", content: string): Promise<void> {
+	private async addMessage(role: "user" | "assistant", content: string, sourcePath = ""): Promise<void> {
 		this.messages.push({ role, content });
 
 		const messageEl = this.messagesContainer.createDiv({
@@ -79,7 +79,6 @@ export class ChatView extends ItemView {
 		const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
 
 		if (role === "assistant") {
-			const sourcePath = this.getActiveFilePath() ?? "";
 			await MarkdownRenderer.render(this.app, content, contentEl, sourcePath, this);
 		} else {
 			contentEl.setText(content);
@@ -107,6 +106,9 @@ export class ChatView extends ItemView {
 		const message = this.inputField.value.trim();
 		if (!message || this.isLoading) return;
 
+		// Capture active file once at request time for consistent context
+		const activeFile = this.getActiveFilePath();
+
 		this.inputField.value = "";
 		this.isLoading = true;
 		this.sendButton.disabled = true;
@@ -125,7 +127,7 @@ export class ChatView extends ItemView {
 				body: JSON.stringify({
 					message: message,
 					session_id: this.sessionId,
-					active_file: this.getActiveFilePath()
+					active_file: activeFile
 				})
 			});
 
@@ -134,7 +136,7 @@ export class ChatView extends ItemView {
 
 			const data = response.json;
 			this.sessionId = data.session_id;
-			await this.addMessage("assistant", data.response);
+			await this.addMessage("assistant", data.response, activeFile ?? "");
 
 		} catch (error) {
 			loadingEl.remove();
