@@ -312,7 +312,7 @@ async def agent_turn(
                 parsed = json.loads(result)
                 success = parsed.get("success", True)
             except (json.JSONDecodeError, AttributeError):
-                success = True
+                success = not result.startswith(("Tool error:", "Failed to execute tool"))
             await _emit("tool_result", {"tool": tool_name, "success": success})
 
 
