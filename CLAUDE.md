@@ -558,7 +558,7 @@ All paths are configured via `.env`:
 - `LOG_MAX_BYTES`: Max log file size before rotation (default: `5242880` / 5MB)
 - `LOG_BACKUP_COUNT`: Number of rotated log files to keep (default: `3`)
 
-Additional configuration in `config.py` (also provides `setup_logging(name)` — configures root logger with stderr + rotating file handler to `LOG_DIR/<name>.log`, falls back to stderr-only on filesystem errors):
+Additional configuration in `config.py` (also provides `setup_logging(name)` — configures root logger with stderr + rotating file handler to `LOG_DIR/<name>.log.md`, falls back to stderr-only on filesystem errors):
 - `EXCLUDED_DIRS`: Directories to skip when scanning vault (`.venv`, `.chroma_db`, `.trash`, `.obsidian`, `.git`)
 - `PREFERENCES_FILE`: Path to user preferences file (`VAULT_PATH / "Preferences.md"`)
 - `ATTACHMENTS_DIR`: Path to audio/image attachments (`VAULT_PATH / "Attachments"`)

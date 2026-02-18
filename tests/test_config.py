@@ -208,7 +208,7 @@ def test_setup_logging_creates_log_dir(tmp_path, monkeypatch):
     config.setup_logging("test")
 
     assert log_dir.exists()
-    assert (log_dir / "test.log").exists()
+    assert (log_dir / "test.log.md").exists()
     # Should have 2 handlers: stderr + file
     assert len(root.handlers) == 2
 
@@ -234,7 +234,7 @@ def test_setup_logging_writes_to_file(tmp_path, monkeypatch):
     for h in root.handlers:
         h.flush()
 
-    log_content = (log_dir / "test.log").read_text()
+    log_content = (log_dir / "test.log.md").read_text()
     assert "hello from test" in log_content
 
     # Clean up
