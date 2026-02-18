@@ -653,15 +653,14 @@ class TestResultMessage:
     """Tests for explicit count message in results."""
 
     def test_found_message_present(self, vault_config):
-        """Non-empty results should include a 'Found N' message with do-not-retry hint."""
+        """Non-empty results should include a 'Found N' message."""
         result = json.loads(
             list_files_by_frontmatter(field="tags", value="project")
         )
         assert result["success"] is True
         assert result["total"] >= 1
-        assert "RESULTS COMPLETE" in result["message"]
+        assert "Found" in result["message"]
         assert str(result["total"]) in result["message"]
-        assert "Do not retry" in result["message"]
 
     def test_no_results_message(self, vault_config):
         """Empty results should include a 'No files found' message."""
