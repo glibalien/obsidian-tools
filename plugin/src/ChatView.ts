@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf, requestUrl } from "obsidian";
+import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
 
 export const VIEW_TYPE_CHAT = "vault-chat-view";
 
@@ -88,18 +88,36 @@ export class ChatView extends ItemView {
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 	}
 
-	private showLoading(): HTMLElement {
+	private showLoading(): { container: HTMLElement; textEl: HTMLElement } {
 		const loadingEl = this.messagesContainer.createDiv({
 			cls: "chat-message chat-message-assistant chat-loading"
 		});
-		loadingEl.createDiv({ cls: "chat-message-content", text: "Thinking..." });
+		const textEl = loadingEl.createDiv({ cls: "chat-message-content", text: "Thinking..." });
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-		return loadingEl;
+		return { container: loadingEl, textEl };
 	}
 
 	private getActiveFilePath(): string | null {
 		const activeFile = this.app.workspace.getActiveFile();
 		return activeFile?.path ?? null;
+	}
+
+	private formatToolStatus(toolName: string): string {
+		const labels: Record<string, string> = {
+			search_vault: "Searching vault...",
+			read_file: "Reading file...",
+			find_backlinks: "Finding backlinks...",
+			find_outlinks: "Finding outlinks...",
+			search_by_folder: "Listing folder...",
+			list_files_by_frontmatter: "Searching frontmatter...",
+			web_search: "Searching the web...",
+			create_file: "Creating file...",
+			move_file: "Moving file...",
+			update_frontmatter: "Updating frontmatter...",
+			log_interaction: "Logging interaction...",
+			transcribe_audio: "Transcribing audio...",
+		};
+		return labels[toolName] ?? `Running ${toolName}...`;
 	}
 
 	private async sendMessage(): Promise<void> {
@@ -117,11 +135,10 @@ export class ChatView extends ItemView {
 		await this.addMessage("user", message);
 
 		// Show loading
-		const loadingEl = this.showLoading();
+		const { container: loadingEl, textEl: loadingText } = this.showLoading();
 
 		try {
-			const response = await requestUrl({
-				url: "http://127.0.0.1:8000/chat",
+			const response = await fetch("http://127.0.0.1:8000/chat/stream", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -131,15 +148,61 @@ export class ChatView extends ItemView {
 				})
 			});
 
-			// Remove loading indicator
-			loadingEl.remove();
+			if (!response.ok || !response.body) {
+				throw new Error(`Server returned ${response.status}`);
+			}
 
-			const data = response.json;
-			this.sessionId = data.session_id;
-			await this.addMessage("assistant", data.response, activeFile ?? "");
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split("\n");
+				buffer = lines.pop() ?? "";
+
+				for (const line of lines) {
+					if (!line.startsWith("data: ")) continue;
+					try {
+						const event = JSON.parse(line.slice(6));
+						switch (event.type) {
+							case "tool_call":
+								loadingText.setText(this.formatToolStatus(event.tool));
+								this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+								break;
+							case "tool_result":
+								break;
+							case "response":
+								loadingEl.remove();
+								await this.addMessage("assistant", event.content, activeFile ?? "");
+								break;
+							case "error":
+								loadingEl.remove();
+								await this.addMessage("assistant", `Error: ${event.error}. Is the API server running?`);
+								break;
+							case "done":
+								this.sessionId = event.session_id ?? this.sessionId;
+								break;
+						}
+					} catch {
+						// Skip malformed SSE lines
+					}
+				}
+			}
+
+			// If loading indicator is still showing (no response event received), remove it
+			if (loadingEl.parentElement) {
+				loadingEl.remove();
+				await this.addMessage("assistant", "No response received from server.");
+			}
 
 		} catch (error) {
-			loadingEl.remove();
+			if (loadingEl.parentElement) {
+				loadingEl.remove();
+			}
 			const errorMessage = error instanceof Error ? error.message : "Failed to connect to server";
 			await this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`);
 		} finally {

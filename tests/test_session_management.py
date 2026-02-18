@@ -619,3 +619,102 @@ class TestTrimMessages:
         trim_messages(messages)
         assert messages[0]["role"] == "system"
         assert messages[0]["content"] == "important system prompt"
+
+
+class TestStreamEndpoint:
+    """Tests for POST /chat/stream SSE endpoint."""
+
+    def setup_method(self):
+        file_sessions.clear()
+        app.state.mcp_session = AsyncMock()
+        app.state.llm_client = MagicMock()
+        app.state.tools = []
+        app.state.system_prompt = "test system prompt"
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_stream_returns_sse_events(self, mock_agent_turn):
+        """Stream endpoint returns SSE-formatted events."""
+        async def fake_agent_turn(client, session, messages, tools, on_event=None):
+            if on_event:
+                await on_event("tool_call", {"tool": "search_vault", "args": {"query": "test"}})
+                await on_event("tool_result", {"tool": "search_vault", "success": True})
+                await on_event("response", {"content": "Found results."})
+            return "Found results."
+
+        mock_agent_turn.side_effect = fake_agent_turn
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            response = client.post(
+                "/chat/stream",
+                json={"message": "search", "active_file": "note.md"},
+            )
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers["content-type"]
+
+            # Parse SSE events from response body
+            lines = response.text.strip().split("\n")
+            events = []
+            for line in lines:
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+
+            event_types = [e["type"] for e in events]
+            assert "tool_call" in event_types
+            assert "tool_result" in event_types
+            assert "response" in event_types
+            assert "done" in event_types
+
+            # Verify done event has session_id
+            done_event = next(e for e in events if e["type"] == "done")
+            assert "session_id" in done_event
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_stream_shares_sessions_with_chat(self, mock_agent_turn):
+        """Stream endpoint shares the same session store as /chat."""
+        mock_agent_turn.return_value = "response"
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            # Create session via /chat
+            r1 = client.post("/chat", json={"message": "hi", "active_file": "shared.md"})
+            sid1 = r1.json()["session_id"]
+
+            # Continue via /chat/stream — need to handle the on_event kwarg
+            async def fake_stream(client_arg, session, messages, tools, on_event=None):
+                if on_event:
+                    await on_event("response", {"content": "streamed"})
+                return "streamed"
+            mock_agent_turn.side_effect = fake_stream
+
+            r2 = client.post(
+                "/chat/stream",
+                json={"message": "more", "active_file": "shared.md"},
+            )
+            # Parse session_id from SSE events
+            events = []
+            for line in r2.text.strip().split("\n"):
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+
+            done_event = next(e for e in events if e["type"] == "done")
+            assert done_event["session_id"] == sid1
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_stream_error_sends_error_event(self, mock_agent_turn):
+        """Errors during agent_turn produce an error SSE event."""
+        mock_agent_turn.side_effect = Exception("LLM failed")
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            response = client.post(
+                "/chat/stream",
+                json={"message": "hi", "active_file": "err.md"},
+            )
+            assert response.status_code == 200  # SSE always returns 200
+
+            events = []
+            for line in response.text.strip().split("\n"):
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+
+            event_types = [e["type"] for e in events]
+            assert "error" in event_types
+            assert "done" in event_types
