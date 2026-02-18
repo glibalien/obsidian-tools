@@ -53,6 +53,21 @@ def _extract_query_terms(query: str) -> list[str]:
     return terms
 
 
+def _case_variants(terms: list[str]) -> list[str]:
+    """Generate case variants for ChromaDB $contains (which is case-sensitive).
+
+    For each term, produces lowercase and title-case variants, deduplicated.
+    """
+    variants = []
+    seen = set()
+    for t in terms:
+        for v in (t, t.title()):
+            if v not in seen:
+                seen.add(v)
+                variants.append(v)
+    return variants
+
+
 def keyword_search(
     query: str, n_results: int = 5, chunk_type: str | None = None
 ) -> list[dict[str, str]]:
@@ -76,11 +91,12 @@ def keyword_search(
 
     collection = get_collection()
 
-    # Build filter: single $contains for one term, $or for multiple
-    if len(terms) == 1:
-        where_document = {"$contains": terms[0]}
+    # Build filter with case variants (ChromaDB $contains is case-sensitive)
+    variants = _case_variants(terms)
+    if len(variants) == 1:
+        where_document = {"$contains": variants[0]}
     else:
-        where_document = {"$or": [{"$contains": t} for t in terms]}
+        where_document = {"$or": [{"$contains": v} for v in variants]}
 
     get_kwargs: dict = {
         "where_document": where_document,

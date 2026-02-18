@@ -414,8 +414,8 @@ class TestKeywordSearchOptimization:
     """Tests for optimized single-query keyword search."""
 
     @patch("hybrid_search.get_collection")
-    def test_single_term_no_or_wrapper(self, mock_get_collection):
-        """Single-term query should use $contains directly, not $or."""
+    def test_single_term_includes_case_variants(self, mock_get_collection):
+        """Single-term query should include case variants in $or."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
             "ids": ["id1"],
@@ -428,7 +428,10 @@ class TestKeywordSearchOptimization:
         keyword_search("content", n_results=5)
 
         call_kwargs = mock_collection.get.call_args[1]
-        assert call_kwargs["where_document"] == {"$contains": "content"}
+        where_doc = call_kwargs["where_document"]
+        contains_values = [c["$contains"] for c in where_doc["$or"]]
+        assert "content" in contains_values
+        assert "Content" in contains_values
 
     @patch("hybrid_search.get_collection")
     def test_multi_term_uses_or_query(self, mock_get_collection):
@@ -450,8 +453,11 @@ class TestKeywordSearchOptimization:
         call_kwargs = mock_collection.get.call_args[1]
         where_doc = call_kwargs["where_document"]
         assert "$or" in where_doc
-        assert {"$contains": "alpha"} in where_doc["$or"]
-        assert {"$contains": "bravo"} in where_doc["$or"]
+        contains_values = [c["$contains"] for c in where_doc["$or"]]
+        assert "alpha" in contains_values
+        assert "Alpha" in contains_values
+        assert "bravo" in contains_values
+        assert "Bravo" in contains_values
 
     @patch("hybrid_search.get_collection")
     def test_multi_term_ranked_by_hit_count(self, mock_get_collection):
@@ -546,6 +552,72 @@ class TestKeywordSearchOptimization:
         assert "for" not in terms
         assert "project" in terms
         assert "testing" in terms
+
+    @patch("hybrid_search.get_collection")
+    def test_case_insensitive_contains(self, mock_get_collection):
+        """Keyword search should include case variants in $contains query."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["Adam Bird is here"],
+            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("Adam Bird", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        where_doc = call_kwargs["where_document"]
+        # Should include both lowercase and original case variants
+        contains_values = [c["$contains"] for c in where_doc["$or"]]
+        assert "adam" in contains_values
+        assert "Adam" in contains_values
+        assert "bird" in contains_values
+        assert "Bird" in contains_values
+
+    @patch("hybrid_search.get_collection")
+    def test_single_term_case_insensitive(self, mock_get_collection):
+        """Single-term query with mixed case should use $or with variants."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["Adam is here"],
+            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("Adam", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        where_doc = call_kwargs["where_document"]
+        # Even single term needs $or for case variants
+        contains_values = [c["$contains"] for c in where_doc["$or"]]
+        assert "adam" in contains_values
+        assert "Adam" in contains_values
+
+    @patch("hybrid_search.get_collection")
+    def test_lowercase_query_still_finds_capitalized(self, mock_get_collection):
+        """Lowercase query should generate title-case variant to match names."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1"],
+            "documents": ["Adam Bird is here"],
+            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "section"}],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        keyword_search("adam bird", n_results=5)
+
+        call_kwargs = mock_collection.get.call_args[1]
+        where_doc = call_kwargs["where_document"]
+        contains_values = [c["$contains"] for c in where_doc["$or"]]
+        assert "adam" in contains_values
+        assert "Adam" in contains_values
+        assert "bird" in contains_values
+        assert "Bird" in contains_values
 
 
 class TestStripWikilinkBrackets:
