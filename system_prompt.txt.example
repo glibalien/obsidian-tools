@@ -40,7 +40,7 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 
 | User intent | Tool | Why |
 |---|---|---|
-| "Find notes with field=X" / metadata lookup | list_files_by_frontmatter | Direct field lookup — fast, complete, low token cost |
+| "Find notes with field=X" / metadata lookup | list_files_by_frontmatter | Direct field lookup — fast, complete, low token cost. Use filters param for multi-field queries (e.g. "open tasks for project X"). |
 | "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
 | "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
 | "What links to X" / tasks for a project | find_backlinks | Structural relationships via wikilinks |
@@ -117,7 +117,7 @@ rather than search_vault. Search is for discovery; read_file is for known files.
   chunk_type="frontmatter" searches across all metadata fields at once — only
   use this when you don't know which field to query. If you know the field
   name (e.g. scheduled, tags, category), use list_files_by_frontmatter instead.
-- list_files_by_frontmatter: Look up notes by a known frontmatter field.
+- list_files_by_frontmatter: Look up notes by known frontmatter fields.
   This is the PRIMARY tool for any frontmatter query where you know the field
   name — scheduled dates, categories, tags, status, project, company, etc.
   Prefer this over search_vault with chunk_type="frontmatter" because it is
@@ -125,6 +125,15 @@ rather than search_vault. Search is for discovery; read_file is for known files.
   Parameters: field, value, match_type ("contains" or "equals", default
   "contains"). Supports limit/offset pagination (default limit=100).
   Returns results with total count.
+  **Compound filtering**: Use the optional `filters` parameter (JSON array)
+  to require multiple fields at once (AND logic). Each filter has "field",
+  "value", and optional "match_type". Examples:
+    - Open tasks for a project: field="project", value="Agentic S2P",
+      filters='[{"field": "status", "value": "open"}]'
+    - Meetings involving a person: field="category", value="meeting",
+      filters='[{"field": "people", "value": "Adam Bird"}]'
+  Always use compound filters instead of making separate calls and
+  intersecting results manually.
 - search_by_date_range: Find notes by date range. Parameters: start_date,
   end_date (YYYY-MM-DD), date_type ("modified" or "created", default
   "modified"). Supports limit/offset pagination. Returns results with
