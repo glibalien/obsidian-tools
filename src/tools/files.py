@@ -4,6 +4,7 @@ import json
 
 import yaml
 
+from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     do_move_file,
@@ -69,9 +70,21 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
 def create_file(
     path: str,
     content: str = "",
-    frontmatter: str | None = None,
+    frontmatter: dict | str | None = None,
 ) -> str:
-    """Create a new markdown note in the vault."""
+    """Create a new markdown note in the vault.
+
+    Args:
+        path: Path for the new file (relative to vault or absolute).
+              Parent directories will be created if they don't exist.
+        content: The body content of the note (markdown).
+        frontmatter: Optional frontmatter data. Prefer passing a native dict.
+            JSON string input is also supported for backwards compatibility.
+            Parsed data will be converted to YAML and wrapped in --- delimiters.
+
+    Returns:
+        Confirmation message or error.
+    """
     # Validate path
     try:
         file_path = resolve_vault_path(path)
@@ -84,11 +97,11 @@ def create_file(
     # Parse frontmatter if provided
     frontmatter_yaml = ""
     if frontmatter:
-        try:
-            fm_dict = json.loads(frontmatter)
-            frontmatter_yaml = yaml.dump(fm_dict, default_flow_style=False, allow_unicode=True)
-        except json.JSONDecodeError as e:
-            return err(f"Invalid frontmatter JSON: {e}")
+        fm_dict, parse_error = _parse_frontmatter(frontmatter)
+        if parse_error:
+            return err(parse_error)
+
+        frontmatter_yaml = yaml.dump(fm_dict, default_flow_style=False, allow_unicode=True)
 
     # Build file content
     if frontmatter_yaml:
@@ -111,6 +124,37 @@ def create_file(
         path=rel,
         item={"path": rel},
     )
+
+
+def _parse_frontmatter(frontmatter: dict | str | None) -> tuple[dict, str | None]:
+    """Normalize frontmatter input into a dictionary.
+
+    Accepts None, a native dict, or a JSON object string.
+    """
+    if frontmatter is None:
+        return {}, None
+
+    if isinstance(frontmatter, dict):
+        return frontmatter, None
+
+    if not isinstance(frontmatter, str):
+        return {}, (
+            "Invalid frontmatter type: expected dict, JSON object string, or null. "
+            f"Got {type(frontmatter).__name__}."
+        )
+
+    try:
+        parsed = json.loads(frontmatter)
+    except json.JSONDecodeError as e:
+        return {}, f"Invalid frontmatter JSON: {e}"
+
+    if not isinstance(parsed, dict):
+        return {}, (
+            "Invalid frontmatter JSON: expected a JSON object "
+            f"(e.g., {{\"tags\": [\"meeting\"]}}), got {type(parsed).__name__}."
+        )
+
+    return parsed, None
 
 
 def move_file(

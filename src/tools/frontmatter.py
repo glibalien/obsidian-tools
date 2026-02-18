@@ -15,6 +15,7 @@ from services.vault import (
     ok,
     parse_frontmatter_date,
 )
+from tools._validation import validate_pagination
 
 
 def _get_field_ci(frontmatter: dict, field: str):
@@ -32,11 +33,46 @@ def _get_field_ci(frontmatter: dict, field: str):
 
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+_JSON_SCALAR_RE = re.compile(r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
+
+
+FrontmatterValue = str | int | float | bool | list | dict | None
 
 
 def _strip_wikilinks(text: str) -> str:
     """Strip wikilink brackets: '[[Foo|alias]]' → 'Foo', '[[Bar]]' → 'Bar'."""
     return _WIKILINK_RE.sub(r"\1", text)
+
+
+def _normalize_frontmatter_value(value: FrontmatterValue) -> FrontmatterValue:
+    """Normalize tool input while preserving legacy JSON-string support.
+
+    Native JSON-compatible values are passed through unchanged.
+    String values are parsed as JSON only when they look like JSON containers
+    or scalar literals (quoted strings, numbers, true/false/null).
+    """
+    if not isinstance(value, str):
+        return value
+
+    candidate = value.strip()
+    if not candidate:
+        return value
+
+    looks_like_json = (
+        (candidate[0] == "{" and candidate[-1] == "}")
+        or (candidate[0] == "[" and candidate[-1] == "]")
+        or (candidate[0] == '"' and candidate[-1] == '"')
+        or candidate in ("true", "false", "null")
+        or bool(_JSON_SCALAR_RE.match(candidate))
+    )
+
+    if not looks_like_json:
+        return value
+
+    try:
+        return json.loads(candidate)
+    except (json.JSONDecodeError, TypeError):
+        return value
 
 
 def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -> bool:
@@ -187,6 +223,10 @@ def list_files_by_frontmatter(
         if not parsed_include:
             parsed_include = None  # Empty list = same as omitted
 
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     matching = _find_matching_files(field, value, match_type, parsed_filters, parsed_include)
 
     if not matching:
@@ -199,20 +239,20 @@ def list_files_by_frontmatter(
         )
 
     total = len(matching)
-    page = matching[offset:offset + limit]
+    page = matching[validated_offset:validated_offset + validated_limit]
     return ok(
         message=f"Found {total} matching files",
         results=page,
         total=total,
-        offset=offset,
-        limit=limit,
+        offset=validated_offset,
+        limit=validated_limit,
     )
 
 
 def update_frontmatter(
     path: str,
     field: str,
-    value: str | None = None,
+    value: FrontmatterValue = None,
     operation: str = "set",
 ) -> str:
     """Update frontmatter on a vault file.
@@ -220,7 +260,9 @@ def update_frontmatter(
     Args:
         path: Path to the note (relative to vault or absolute).
         field: Frontmatter field name to update.
-        value: Value to set. For lists, use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
+        value: Value to set. Prefer native structured values (list/dict/bool/number/null)
+               when available. JSON strings are still accepted for compatibility.
+               Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
 
     Returns:
@@ -232,13 +274,7 @@ def update_frontmatter(
     if operation in ("set", "append") and value is None:
         return err(f"value is required for '{operation}' operation")
 
-    # Parse value - try JSON first, fall back to string
-    parsed_value = value
-    if value is not None:
-        try:
-            parsed_value = json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            parsed_value = value  # Keep as string
+    parsed_value = _normalize_frontmatter_value(value)
 
     success, message = do_update_frontmatter(path, field, parsed_value, operation)
     if success:
@@ -248,7 +284,7 @@ def update_frontmatter(
 
 def batch_update_frontmatter(
     field: str,
-    value: str | None = None,
+    value: FrontmatterValue = None,
     operation: str = "set",
     paths: list[str] | None = None,
     target_field: str | None = None,
@@ -265,7 +301,9 @@ def batch_update_frontmatter(
 
     Args:
         field: Frontmatter field name to update.
-        value: Value to set. For lists, use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
+        value: Value to set. Prefer native structured values (list/dict/bool/number/null)
+               when available. JSON strings are still accepted for compatibility.
+               Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
         paths: List of file paths (relative to vault or absolute).
         target_field: Find files where this frontmatter field matches target_value.
@@ -336,13 +374,8 @@ def batch_update_frontmatter(
     else:
         return err("Provide either paths or target_field/target_value")
 
-    # Parse value once (same for all files)
-    parsed_value = value
-    if value is not None:
-        try:
-            parsed_value = json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            parsed_value = value
+    # Normalize value once (same for all files)
+    parsed_value = _normalize_frontmatter_value(value)
 
     # Process each file
     successes = []
@@ -391,6 +424,10 @@ def search_by_date_range(
         Newline-separated list of matching file paths (relative to vault),
         or a message if no files found.
     """
+    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
+    if pagination_error:
+        return err(pagination_error)
+
     if date_type not in ("created", "modified"):
         return err(f"date_type must be 'created' or 'modified', got '{date_type}'")
 
@@ -446,11 +483,11 @@ def search_by_date_range(
 
     all_results = sorted(matching)
     total = len(all_results)
-    page = all_results[offset:offset + limit]
+    page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(
         message=f"Found {total} files",
         results=page,
         total=total,
-        offset=offset,
-        limit=limit,
+        offset=validated_offset,
+        limit=validated_limit,
     )
