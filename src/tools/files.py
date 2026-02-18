@@ -73,9 +73,8 @@ def create_file(
         path: Path for the new file (relative to vault or absolute).
               Parent directories will be created if they don't exist.
         content: The body content of the note (markdown).
-        frontmatter: Optional frontmatter data. Prefer passing a native dict.
-            JSON string input is also supported for backwards compatibility.
-            Parsed data will be converted to YAML and wrapped in --- delimiters.
+        frontmatter: Optional YAML frontmatter as JSON string, e.g., '{"tags": ["meeting"]}'.
+                    Will be converted to YAML and wrapped in --- delimiters.
 
     Returns:
         Confirmation message or error.

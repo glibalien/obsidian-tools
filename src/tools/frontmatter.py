@@ -181,23 +181,17 @@ def list_files_by_frontmatter(
     limit: int = 100,
     offset: int = 0,
 ) -> str:
-    """Find vault files matching frontmatter criteria.
+    """Find vault files by frontmatter metadata. Use this for structured queries like "find open tasks for project X" or "list all notes tagged Y".
 
     Args:
-        field: Frontmatter field name (e.g., 'tags', 'company', 'project').
-        value: Value to match against.
-        match_type: How to match - 'contains' (value in list), 'equals' (exact match).
-        filters: Optional additional conditions (AND logic), either as a JSON array string
-                 or native list of objects with 'field', 'value', and optional 'match_type'.
-                 Example: '[{"field": "status", "value": "open"}]' or
-                 [{"field": "status", "value": "open"}]
-        include_fields: Optional field names to include in results, either as a JSON array
-                        string or native list.
-                        When set, results are objects with 'path' plus the requested fields.
-                        Example: '["status", "scheduled"]'
+        field: Frontmatter field name to match (e.g., 'tags', 'project', 'category').
+        value: Value to match against. Wikilink brackets are stripped automatically.
+        match_type: 'contains' (substring/list member match) or 'equals' (exact match).
+        filters: JSON array of additional AND conditions. Each object needs 'field', 'value', and optional 'match_type'. Example: '[{"field": "status", "value": "open"}, {"field": "category", "value": "task"}]'
+        include_fields: JSON array of field names whose values to return with each result. Example: '["status", "scheduled"]'
 
     Returns:
-        List of matching file paths (or objects when include_fields is set).
+        JSON with results (file paths or objects when include_fields is set) and total count.
     """
     if match_type not in ("contains", "equals"):
         return err(f"match_type must be 'contains' or 'equals', got '{match_type}'")
@@ -246,9 +240,7 @@ def update_frontmatter(
     Args:
         path: Path to the note (relative to vault or absolute).
         field: Frontmatter field name to update.
-        value: Value to set. Prefer native structured values (list/dict/bool/number/null)
-               when available. JSON strings are still accepted for compatibility.
-               Required for 'set'/'append'.
+        value: Value to set. For complex values use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
 
     Returns:
@@ -287,16 +279,13 @@ def batch_update_frontmatter(
 
     Args:
         field: Frontmatter field name to update.
-        value: Value to set. Prefer native structured values (list/dict/bool/number/null)
-               when available. JSON strings are still accepted for compatibility.
-               Required for 'set'/'append'.
+        value: Value to set. For complex values use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
         paths: List of file paths (relative to vault or absolute).
         target_field: Find files where this frontmatter field matches target_value.
         target_value: Value to match for target_field.
         target_match_type: How to match target_field - 'contains' or 'equals' (default 'contains').
-        target_filters: Optional additional targeting conditions (AND logic), as JSON array
-                        string or native list of objects.
+        target_filters: JSON array of additional targeting conditions (AND logic). Same format as list_files_by_frontmatter filters.
         confirm: Must be true to execute when modifying more than 5 files (or any query-based update).
 
     Returns:
