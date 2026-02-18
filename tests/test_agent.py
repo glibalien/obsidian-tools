@@ -9,8 +9,167 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from agent import agent_turn, truncate_tool_result, MAX_TOOL_RESULT_CHARS
+from agent import (
+    _parse_tool_arguments,
+    _simplify_schema,
+    agent_turn,
+    truncate_tool_result,
+    MAX_TOOL_RESULT_CHARS,
+)
 from services.compaction import compact_tool_messages
+
+
+class TestParseToolArguments:
+    """Tests for _parse_tool_arguments: robust parsing of model-generated args."""
+
+    def test_valid_json(self):
+        assert _parse_tool_arguments('{"query": "test"}') == {"query": "test"}
+
+    def test_empty_string(self):
+        assert _parse_tool_arguments("") == {}
+
+    def test_none_like(self):
+        assert _parse_tool_arguments("   ") == {}
+
+    def test_single_quotes(self):
+        """Python-style single-quoted dict."""
+        assert _parse_tool_arguments("{'path': 'Daily Notes/2026-02-18.md'}") == {
+            "path": "Daily Notes/2026-02-18.md"
+        }
+
+    def test_python_booleans(self):
+        """Python True/False instead of JSON true/false."""
+        result = _parse_tool_arguments("{'confirm': True, 'field': 'status'}")
+        assert result == {"confirm": True, "field": "status"}
+
+    def test_trailing_comma(self):
+        result = _parse_tool_arguments('{"query": "test", "n_results": 5,}')
+        assert result == {"query": "test", "n_results": 5}
+
+    def test_nested_objects(self):
+        raw = '{"field": "project", "filters": [{"field": "status", "value": "open"}]}'
+        result = _parse_tool_arguments(raw)
+        assert result["field"] == "project"
+        assert result["filters"][0]["field"] == "status"
+
+    def test_strips_control_tokens(self):
+        """gpt-oss-120b appends \\t<|call|> after JSON."""
+        raw = '{\n"field": "project",\n"value": "Agentic S2P"\n}\t<|call|>'
+        result = _parse_tool_arguments(raw)
+        assert result == {"field": "project", "value": "Agentic S2P"}
+
+    def test_strips_empty_args_with_control_token(self):
+        """get_current_date with no real args, just {}<|call|>."""
+        result = _parse_tool_arguments("{}<|call|>")
+        assert result == {}
+
+    def test_strips_multiple_control_tokens(self):
+        raw = '{"query": "test"}<|call|><|end|>'
+        result = _parse_tool_arguments(raw)
+        assert result == {"query": "test"}
+
+
+class TestSimplifySchema:
+    """Tests for _simplify_schema: inlines $ref, flattens anyOf nullable."""
+
+    def test_resolves_ref(self):
+        """$ref entries are replaced with the referenced definition."""
+        schema = {
+            "$defs": {
+                "Thing": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                }
+            },
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/Thing"},
+                }
+            },
+            "type": "object",
+        }
+        result = _simplify_schema(schema)
+        assert "$defs" not in result
+        assert "$ref" not in json.dumps(result)
+        assert result["properties"]["items"]["items"]["type"] == "object"
+        assert "name" in result["properties"]["items"]["items"]["properties"]
+
+    def test_simplifies_anyof_nullable(self):
+        """anyOf[T, null] collapses to just T, keeping default/title."""
+        schema = {
+            "properties": {
+                "value": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "Value",
+                }
+            },
+            "type": "object",
+        }
+        result = _simplify_schema(schema)
+        prop = result["properties"]["value"]
+        assert "anyOf" not in prop
+        assert prop["type"] == "string"
+        assert prop["default"] is None
+        assert prop["title"] == "Value"
+
+    def test_combined_ref_and_anyof(self):
+        """Real-world pattern: anyOf[$ref array, null] fully flattened."""
+        schema = {
+            "$defs": {
+                "Filter": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string"},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["field", "value"],
+                }
+            },
+            "properties": {
+                "filters": {
+                    "anyOf": [
+                        {"items": {"$ref": "#/$defs/Filter"}, "type": "array"},
+                        {"type": "null"},
+                    ],
+                    "default": None,
+                }
+            },
+            "type": "object",
+        }
+        result = _simplify_schema(schema)
+        filters = result["properties"]["filters"]
+        assert "anyOf" not in filters
+        assert "$ref" not in json.dumps(filters)
+        assert filters["type"] == "array"
+        assert filters["items"]["type"] == "object"
+        assert "field" in filters["items"]["properties"]
+
+    def test_passthrough_simple_schema(self):
+        """Schemas without $ref or anyOf pass through unchanged."""
+        schema = {
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
+            },
+            "required": ["query"],
+            "type": "object",
+        }
+        result = _simplify_schema(schema)
+        assert result == schema
+
+    def test_does_not_mutate_original(self):
+        """Original schema dict is not modified."""
+        schema = {
+            "$defs": {"X": {"type": "string"}},
+            "properties": {"a": {"$ref": "#/$defs/X"}},
+            "type": "object",
+        }
+        original = json.dumps(schema)
+        _simplify_schema(schema)
+        assert json.dumps(schema) == original
 
 
 def test_truncate_tool_result_short():

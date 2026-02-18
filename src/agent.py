@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """CLI agent client connecting an LLM (via Fireworks) to the MCP server."""
 
+import ast
+import copy
 import json
 import logging
 import os
+import re
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -101,6 +104,87 @@ def create_llm_client() -> OpenAI:
     return OpenAI(api_key=FIREWORKS_API_KEY, base_url=FIREWORKS_BASE_URL)
 
 
+def _parse_tool_arguments(raw: str) -> dict:
+    """Parse tool call arguments with fallbacks for common model quirks.
+
+    Known issues handled:
+    - gpt-oss-120b appends ``\\t<|call|>`` control tokens after the JSON
+    - Some models emit Python-style dicts (single quotes, True/False/None)
+    - Trailing commas before } or ]
+    """
+    if not raw or not raw.strip():
+        return {}
+
+    # Strip model control tokens like <|call|>, <|end|>, etc.
+    cleaned = re.sub(r"<\|[^|]+\|>", "", raw).strip()
+
+    # Fast path: valid JSON
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback: Python literal syntax (single quotes, True/False/None)
+    try:
+        parsed = ast.literal_eval(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except (ValueError, SyntaxError):
+        pass
+
+    # Last resort: strip trailing commas before } or ] and retry JSON
+    no_trailing = re.sub(r",\s*([}\]])", r"\1", cleaned)
+    if no_trailing != cleaned:
+        try:
+            parsed = json.loads(no_trailing)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return {}
+
+
+def _simplify_schema(schema: dict) -> dict:
+    """Inline $ref references and simplify anyOf nullable patterns.
+
+    Pydantic/FastMCP generates $defs + $ref for Pydantic models and
+    anyOf: [T, {type: null}] for Optional types.  Weaker models struggle
+    with the indirection — inline everything so the schema is flat.
+    """
+    schema = copy.deepcopy(schema)
+    defs = schema.pop("$defs", {})
+
+    def _resolve(node):
+        if isinstance(node, dict):
+            # Resolve $ref → inline the referenced definition
+            if "$ref" in node:
+                ref_name = node["$ref"].rsplit("/", 1)[-1]
+                if ref_name in defs:
+                    return _resolve(copy.deepcopy(defs[ref_name]))
+                return node
+
+            # Simplify anyOf[T, null] → T (keep default/title/description)
+            if "anyOf" in node:
+                non_null = [o for o in node["anyOf"] if o != {"type": "null"}]
+                if len(non_null) == 1:
+                    merged = {k: v for k, v in node.items() if k != "anyOf"}
+                    merged.update(_resolve(non_null[0]))
+                    return merged
+                node["anyOf"] = [_resolve(o) for o in node["anyOf"]]
+
+            return {k: _resolve(v) for k, v in node.items()}
+
+        if isinstance(node, list):
+            return [_resolve(item) for item in node]
+
+        return node
+
+    return _resolve(schema)
+
+
 def mcp_tool_to_openai_function(tool) -> dict:
     """Convert MCP Tool to OpenAI function calling format."""
     return {
@@ -108,7 +192,7 @@ def mcp_tool_to_openai_function(tool) -> dict:
         "function": {
             "name": tool.name,
             "description": tool.description or "",
-            "parameters": tool.inputSchema,
+            "parameters": _simplify_schema(tool.inputSchema),
         },
     }
 
@@ -271,10 +355,13 @@ async def agent_turn(
         # Execute each tool call
         for tool_call in assistant_message.tool_calls:
             tool_name = tool_call.function.name
-            try:
-                arguments = json.loads(tool_call.function.arguments)
-            except json.JSONDecodeError:
-                arguments = {}
+            raw_args = tool_call.function.arguments or ""
+            arguments = _parse_tool_arguments(raw_args)
+
+            if not arguments and raw_args.strip():
+                logger.warning(
+                    "Failed to parse arguments for %s: %r", tool_name, raw_args
+                )
 
             logger.info("Tool call: %s args=%s", tool_name, arguments)
             brief_args = {
