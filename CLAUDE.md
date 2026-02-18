@@ -66,7 +66,7 @@ services/
 - **plugin/**: Obsidian plugin providing a chat sidebar UI
 - **api_server.py**: FastAPI HTTP wrapper with file-keyed session management (LRU eviction, message trimming); compacts tool messages between requests. CORS middleware enabled (safe — server binds 127.0.0.1 only). `_prepare_turn` and `_restore_compacted_flags` shared by `/chat` and `/chat/stream`.
 - **agent.py**: CLI chat client that connects the LLM (via Fireworks) to the MCP server; loads system prompt from `system_prompt.txt` at startup (falls back to `system_prompt.txt.example`); includes agent loop cap, tool result truncation, tool message compaction between turns, and synthetic `get_continuation` tool for retrieving truncated results in chunks. `agent_turn` accepts optional `on_event: EventCallback` async callback that emits `tool_call`, `tool_result`, and `response` events during the agent loop (used by `/chat/stream` SSE endpoint). See **System Prompt** section below for prompt structure.
-- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200`, ranks by term frequency (occurrence count, not just presence), and filters an expanded stopword list. Returns `heading` metadata from chunks in search results.
+- **hybrid_search.py**: Combines semantic (ChromaDB) and keyword search with RRF ranking. Keyword search uses a single `$or` query with `limit=200`, ranks by term frequency (occurrence count, not just presence), and filters an expanded stopword list. ChromaDB `$contains` is case-sensitive — keyword search uses `_case_variants()` to generate lowercase + title-case variants for each query term. Returns `heading` metadata from chunks in search results.
 - **index_vault.py**: Indexes vault content into ChromaDB using structure-aware chunking (splits by headings, paragraphs, sentences). Frontmatter is indexed as a dedicated chunk with wikilink brackets stripped for searchability. Each chunk carries `heading` and `chunk_type` metadata and is prefixed with `[Note Name]` for search ranking. Chunks are batch-upserted per file. Incremental indexing uses scan-start time (not completion time) to avoid missing files modified during a run. Runs via systemd, not manually. Use `--full` flag to force full reindex.
 - **log_chat.py**: Appends interaction logs to daily notes. `add_wikilinks` uses strip-and-restore to protect fenced code blocks, inline code, URLs, and existing wikilinks from being wikified.
 
@@ -507,7 +507,11 @@ tests/
 
 ### Writing New Tests
 
-All tools return JSON strings. Parse with `json.loads()` and assert on structured fields:
+All tools return JSON strings. Parse with `json.loads()` and assert on structured fields.
+
+**config.py tests**: Must `patch("dotenv.load_dotenv")` before `importlib.reload(config)` to prevent `.env` from overriding monkeypatched env vars. Patching `src.config.load_dotenv` does NOT work because reload re-executes `from dotenv import load_dotenv`.
+
+Example:
 
 ```python
 import json
@@ -550,8 +554,11 @@ All paths are configured via `.env`:
 - `FIREWORKS_MODEL`: Fireworks model ID (default: `accounts/fireworks/models/gpt-oss-120b`, env: `FIREWORKS_MODEL`). Falls back to `LLM_MODEL` env var for backward compatibility.
 - `API_PORT`: Port for the HTTP API server (default: `8000`)
 - `INDEX_INTERVAL`: How often the vault indexer runs, in minutes (default: `60`). Used by the install scripts to configure service timer intervals.
+- `LOG_DIR`: Directory for log files (default: `VAULT_PATH/logs/`)
+- `LOG_MAX_BYTES`: Max log file size before rotation (default: `5242880` / 5MB)
+- `LOG_BACKUP_COUNT`: Number of rotated log files to keep (default: `3`)
 
-Additional configuration in `config.py`:
+Additional configuration in `config.py` (also provides `setup_logging(name)` — configures root logger with stderr + rotating file handler to `LOG_DIR/<name>.log`, falls back to stderr-only on filesystem errors):
 - `EXCLUDED_DIRS`: Directories to skip when scanning vault (`.venv`, `.chroma_db`, `.trash`, `.obsidian`, `.git`)
 - `PREFERENCES_FILE`: Path to user preferences file (`VAULT_PATH / "Preferences.md"`)
 - `ATTACHMENTS_DIR`: Path to audio/image attachments (`VAULT_PATH / "Attachments"`)
