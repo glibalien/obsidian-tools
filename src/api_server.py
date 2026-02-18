@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -183,6 +184,15 @@ app = FastAPI(
     title="Obsidian Tools API",
     description="HTTP API for interacting with the Obsidian vault agent",
     lifespan=lifespan,
+)
+
+# Allow cross-origin requests from Obsidian's Electron renderer.
+# Safe because the server only binds to 127.0.0.1 (no network exposure).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"],
 )
 
 
