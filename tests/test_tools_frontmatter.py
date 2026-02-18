@@ -181,6 +181,98 @@ class TestBatchUpdateFrontmatter:
         assert "q1" in fm["tags"]
 
 
+class TestBatchConfirmationGate:
+    """Tests for batch_update_frontmatter confirmation requirement."""
+
+    def _create_files(self, vault_config, count):
+        """Create N test files in the vault."""
+        paths = []
+        for i in range(count):
+            name = f"batch_test_{i}.md"
+            (vault_config / name).write_text(f"---\ntags: [test]\n---\n# Note {i}\n")
+            paths.append(name)
+        return paths
+
+    def test_requires_confirmation_over_threshold(self, vault_config):
+        """Should return preview when file count exceeds threshold."""
+        paths = self._create_files(vault_config, 10)
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths,
+                field="status",
+                value="archived",
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert "10 files" in result["message"]
+        assert result["files"] == paths
+        # Verify no files were actually modified
+        for path in paths:
+            content = (vault_config / path).read_text()
+            assert "status" not in content
+
+    def test_executes_with_confirm_true(self, vault_config):
+        """Should execute when confirm=True even over threshold."""
+        paths = self._create_files(vault_config, 10)
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths,
+                field="status",
+                value="archived",
+                operation="set",
+                confirm=True,
+            )
+        )
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+        assert "10 succeeded" in result["message"]
+
+    def test_executes_under_threshold_without_confirm(self, vault_config):
+        """Should execute without confirm when file count is at or below threshold."""
+        paths = self._create_files(vault_config, 3)
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths,
+                field="status",
+                value="done",
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+        assert "3 succeeded" in result["message"]
+
+    def test_confirmation_preview_includes_operation_details(self, vault_config):
+        """Preview message should describe the operation."""
+        paths = self._create_files(vault_config, 8)
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths,
+                field="context",
+                value="work",
+                operation="set",
+            )
+        )
+        assert result["confirmation_required"] is True
+        assert "context" in result["message"]
+        assert "work" in result["message"]
+
+    def test_confirmation_not_required_for_remove(self, vault_config):
+        """Remove operations over threshold should also require confirmation."""
+        paths = self._create_files(vault_config, 10)
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths,
+                field="tags",
+                operation="remove",
+            )
+        )
+        assert result["confirmation_required"] is True
+        assert "remove" in result["message"]
+
+
 class TestSearchByDateRange:
     """Tests for search_by_date_range tool."""
 

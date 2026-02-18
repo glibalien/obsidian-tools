@@ -52,7 +52,7 @@ services/                # systemd/launchd/taskscheduler templates
 
 ## MCP Tools
 
-All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pagination with `total`.
+All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pagination with `total`. Batch tools (`batch_update_frontmatter`, `batch_move_files`) require `confirm=True` when affecting >5 files (`BATCH_CONFIRM_THRESHOLD` in `services/vault.py`); without it they return a preview listing the files.
 
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|

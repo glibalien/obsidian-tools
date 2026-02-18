@@ -500,6 +500,8 @@ def do_move_file(
 # Batch Operations
 # =============================================================================
 
+BATCH_CONFIRM_THRESHOLD = 5
+
 
 def format_batch_result(
     operation_name: str,

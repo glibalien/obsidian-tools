@@ -5,6 +5,7 @@ from datetime import datetime
 
 from config import VAULT_PATH
 from services.vault import (
+    BATCH_CONFIRM_THRESHOLD,
     do_update_frontmatter,
     err,
     extract_frontmatter,
@@ -110,6 +111,7 @@ def batch_update_frontmatter(
     field: str,
     value: str | None = None,
     operation: str = "set",
+    confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
 
@@ -118,9 +120,10 @@ def batch_update_frontmatter(
         field: Frontmatter field name to update.
         value: Value to set. For lists, use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
+        confirm: Must be true to execute when modifying more than 5 files.
 
     Returns:
-        Summary of successes and failures.
+        Summary of successes and failures, or confirmation preview for large batches.
     """
     if operation not in ("set", "remove", "append"):
         return err(f"operation must be 'set', 'remove', or 'append', got '{operation}'")
@@ -130,6 +133,16 @@ def batch_update_frontmatter(
 
     if not paths:
         return err("paths list is empty")
+
+    # Require confirmation for large batches
+    if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
+        desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
+        return ok(
+            f"This will {desc} on {len(paths)} files. "
+            "Show the file list to the user and call again with confirm=true to proceed.",
+            confirmation_required=True,
+            files=paths,
+        )
 
     # Parse value once (same for all files)
     parsed_value = value

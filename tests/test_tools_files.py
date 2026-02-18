@@ -6,6 +6,7 @@ import pytest
 
 from tools.files import (
     append_to_file,
+    batch_move_files,
     create_file,
     move_file,
     read_file,
@@ -192,3 +193,46 @@ class TestAppendToFile:
         result = json.loads(append_to_file("nonexistent.md", "content"))
         assert result["success"] is False
         assert "not found" in result["error"].lower()
+
+
+class TestBatchMoveConfirmationGate:
+    """Tests for batch_move_files confirmation requirement."""
+
+    def _create_files(self, vault_config, count):
+        """Create N test files and return move dicts."""
+        (vault_config / "dest").mkdir(exist_ok=True)
+        moves = []
+        for i in range(count):
+            name = f"move_test_{i}.md"
+            (vault_config / name).write_text(f"# Note {i}\n")
+            moves.append({"source": name, "destination": f"dest/{name}"})
+        return moves
+
+    def test_requires_confirmation_over_threshold(self, vault_config):
+        """Should return preview when move count exceeds threshold."""
+        moves = self._create_files(vault_config, 10)
+        result = json.loads(batch_move_files(moves=moves))
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert "10 files" in result["message"]
+        assert len(result["files"]) == 10
+        # Verify no files were actually moved
+        for move in moves:
+            assert (vault_config / move["source"]).exists()
+            assert not (vault_config / move["destination"]).exists()
+
+    def test_executes_with_confirm_true(self, vault_config):
+        """Should execute when confirm=True even over threshold."""
+        moves = self._create_files(vault_config, 10)
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+        assert "10 succeeded" in result["message"]
+
+    def test_executes_under_threshold_without_confirm(self, vault_config):
+        """Should execute without confirm when move count is at or below threshold."""
+        moves = self._create_files(vault_config, 3)
+        result = json.loads(batch_move_files(moves=moves))
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+        assert "3 succeeded" in result["message"]
