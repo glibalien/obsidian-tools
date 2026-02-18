@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, requestUrl } from "obsidian";
+import { ItemView, MarkdownRenderer, WorkspaceLeaf, requestUrl } from "obsidian";
 
 export const VIEW_TYPE_CHAT = "vault-chat-view";
 
@@ -62,14 +62,14 @@ export class ChatView extends ItemView {
 		});
 
 		// Welcome message
-		this.addMessage("assistant", "Hello! I'm your vault assistant. How can I help you today?");
+		await this.addMessage("assistant", "Hello! I'm your vault assistant. How can I help you today?");
 	}
 
 	async onClose(): Promise<void> {
 		// Cleanup if needed
 	}
 
-	private addMessage(role: "user" | "assistant", content: string): void {
+	private async addMessage(role: "user" | "assistant", content: string, sourcePath = ""): Promise<void> {
 		this.messages.push({ role, content });
 
 		const messageEl = this.messagesContainer.createDiv({
@@ -77,7 +77,12 @@ export class ChatView extends ItemView {
 		});
 
 		const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
-		contentEl.setText(content);
+
+		if (role === "assistant") {
+			await MarkdownRenderer.render(this.app, content, contentEl, sourcePath, this);
+		} else {
+			contentEl.setText(content);
+		}
 
 		// Auto-scroll to bottom
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
@@ -101,12 +106,15 @@ export class ChatView extends ItemView {
 		const message = this.inputField.value.trim();
 		if (!message || this.isLoading) return;
 
+		// Capture active file once at request time for consistent context
+		const activeFile = this.getActiveFilePath();
+
 		this.inputField.value = "";
 		this.isLoading = true;
 		this.sendButton.disabled = true;
 
 		// Add user message
-		this.addMessage("user", message);
+		await this.addMessage("user", message);
 
 		// Show loading
 		const loadingEl = this.showLoading();
@@ -119,7 +127,7 @@ export class ChatView extends ItemView {
 				body: JSON.stringify({
 					message: message,
 					session_id: this.sessionId,
-					active_file: this.getActiveFilePath()
+					active_file: activeFile
 				})
 			});
 
@@ -128,12 +136,12 @@ export class ChatView extends ItemView {
 
 			const data = response.json;
 			this.sessionId = data.session_id;
-			this.addMessage("assistant", data.response);
+			await this.addMessage("assistant", data.response, activeFile ?? "");
 
 		} catch (error) {
 			loadingEl.remove();
 			const errorMessage = error instanceof Error ? error.message : "Failed to connect to server";
-			this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`);
+			await this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`);
 		} finally {
 			this.isLoading = false;
 			this.sendButton.disabled = false;
