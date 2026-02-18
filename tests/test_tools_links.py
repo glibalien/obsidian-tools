@@ -188,3 +188,22 @@ class TestListToolPagination:
         result = json.loads(find_outlinks("note1.md"))
         assert result["success"] is True
         assert "total" in result
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_error"),
+    [
+        ({"offset": -1}, "offset must be >= 0"),
+        ({"limit": 0}, "limit must be >= 1"),
+        ({"limit": 501}, "limit must be <= 500"),
+    ],
+)
+def test_paginated_link_tools_reject_invalid_pagination(vault_config, kwargs, expected_error):
+    """Paginated links tools should return a consistent pagination validation error."""
+    backlinks = json.loads(find_backlinks("note1", **kwargs))
+    outlinks = json.loads(find_outlinks("note2.md", **kwargs))
+    folder = json.loads(search_by_folder(".", **kwargs))
+
+    for result in (backlinks, outlinks, folder):
+        assert result["success"] is False
+        assert expected_error in result["error"]
