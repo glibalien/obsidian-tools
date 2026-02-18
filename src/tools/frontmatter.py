@@ -62,18 +62,26 @@ def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -
     return False
 
 
-def _parse_filters(filters_json: str | None) -> tuple[list[dict], str | None]:
-    """Parse and validate a JSON filters string.
+def _parse_filters(filters: str | list[dict] | None) -> tuple[list[dict], str | None]:
+    """Parse and validate filter conditions.
+
+    Accepts either:
+    - A JSON-encoded string array (legacy behavior), or
+    - A native list of dicts (preferred for structured tool calls).
 
     Returns:
         (parsed_filters, error_message). error_message is None on success.
     """
-    if filters_json is None:
+    if filters is None:
         return [], None
-    try:
-        parsed = json.loads(filters_json)
-    except (json.JSONDecodeError, TypeError):
-        return [], f"filters must be a valid JSON array, got: {filters_json!r}"
+
+    if isinstance(filters, list):
+        parsed = filters
+    else:
+        try:
+            parsed = json.loads(filters)
+        except (json.JSONDecodeError, TypeError):
+            return [], f"filters must be a valid JSON array, got: {filters!r}"
     if not isinstance(parsed, list):
         return [], "filters must be a JSON array"
     for i, f in enumerate(parsed):
@@ -135,8 +143,8 @@ def list_files_by_frontmatter(
     field: str,
     value: str,
     match_type: str = "contains",
-    filters: str | None = None,
-    include_fields: str | None = None,
+    filters: str | list[dict] | None = None,
+    include_fields: str | list[str] | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> str:
@@ -146,10 +154,12 @@ def list_files_by_frontmatter(
         field: Frontmatter field name (e.g., 'tags', 'company', 'project').
         value: Value to match against.
         match_type: How to match - 'contains' (value in list), 'equals' (exact match).
-        filters: Optional JSON array of additional conditions, each with 'field', 'value',
-                 and optional 'match_type'. All conditions must match (AND logic).
-                 Example: '[{"field": "status", "value": "open"}]'
-        include_fields: Optional JSON array of field names to include in results.
+        filters: Optional additional conditions (AND logic), either as a JSON array string
+                 or native list of objects with 'field', 'value', and optional 'match_type'.
+                 Example: '[{"field": "status", "value": "open"}]' or
+                 [{"field": "status", "value": "open"}]
+        include_fields: Optional field names to include in results, either as a JSON array
+                        string or native list.
                         When set, results are objects with 'path' plus the requested fields.
                         Example: '["status", "scheduled"]'
 
@@ -166,10 +176,13 @@ def list_files_by_frontmatter(
     # Parse include_fields
     parsed_include = None
     if include_fields is not None:
-        try:
-            parsed_include = json.loads(include_fields)
-        except (json.JSONDecodeError, TypeError):
-            return err(f"include_fields must be a valid JSON array, got: {include_fields!r}")
+        if isinstance(include_fields, list):
+            parsed_include = include_fields
+        else:
+            try:
+                parsed_include = json.loads(include_fields)
+            except (json.JSONDecodeError, TypeError):
+                return err(f"include_fields must be a valid JSON array, got: {include_fields!r}")
         if not isinstance(parsed_include, list):
             return err("include_fields must be a JSON array")
         if not parsed_include:
@@ -230,7 +243,7 @@ def batch_update_frontmatter(
     target_field: str | None = None,
     target_value: str | None = None,
     target_match_type: str = "contains",
-    target_filters: str | None = None,
+    target_filters: str | list[dict] | None = None,
     confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
@@ -247,7 +260,8 @@ def batch_update_frontmatter(
         target_field: Find files where this frontmatter field matches target_value.
         target_value: Value to match for target_field.
         target_match_type: How to match target_field - 'contains' or 'equals' (default 'contains').
-        target_filters: Optional JSON array of additional targeting conditions (AND logic).
+        target_filters: Optional additional targeting conditions (AND logic), as JSON array
+                        string or native list of objects.
         confirm: Must be true to execute when modifying more than 5 files (or any query-based update).
 
     Returns:
