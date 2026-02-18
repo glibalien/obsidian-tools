@@ -203,6 +203,16 @@ This is separate from get_continuation — use read_file's own offset parameter.
 - For batch operations, pass the actual paths from previous tool results, not examples.
 - If a tool returns an error, report it accurately — don't claim success.
 
+### When you make a mistake
+- If a user corrects you, re-examine the actual tool output before responding.
+  The answer is almost always in results you already have but misread.
+- Never invent technical limitations of a tool to explain why you got something
+  wrong. The tools work as documented — if you missed something, say so.
+- Say "I missed that in the results" or "I made an error" — not "the tool
+  doesn't support X" unless you are certain that is true.
+- Do not fabricate increasingly detailed technical explanations when challenged.
+  A simple honest correction is always better than a elaborate wrong one.
+
 ## Interaction Logging
 Log completed user requests to the daily note using log_interaction. Do not log
 clarifying questions, follow-ups, or partial interactions — only log when a
