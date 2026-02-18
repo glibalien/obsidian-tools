@@ -32,48 +32,50 @@ def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -
     return False
 
 
-def list_files_by_frontmatter(
-    field: str,
-    value: str,
-    match_type: str = "contains",
-    filters: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
-) -> str:
-    """Find vault files matching frontmatter criteria.
-
-    Args:
-        field: Frontmatter field name (e.g., 'tags', 'company', 'project').
-        value: Value to match against.
-        match_type: How to match - 'contains' (value in list), 'equals' (exact match).
-        filters: Optional JSON array of additional conditions, each with 'field', 'value',
-                 and optional 'match_type'. All conditions must match (AND logic).
-                 Example: '[{"field": "status", "value": "open"}]'
+def _parse_filters(filters_json: str | None) -> tuple[list[dict], str | None]:
+    """Parse and validate a JSON filters string.
 
     Returns:
-        List of matching file paths (relative to vault).
+        (parsed_filters, error_message). error_message is None on success.
     """
-    if match_type not in ("contains", "equals"):
-        return err(f"match_type must be 'contains' or 'equals', got '{match_type}'")
+    if filters_json is None:
+        return [], None
+    try:
+        parsed = json.loads(filters_json)
+    except (json.JSONDecodeError, TypeError):
+        return [], f"filters must be a valid JSON array, got: {filters_json!r}"
+    if not isinstance(parsed, list):
+        return [], "filters must be a JSON array"
+    for i, f in enumerate(parsed):
+        if not isinstance(f, dict):
+            return [], f"filters[{i}] must be an object, got {type(f).__name__}"
+        if "field" not in f or "value" not in f:
+            return [], f"filters[{i}] must have 'field' and 'value' keys"
+        fmt = f.get("match_type", "contains")
+        if fmt not in ("contains", "equals"):
+            return [], f"filters[{i}] match_type must be 'contains' or 'equals', got '{fmt}'"
+    return parsed, None
 
-    # Parse additional filters
-    parsed_filters = []
-    if filters is not None:
-        try:
-            parsed_filters = json.loads(filters)
-        except (json.JSONDecodeError, TypeError):
-            return err(f"filters must be a valid JSON array, got: {filters!r}")
-        if not isinstance(parsed_filters, list):
-            return err("filters must be a JSON array")
-        for i, f in enumerate(parsed_filters):
-            if not isinstance(f, dict):
-                return err(f"filters[{i}] must be an object, got {type(f).__name__}")
-            if "field" not in f or "value" not in f:
-                return err(f"filters[{i}] must have 'field' and 'value' keys")
-            fmt = f.get("match_type", "contains")
-            if fmt not in ("contains", "equals"):
-                return err(f"filters[{i}] match_type must be 'contains' or 'equals', got '{fmt}'")
 
+def _find_matching_files(
+    field: str,
+    value: str,
+    match_type: str,
+    parsed_filters: list[dict],
+    include_fields: list[str] | None = None,
+) -> list[str | dict]:
+    """Scan vault and return files matching all frontmatter conditions.
+
+    Args:
+        field: Primary field to match.
+        value: Primary value to match.
+        match_type: Match strategy for primary field.
+        parsed_filters: Additional filter conditions (already validated).
+        include_fields: If provided, return dicts with path + these field values.
+
+    Returns:
+        Sorted list of path strings or dicts (when include_fields is set).
+    """
     matching = []
     vault_resolved = VAULT_PATH.resolve()
 
@@ -86,15 +88,70 @@ def list_files_by_frontmatter(
             for f in parsed_filters
         ):
             continue
-        rel_path = md_file.resolve().relative_to(vault_resolved)
-        matching.append(str(rel_path))
+        rel_path = str(md_file.resolve().relative_to(vault_resolved))
+        if include_fields:
+            result = {"path": rel_path}
+            for inc_field in include_fields:
+                raw = frontmatter.get(inc_field)
+                result[inc_field] = str(raw) if raw is not None else None
+            matching.append(result)
+        else:
+            matching.append(rel_path)
+
+    return sorted(matching, key=lambda x: x["path"] if isinstance(x, dict) else x)
+
+
+def list_files_by_frontmatter(
+    field: str,
+    value: str,
+    match_type: str = "contains",
+    filters: str | None = None,
+    include_fields: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> str:
+    """Find vault files matching frontmatter criteria.
+
+    Args:
+        field: Frontmatter field name (e.g., 'tags', 'company', 'project').
+        value: Value to match against.
+        match_type: How to match - 'contains' (value in list), 'equals' (exact match).
+        filters: Optional JSON array of additional conditions, each with 'field', 'value',
+                 and optional 'match_type'. All conditions must match (AND logic).
+                 Example: '[{"field": "status", "value": "open"}]'
+        include_fields: Optional JSON array of field names to include in results.
+                        When set, results are objects with 'path' plus the requested fields.
+                        Example: '["status", "scheduled"]'
+
+    Returns:
+        List of matching file paths (or objects when include_fields is set).
+    """
+    if match_type not in ("contains", "equals"):
+        return err(f"match_type must be 'contains' or 'equals', got '{match_type}'")
+
+    parsed_filters, filter_err = _parse_filters(filters)
+    if filter_err:
+        return err(filter_err)
+
+    # Parse include_fields
+    parsed_include = None
+    if include_fields is not None:
+        try:
+            parsed_include = json.loads(include_fields)
+        except (json.JSONDecodeError, TypeError):
+            return err(f"include_fields must be a valid JSON array, got: {include_fields!r}")
+        if not isinstance(parsed_include, list):
+            return err("include_fields must be a JSON array")
+        if not parsed_include:
+            parsed_include = None  # Empty list = same as omitted
+
+    matching = _find_matching_files(field, value, match_type, parsed_filters, parsed_include)
 
     if not matching:
         return ok(f"No files found where {field} {match_type} '{value}'", results=[], total=0)
 
-    all_results = sorted(matching)
-    total = len(all_results)
-    page = all_results[offset:offset + limit]
+    total = len(matching)
+    page = matching[offset:offset + limit]
     return ok(results=page, total=total)
 
 
@@ -136,20 +193,32 @@ def update_frontmatter(
 
 
 def batch_update_frontmatter(
-    paths: list[str],
     field: str,
     value: str | None = None,
     operation: str = "set",
+    paths: list[str] | None = None,
+    target_field: str | None = None,
+    target_value: str | None = None,
+    target_match_type: str = "contains",
+    target_filters: str | None = None,
     confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
 
+    Files can be specified in two ways (mutually exclusive):
+    - paths: Explicit list of file paths.
+    - target_field/target_value: Query-based targeting using frontmatter criteria.
+
     Args:
-        paths: List of file paths (relative to vault or absolute).
         field: Frontmatter field name to update.
         value: Value to set. For lists, use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
         operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
-        confirm: Must be true to execute when modifying more than 5 files.
+        paths: List of file paths (relative to vault or absolute).
+        target_field: Find files where this frontmatter field matches target_value.
+        target_value: Value to match for target_field.
+        target_match_type: How to match target_field - 'contains' or 'equals' (default 'contains').
+        target_filters: Optional JSON array of additional targeting conditions (AND logic).
+        confirm: Must be true to execute when modifying more than 5 files (or any query-based update).
 
     Returns:
         Summary of successes and failures, or confirmation preview for large batches.
@@ -160,18 +229,51 @@ def batch_update_frontmatter(
     if operation in ("set", "append") and value is None:
         return err(f"value is required for '{operation}' operation")
 
-    if not paths:
-        return err("paths list is empty")
+    # Resolve target files
+    if target_field is not None and paths is not None:
+        return err("Provide either paths or target_field/target_value, not both")
 
-    # Require confirmation for large batches
-    if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
-        desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
-        return ok(
-            f"This will {desc} on {len(paths)} files. "
-            "Show the file list to the user and call again with confirm=true to proceed.",
-            confirmation_required=True,
-            files=paths,
+    if target_field is not None:
+        if target_value is None:
+            return err("target_value is required when using target_field")
+        if target_match_type not in ("contains", "equals"):
+            return err(f"target_match_type must be 'contains' or 'equals', got '{target_match_type}'")
+
+        parsed_target_filters, filter_err = _parse_filters(target_filters)
+        if filter_err:
+            return err(filter_err)
+
+        paths = _find_matching_files(
+            target_field, target_value, target_match_type, parsed_target_filters
         )
+        if not paths:
+            return ok("No files matched the targeting criteria", results=[], total=0)
+
+        # Query-based targeting always requires confirmation
+        if not confirm:
+            desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
+            return ok(
+                f"This will {desc} on {len(paths)} files matched by "
+                f"target_field='{target_field}', target_value='{target_value}'. "
+                "Show the file list to the user and call again with confirm=true to proceed.",
+                confirmation_required=True,
+                files=paths,
+            )
+    elif paths is not None:
+        if not paths:
+            return err("paths list is empty")
+
+        # Require confirmation for large explicit batches
+        if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
+            desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
+            return ok(
+                f"This will {desc} on {len(paths)} files. "
+                "Show the file list to the user and call again with confirm=true to proceed.",
+                confirmation_required=True,
+                files=paths,
+            )
+    else:
+        return err("Provide either paths or target_field/target_value")
 
     # Parse value once (same for all files)
     parsed_value = value
