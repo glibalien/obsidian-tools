@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, requestUrl } from "obsidian";
+import { ItemView, MarkdownRenderer, WorkspaceLeaf, requestUrl } from "obsidian";
 
 export const VIEW_TYPE_CHAT = "vault-chat-view";
 
@@ -77,7 +77,12 @@ export class ChatView extends ItemView {
 		});
 
 		const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
-		contentEl.setText(content);
+
+		if (role === "assistant") {
+			MarkdownRenderer.render(this.app, content, contentEl, "", this);
+		} else {
+			contentEl.setText(content);
+		}
 
 		// Auto-scroll to bottom
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
