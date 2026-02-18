@@ -286,6 +286,94 @@ class TestCompoundFiltering:
         assert result_no_filters["total"] == result_empty["total"]
 
 
+class TestIncludeFields:
+    """Tests for list_files_by_frontmatter include_fields parameter."""
+
+    def test_include_fields_returns_values(self, vault_config):
+        """Results should be dicts with path and requested field values."""
+        (vault_config / "task1.md").write_text(
+            "---\ncategory: task\nstatus: open\nscheduled: '2026-03-01'\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category", value="task", match_type="equals",
+                include_fields='["status", "scheduled"]',
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] >= 1
+        item = next(r for r in result["results"] if "task1.md" in r["path"])
+        assert item["status"] == "open"
+        assert item["scheduled"] == "2026-03-01"
+
+    def test_include_fields_null_for_missing(self, vault_config):
+        """Fields not in frontmatter should return null."""
+        (vault_config / "sparse.md").write_text(
+            "---\ncategory: task\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category", value="task", match_type="equals",
+                include_fields='["status", "nonexistent"]',
+            )
+        )
+        assert result["success"] is True
+        item = next(r for r in result["results"] if "sparse.md" in r["path"])
+        assert item["status"] is None
+        assert item["nonexistent"] is None
+
+    def test_include_fields_with_compound_filter(self, vault_config):
+        """include_fields should work alongside compound filters."""
+        (vault_config / "match.md").write_text(
+            "---\nproject: '[[P1]]'\nstatus: open\ncontext: work\n---\n"
+        )
+        (vault_config / "nomatch.md").write_text(
+            "---\nproject: '[[P1]]'\nstatus: done\ncontext: personal\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project", value="P1",
+                filters='[{"field": "status", "value": "open"}]',
+                include_fields='["context"]',
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] == 1
+        assert result["results"][0]["context"] == "work"
+
+    def test_include_fields_empty_list(self, vault_config):
+        """Empty include_fields should return plain paths like omitting it."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="test",
+                include_fields="[]",
+            )
+        )
+        assert result["success"] is True
+        if result["total"] > 0:
+            assert isinstance(result["results"][0], str)
+
+    def test_include_fields_invalid_json(self, vault_config):
+        """Bad JSON should return error."""
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="tags", value="test",
+                include_fields="not json",
+            )
+        )
+        assert result["success"] is False
+        assert "json" in result["error"].lower()
+
+    def test_without_include_fields_returns_strings(self, vault_config):
+        """Without include_fields, results should be plain path strings."""
+        result = json.loads(
+            list_files_by_frontmatter(field="tags", value="test")
+        )
+        assert result["success"] is True
+        if result["total"] > 0:
+            assert isinstance(result["results"][0], str)
+
+
 class TestBatchConfirmationGate:
     """Tests for batch_update_frontmatter confirmation requirement."""
 
@@ -376,6 +464,94 @@ class TestBatchConfirmationGate:
         )
         assert result["confirmation_required"] is True
         assert "remove" in result["message"]
+
+
+class TestQueryBasedBatchUpdate:
+    """Tests for batch_update_frontmatter with query-based targeting."""
+
+    def test_query_target_finds_and_updates(self, vault_config):
+        """Should find files by target criteria and update them."""
+        (vault_config / "t1.md").write_text(
+            "---\nproject: '[[Proj]]'\ncategory: task\n---\n"
+        )
+        (vault_config / "t2.md").write_text(
+            "---\nproject: '[[Proj]]'\ncategory: task\n---\n"
+        )
+        result = json.loads(
+            batch_update_frontmatter(
+                field="context", value="work", operation="set",
+                target_field="project", target_value="Proj",
+                confirm=True,
+            )
+        )
+        assert result["success"] is True
+        assert "2 succeeded" in result["message"]
+
+        # Verify files were updated
+        import re
+        import yaml
+        for name in ("t1.md", "t2.md"):
+            content = (vault_config / name).read_text()
+            match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+            fm = yaml.safe_load(match.group(1))
+            assert fm["context"] == "work"
+
+    def test_query_target_requires_confirmation(self, vault_config):
+        """Without confirm, should return preview with matched paths."""
+        (vault_config / "qt1.md").write_text(
+            "---\nproject: '[[QP]]'\n---\n"
+        )
+        result = json.loads(
+            batch_update_frontmatter(
+                field="status", value="archived", operation="set",
+                target_field="project", target_value="QP",
+            )
+        )
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert any("qt1.md" in f for f in result["files"])
+
+    def test_query_target_with_filters(self, vault_config):
+        """Compound targeting should narrow results."""
+        (vault_config / "open.md").write_text(
+            "---\nproject: '[[FP]]'\nstatus: open\n---\n"
+        )
+        (vault_config / "done.md").write_text(
+            "---\nproject: '[[FP]]'\nstatus: done\n---\n"
+        )
+        result = json.loads(
+            batch_update_frontmatter(
+                field="context", value="work", operation="set",
+                target_field="project", target_value="FP",
+                target_filters='[{"field": "status", "value": "open"}]',
+                confirm=True,
+            )
+        )
+        assert result["success"] is True
+        assert "1 succeeded" in result["message"]
+
+    def test_query_target_no_matches(self, vault_config):
+        """Should return appropriate message when no files match."""
+        result = json.loads(
+            batch_update_frontmatter(
+                field="context", value="work", operation="set",
+                target_field="project", target_value="NonexistentProject999",
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] == 0
+
+    def test_paths_and_target_exclusive(self, vault_config):
+        """Providing both paths and target_field should error."""
+        result = json.loads(
+            batch_update_frontmatter(
+                field="status", value="done", operation="set",
+                paths=["note1.md"],
+                target_field="project", target_value="X",
+            )
+        )
+        assert result["success"] is False
+        assert "either" in result["error"].lower()
 
 
 class TestSearchByDateRange:

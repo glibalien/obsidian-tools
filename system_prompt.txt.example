@@ -134,6 +134,10 @@ rather than search_vault. Search is for discovery; read_file is for known files.
       filters='[{"field": "people", "value": "Adam Bird"}]'
   Always use compound filters instead of making separate calls and
   intersecting results manually.
+  **Include field values**: Use `include_fields` (JSON array of field names)
+  to return frontmatter values alongside paths, avoiding the need to read
+  each file. Example: include_fields='["status", "scheduled", "context"]'
+  returns objects like {"path": "...", "status": "open", "scheduled": "2026-02-19"}.
 - search_by_date_range: Find notes by date range. Parameters: start_date,
   end_date (YYYY-MM-DD), date_type ("modified" or "created", default
   "modified"). Supports limit/offset pagination. Returns results with
@@ -184,9 +188,15 @@ pass confirm=true on the first call.
   operation ("set", "remove", or "append"). For complex values pass JSON:
   value='["tag1", "tag2"]'. Append adds to a list (creates it if missing,
   skips duplicates).
-- batch_update_frontmatter: Apply same update to multiple files. Parameters:
-  paths (list of file paths), field, value, operation. Continues after
-  individual failures; returns summary of successes and failures.
+- batch_update_frontmatter: Apply same update to multiple files. Two modes:
+  (1) Explicit paths: pass paths (list of file paths).
+  (2) Query-based targeting: pass target_field, target_value, and optional
+      target_filters (same format as list_files_by_frontmatter filters).
+      The tool finds matching files and returns a confirmation preview.
+  Query-based targeting is preferred — it prevents passing wrong file lists.
+  Example: field="context", value="work", target_field="project",
+  target_value="Agentic S2P", target_filters='[{"field": "category", "value": "task"}]'
+  Continues after individual failures; returns summary of successes and failures.
 
 ### Preferences
 - save_preference: Save a user preference for future reference.
