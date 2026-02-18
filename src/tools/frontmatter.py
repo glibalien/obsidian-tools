@@ -1,6 +1,7 @@
 """Frontmatter tools - list, update, search by date."""
 
 import json
+import re
 from datetime import datetime
 
 from config import VAULT_PATH
@@ -31,22 +32,33 @@ def _get_field_ci(frontmatter: dict, field: str):
     return None
 
 
+_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+
+
+def _strip_wikilinks(text: str) -> str:
+    """Strip wikilink brackets: '[[Foo|alias]]' → 'Foo', '[[Bar]]' → 'Bar'."""
+    return _WIKILINK_RE.sub(r"\1", text)
+
+
 def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -> bool:
     """Check if a frontmatter dict matches a single field condition.
 
     Both field names and values are compared case-insensitively.
+    Wikilink brackets are stripped before comparison so "Foo" matches "[[Foo]]".
     Non-string/non-list values are converted to strings before comparison.
     """
     field_value = _get_field_ci(frontmatter, field)
     if field_value is None:
         return False
-    value_lower = value.lower()
+    value_lower = _strip_wikilinks(value).lower()
     if match_type == "contains":
         if isinstance(field_value, list):
-            return any(value_lower in str(item).lower() for item in field_value)
-        return value_lower in str(field_value).lower()
+            return any(value_lower in _strip_wikilinks(str(item)).lower() for item in field_value)
+        return value_lower in _strip_wikilinks(str(field_value)).lower()
     elif match_type == "equals":
-        return str(field_value).lower() == value_lower
+        if isinstance(field_value, list):
+            return any(_strip_wikilinks(str(item)).lower() == value_lower for item in field_value)
+        return _strip_wikilinks(str(field_value)).lower() == value_lower
     return False
 
 
