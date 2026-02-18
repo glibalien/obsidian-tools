@@ -156,6 +156,12 @@ rather than search_vault. Search is for discovery; read_file is for known files.
 - batch_move_files: Move multiple notes. Pass moves as a list of objects:
   [{"source": "old/path.md", "destination": "new/path.md"}].
 
+**Batch operation confirmation**: batch_update_frontmatter and batch_move_files
+require confirmation when affecting more than 5 files. The first call returns a
+preview listing the files and proposed changes. You MUST show this preview to
+the user and get their approval before calling again with confirm=true. Never
+pass confirm=true on the first call.
+
 ### Section Editing
 - replace_section: Replace a heading AND its content with new content. The
   heading parameter must include # symbols (e.g. "## Meeting Notes").

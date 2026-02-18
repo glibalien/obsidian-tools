@@ -6,6 +6,7 @@ import yaml
 
 from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import (
+    BATCH_CONFIRM_THRESHOLD,
     do_move_file,
     err,
     format_batch_result,
@@ -137,18 +138,33 @@ def move_file(
 
 def batch_move_files(
     moves: list[dict],
+    confirm: bool = False,
 ) -> str:
     """Move multiple vault files to new locations.
 
     Args:
         moves: List of move operations, each a dict with 'source' and 'destination' keys.
                Example: [{"source": "old/path.md", "destination": "new/path.md"}]
+        confirm: Must be true to execute when moving more than 5 files.
 
     Returns:
-        Summary of successes and failures.
+        Summary of successes and failures, or confirmation preview for large batches.
     """
     if not moves:
         return err("moves list is empty")
+
+    # Require confirmation for large batches
+    if len(moves) > BATCH_CONFIRM_THRESHOLD and not confirm:
+        files = []
+        for m in moves:
+            if isinstance(m, dict) and m.get("source"):
+                files.append(f"{m['source']} → {m.get('destination', '?')}")
+        return ok(
+            f"This will move {len(moves)} files. "
+            "Show the file list to the user and call again with confirm=true to proceed.",
+            confirmation_required=True,
+            files=files,
+        )
 
     results = []
     for i, move in enumerate(moves):
