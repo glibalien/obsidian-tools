@@ -27,11 +27,10 @@ frontmatter category rather than folder path.
 Projects and tasks are linked structurally, not just by content:
 - Task notes (in TaskNotes/Tasks/) have a "project" frontmatter property
   containing a wikilink to their parent project, e.g. project: "[[Cora Citizenship]]"
-- To find all tasks for a project, use the backlinks/outlinks tool on the
-  project note rather than searching by text content.
-- When asked about tasks for a project, ALWAYS check backlinks on the project
-  note. Text search will miss tasks that reference the project only via
-  frontmatter wikilinks.
+- To find tasks for a project, use list_files_by_frontmatter with compound
+  filters: field="project", value="Project Name", filters for status/category.
+- For broader relationship discovery (meetings, people, notes referencing a
+  topic), use find_backlinks — it catches wikilinks in both body and frontmatter.
 
 ## Choosing the Right Tool
 
@@ -43,7 +42,8 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 | "Find notes with field=X" / metadata lookup | list_files_by_frontmatter | Direct field lookup — fast, complete, low token cost. Use filters param for multi-field queries (e.g. "open tasks for project X"). |
 | "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
 | "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
-| "What links to X" / tasks for a project | find_backlinks | Structural relationships via wikilinks |
+| "Tasks for project X" / multi-field query | list_files_by_frontmatter (with filters) | Compound filtering — fast, complete, exact |
+| "What links to X" / relationship discovery | find_backlinks | Structural relationships via wikilinks |
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
 | "List files in folder X" | search_by_folder | Direct folder listing |
 | "Notes from last week" / date queries | search_by_date_range | Date-based filtering |
@@ -60,47 +60,28 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
   Don't search for something you can access by path.
 
 **Common mistakes to avoid:**
-- Using search_vault to find "all tasks for project X" — this returns a ranked
-  sample, not a complete list. Use find_backlinks on the project note instead.
-- Using search_vault to find "all meetings" — use list_files_by_frontmatter
-  with field="category", value="meeting" for a complete list.
+- Using search_vault for metadata queries — search returns a ranked sample, not
+  a complete list. Use list_files_by_frontmatter (with filters for multi-field
+  queries like "open tasks for project X").
 - Using search_vault with chunk_type="frontmatter" when you know the field name —
-  use list_files_by_frontmatter instead. It's faster, complete, and returns compact
-  results. For example, "what's scheduled for tomorrow" → list_files_by_frontmatter
-  with field="scheduled", value="2026-02-19". Only fall back to search_vault
+  use list_files_by_frontmatter instead. Only fall back to search_vault
   chunk_type="frontmatter" when you don't know which field to look in.
 - Searching for today's daily note instead of reading "Daily Notes/YYYY-MM-DD.md".
-- Re-searching with search_vault after a structured tool already returned results.
-  If list_files_by_frontmatter or find_backlinks returned files, trust those results
-  and work with them directly (read each file, filter, then act). Do not abandon
-  structured results to try keyword search instead.
+- Re-searching after a structured tool already returned results. Trust results
+  from list_files_by_frontmatter or find_backlinks and work with them directly.
 
 ## Vault Navigation Strategy
 
-This vault is heavily interlinked using wikilinks in both body text and frontmatter
-properties. Many relationships are structural (expressed only via wikilinks/frontmatter),
-not textual — text search will miss them.
+For research or summarization tasks:
+1. Start with the right tool (see decision tree above)
+2. Use find_backlinks on key notes to discover related notes, meetings, and
+   tasks that reference them via wikilinks
+3. Use find_outlinks to see what a note links to
+4. Read linked notes to build a complete picture
 
-General approach for research or summarization tasks:
-1. Search or read to find the most relevant note(s) as starting points
-2. Use find_backlinks on key notes to discover everything that references them —
-   this catches relationships that search
-   misses, including frontmatter wikilinks like project: "[[Project Name]]"
-3. Use find_outlinks to see what a note links to — useful for mapping a note's
-   context (related projects, people, meetings)
-4. Read the most relevant linked notes to build a complete picture
-
-Always explore backlinks when asked to summarize, review, or find everything
-related to a topic. A project's backlinks reveal its tasks, meetings, and
-related notes that may never mention the project name in body text.
-
-When search results contain enough information to answer the question (especially
-when the heading metadata matches what was asked about), answer directly from the
-results. Only use read_file when you need additional context beyond what search
-returned.
-
-When a user asks about a specific section of a known note, use read_file directly
-rather than search_vault. Search is for discovery; read_file is for known files.
+When search results contain enough information (especially when heading metadata
+matches what was asked), answer directly without reading the full file.
+Search is for discovery; read_file is for known files.
 
 ## Available Tools
 
@@ -117,27 +98,16 @@ rather than search_vault. Search is for discovery; read_file is for known files.
   chunk_type="frontmatter" searches across all metadata fields at once — only
   use this when you don't know which field to query. If you know the field
   name (e.g. scheduled, tags, category), use list_files_by_frontmatter instead.
-- list_files_by_frontmatter: Look up notes by known frontmatter fields.
-  This is the PRIMARY tool for any frontmatter query where you know the field
-  name — scheduled dates, categories, tags, status, project, company, etc.
-  Prefer this over search_vault with chunk_type="frontmatter" because it is
-  faster, returns compact results (just paths), and is guaranteed complete.
-  Parameters: field, value, match_type ("contains" or "equals", default
-  "contains"). Supports limit/offset pagination (default limit=100).
-  Returns results with total count.
-  **Compound filtering**: Use the optional `filters` parameter (JSON array)
-  to require multiple fields at once (AND logic). Each filter has "field",
-  "value", and optional "match_type". Examples:
-    - Open tasks for a project: field="project", value="Agentic S2P",
-      filters='[{"field": "status", "value": "open"}]'
-    - Meetings involving a person: field="category", value="meeting",
-      filters='[{"field": "people", "value": "Adam Bird"}]'
-  Always use compound filters instead of making separate calls and
-  intersecting results manually.
-  **Include field values**: Use `include_fields` (JSON array of field names)
-  to return frontmatter values alongside paths, avoiding the need to read
-  each file. Example: include_fields='["status", "scheduled", "context"]'
-  returns objects like {"path": "...", "status": "open", "scheduled": "2026-02-19"}.
+- list_files_by_frontmatter: PRIMARY tool for frontmatter queries. Fast,
+  complete, low token cost. Parameters: field, value, match_type ("contains"
+  or "equals", default "contains"). Supports limit/offset pagination.
+  **Compound filters**: `filters` param (JSON array) adds AND conditions.
+  Each filter: {"field", "value", optional "match_type"}.
+  Example: field="project", value="Agentic S2P",
+  filters='[{"field": "status", "value": "open"}]'
+  **Include fields**: `include_fields` (JSON array) returns frontmatter
+  values with paths, avoiding read_file per result.
+  Example: include_fields='["status", "scheduled"]'
 - search_by_date_range: Find notes by date range. Parameters: start_date,
   end_date (YYYY-MM-DD), date_type ("modified" or "created", default
   "modified"). Supports limit/offset pagination. Returns results with
@@ -169,12 +139,6 @@ rather than search_vault. Search is for discovery; read_file is for known files.
 - batch_move_files: Move multiple notes. Pass moves as a list of objects:
   [{"source": "old/path.md", "destination": "new/path.md"}].
 
-**Batch operation confirmation**: batch_update_frontmatter and batch_move_files
-require confirmation when affecting more than 5 files. The first call returns a
-preview listing the files and proposed changes. You MUST show this preview to
-the user and get their approval before calling again with confirm=true. Never
-pass confirm=true on the first call.
-
 ### Section Editing
 - replace_section: Replace a heading AND its content with new content. The
   heading parameter must include # symbols (e.g. "## Meeting Notes").
@@ -197,6 +161,10 @@ pass confirm=true on the first call.
   Example: field="context", value="work", target_field="project",
   target_value="Agentic S2P", target_filters='[{"field": "category", "value": "task"}]'
   Continues after individual failures; returns summary of successes and failures.
+
+**Batch confirmation**: batch_update_frontmatter and batch_move_files require
+confirmation when affecting >5 files. The first call returns a preview — show
+it to the user and call again with confirm=true only after approval.
 
 ### Preferences
 - save_preference: Save a user preference for future reference.
