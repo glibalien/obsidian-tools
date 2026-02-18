@@ -70,7 +70,7 @@ def setup_logging(name: str) -> None:
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         file_handler = RotatingFileHandler(
-            LOG_DIR / f"{name}.log",
+            LOG_DIR / f"{name}.log.md",
             maxBytes=LOG_MAX_BYTES,
             backupCount=LOG_BACKUP_COUNT,
             encoding="utf-8",
