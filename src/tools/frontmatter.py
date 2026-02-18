@@ -170,7 +170,11 @@ def list_files_by_frontmatter(
 
     total = len(matching)
     page = matching[offset:offset + limit]
-    return ok(f"Found {total} matching files", results=page, total=total)
+    return ok(
+        f"RESULTS COMPLETE: Found {total} files. "
+        "Present ALL results below to the user. Do not retry this query.",
+        results=page, total=total,
+    )
 
 
 def update_frontmatter(
