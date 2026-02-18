@@ -275,6 +275,23 @@ class TestCompoundFiltering:
         assert result["success"] is False
         assert "field" in result["error"]
 
+
+    def test_compound_filter_native_list(self, vault_config):
+        """Should accept native list-of-dicts filters (not only JSON strings)."""
+        (vault_config / "native_filter.md").write_text(
+            "---\nproject: '[[MyProject]]'\nstatus: open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="project",
+                value="MyProject",
+                filters=[{"field": "status", "value": "open", "match_type": "equals"}],
+            )
+        )
+        assert result["success"] is True
+        assert result["total"] >= 1
+        assert any("native_filter.md" in p for p in result["results"])
+
     def test_filters_empty_list(self, vault_config):
         """Empty filters list should work same as no filters."""
         result_no_filters = json.loads(
@@ -352,6 +369,22 @@ class TestIncludeFields:
         assert result["success"] is True
         if result["total"] > 0:
             assert isinstance(result["results"][0], str)
+
+
+    def test_include_fields_native_list(self, vault_config):
+        """Should accept native list include_fields for structured tool calls."""
+        (vault_config / "task_native_inc.md").write_text(
+            "---\ncategory: task\nstatus: open\n---\n"
+        )
+        result = json.loads(
+            list_files_by_frontmatter(
+                field="category", value="task", match_type="equals",
+                include_fields=["status"],
+            )
+        )
+        assert result["success"] is True
+        item = next(r for r in result["results"] if "task_native_inc.md" in r["path"])
+        assert item["status"] == "open"
 
     def test_include_fields_invalid_json(self, vault_config):
         """Bad JSON should return error."""
@@ -524,6 +557,26 @@ class TestQueryBasedBatchUpdate:
                 field="context", value="work", operation="set",
                 target_field="project", target_value="FP",
                 target_filters='[{"field": "status", "value": "open"}]',
+                confirm=True,
+            )
+        )
+        assert result["success"] is True
+        assert "1 succeeded" in result["message"]
+
+
+    def test_query_target_with_native_filter_list(self, vault_config):
+        """Query targeting should accept native list target_filters."""
+        (vault_config / "open_native.md").write_text(
+            "---\nproject: '[[NP]]'\nstatus: open\n---\n"
+        )
+        (vault_config / "done_native.md").write_text(
+            "---\nproject: '[[NP]]'\nstatus: done\n---\n"
+        )
+        result = json.loads(
+            batch_update_frontmatter(
+                field="context", value="work", operation="set",
+                target_field="project", target_value="NP",
+                target_filters=[{"field": "status", "value": "open", "match_type": "equals"}],
                 confirm=True,
             )
         )
