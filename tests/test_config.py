@@ -186,3 +186,79 @@ def test_index_interval_default(monkeypatch):
     monkeypatch.delenv("INDEX_INTERVAL", raising=False)
     config = _reload(monkeypatch)
     assert config.INDEX_INTERVAL == 60
+
+
+# ---------------------------------------------------------------------------
+# setup_logging
+# ---------------------------------------------------------------------------
+
+
+def test_setup_logging_creates_log_dir(tmp_path, monkeypatch):
+    """setup_logging should create the log directory and add file + stderr handlers."""
+    import logging
+
+    log_dir = tmp_path / "test_logs"
+    monkeypatch.setenv("LOG_DIR", str(log_dir))
+    config = _reload(monkeypatch)
+
+    # Clear any existing handlers on root logger
+    root = logging.getLogger()
+    root.handlers.clear()
+
+    config.setup_logging("test")
+
+    assert log_dir.exists()
+    assert (log_dir / "test.log").exists()
+    # Should have 2 handlers: stderr + file
+    assert len(root.handlers) == 2
+
+    # Clean up
+    root.handlers.clear()
+
+
+def test_setup_logging_writes_to_file(tmp_path, monkeypatch):
+    """Log messages should appear in the log file."""
+    import logging
+
+    log_dir = tmp_path / "test_logs"
+    monkeypatch.setenv("LOG_DIR", str(log_dir))
+    config = _reload(monkeypatch)
+
+    root = logging.getLogger()
+    root.handlers.clear()
+
+    config.setup_logging("test")
+    logging.getLogger("test_module").info("hello from test")
+
+    # Flush handlers
+    for h in root.handlers:
+        h.flush()
+
+    log_content = (log_dir / "test.log").read_text()
+    assert "hello from test" in log_content
+
+    # Clean up
+    root.handlers.clear()
+
+
+def test_setup_logging_falls_back_on_permission_error(tmp_path, monkeypatch):
+    """If log dir is not writable, should fall back to stderr-only without raising."""
+    import logging
+
+    # Use a path that can't be created (file in the way)
+    blocker = tmp_path / "not_a_dir"
+    blocker.write_text("I'm a file")
+    monkeypatch.setenv("LOG_DIR", str(blocker / "subdir"))
+    config = _reload(monkeypatch)
+
+    root = logging.getLogger()
+    root.handlers.clear()
+
+    # Should not raise
+    config.setup_logging("test")
+
+    # Should have only stderr handler
+    assert len(root.handlers) == 1
+
+    # Clean up
+    root.handlers.clear()
