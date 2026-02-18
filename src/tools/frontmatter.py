@@ -37,15 +37,12 @@ _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 _JSON_SCALAR_RE = re.compile(r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 
 
-FrontmatterValue = str | int | float | bool | list | dict | None
-
-
 def _strip_wikilinks(text: str) -> str:
     """Strip wikilink brackets: '[[Foo|alias]]' → 'Foo', '[[Bar]]' → 'Bar'."""
     return _WIKILINK_RE.sub(r"\1", text)
 
 
-def _normalize_frontmatter_value(value: FrontmatterValue) -> FrontmatterValue:
+def _normalize_frontmatter_value(value):
     """Normalize tool input while preserving legacy JSON-string support.
 
     Native JSON-compatible values are passed through unchanged.
@@ -98,7 +95,7 @@ def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -
     return False
 
 
-def _parse_filters(filters: str | list[dict] | None) -> tuple[list[dict], str | None]:
+def _parse_filters(filters: str | None) -> tuple[list[dict], str | None]:
     """Parse and validate filter conditions.
 
     Accepts either:
@@ -179,8 +176,8 @@ def list_files_by_frontmatter(
     field: str,
     value: str,
     match_type: str = "contains",
-    filters: str | list[dict] | None = None,
-    include_fields: str | list[str] | None = None,
+    filters: str | None = None,
+    include_fields: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> str:
@@ -241,7 +238,7 @@ def list_files_by_frontmatter(
 def update_frontmatter(
     path: str,
     field: str,
-    value: FrontmatterValue = None,
+    value: str | None = None,
     operation: str = "set",
 ) -> str:
     """Update frontmatter on a vault file.
@@ -273,13 +270,13 @@ def update_frontmatter(
 
 def batch_update_frontmatter(
     field: str,
-    value: FrontmatterValue = None,
+    value: str | None = None,
     operation: str = "set",
     paths: list[str] | None = None,
     target_field: str | None = None,
     target_value: str | None = None,
     target_match_type: str = "contains",
-    target_filters: str | list[dict] | None = None,
+    target_filters: str | None = None,
     confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
