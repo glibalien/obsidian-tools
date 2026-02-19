@@ -218,7 +218,7 @@ async def execute_tool_call(
         return extract_text_content(result.content)
     except TimeoutError:
         logger.warning("Tool '%s' timed out after %ds", tool_name, TOOL_TIMEOUT)
-        return f"Tool '{tool_name}' timed out after {TOOL_TIMEOUT}s"
+        return f"Tool error: '{tool_name}' timed out after {TOOL_TIMEOUT}s"
     except Exception as e:
         return f"Failed to execute tool {tool_name}: {e}"
 
