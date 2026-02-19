@@ -87,13 +87,13 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     if not matches:
         return ok(f"No outlinks found in {path}", results=[], total=0)
 
-    # Build stem → relative path lookup for resolution
-    name_to_path = _build_note_path_map()
+    # Build lookup maps for resolution
+    stem_map, path_map = _build_note_path_map()
 
     # Deduplicate, resolve paths, and sort
     unique_names = sorted(set(matches))
     all_results = [
-        {"name": name, "path": _resolve_link(name, name_to_path)}
+        {"name": name, "path": _resolve_link(name, stem_map, path_map)}
         for name in unique_names
     ]
     total = len(all_results)
@@ -101,22 +101,32 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     return ok(results=page, total=total)
 
 
-def _build_note_path_map() -> dict[str, str]:
-    """Build a mapping from note stem (lowercase) to relative vault path.
+def _build_note_path_map() -> tuple[dict[str, str], dict[str, str]]:
+    """Build mappings for resolving wikilink names to vault paths.
 
-    When multiple notes share a stem, the shortest path wins
-    (matches Obsidian's default resolution behavior).
+    Returns:
+        Tuple of (stem_map, path_map):
+        - stem_map: lowercase stem → relative path (shortest wins for collisions)
+        - path_map: lowercase relative path without .md → relative path (all files)
     """
-    name_to_path: dict[str, str] = {}
+    stem_map: dict[str, str] = {}
+    path_map: dict[str, str] = {}
     for md_file in get_vault_files():
         rel_path = get_relative_path(md_file)
+        # Normalize separators for cross-platform matching
+        normalized = rel_path.replace("\\", "/")
         stem = md_file.stem.lower()
-        if stem not in name_to_path or len(rel_path) < len(name_to_path[stem]):
-            name_to_path[stem] = rel_path
-    return name_to_path
+        if stem not in stem_map or len(rel_path) < len(stem_map[stem]):
+            stem_map[stem] = rel_path
+        # Store without .md for folder-qualified lookup
+        key = normalized[:-3].lower() if normalized.endswith(".md") else normalized.lower()
+        path_map[key] = rel_path
+    return stem_map, path_map
 
 
-def _resolve_link(name: str, name_to_path: dict[str, str]) -> str | None:
+def _resolve_link(
+    name: str, stem_map: dict[str, str], path_map: dict[str, str]
+) -> str | None:
     """Resolve a wikilink name to a relative vault path.
 
     Handles #heading suffixes and folder-prefixed links.
@@ -125,17 +135,13 @@ def _resolve_link(name: str, name_to_path: dict[str, str]) -> str | None:
     base_name = name.split("#")[0] if "#" in name else name
 
     # Try as bare stem (most common case)
-    resolved = name_to_path.get(base_name.lower())
+    resolved = stem_map.get(base_name.lower())
     if resolved:
         return resolved
 
-    # Try as relative path (e.g. [[Projects/note1]])
-    with_ext = base_name if base_name.endswith(".md") else base_name + ".md"
-    for path in name_to_path.values():
-        if path.lower() == with_ext.lower():
-            return path
-
-    return None
+    # Try as folder-qualified path (e.g. [[Projects/note1]])
+    normalized = base_name.replace("\\", "/").lower()
+    return path_map.get(normalized)
 
 
 def search_by_folder(
