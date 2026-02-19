@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 from config import VAULT_PATH, CHROMA_PATH
-from services.chroma import get_client, get_collection
+from services.chroma import get_collection
 from services.vault import get_vault_files, is_fence_line
 
 

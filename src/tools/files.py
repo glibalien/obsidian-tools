@@ -4,7 +4,6 @@ import json
 
 import yaml
 
-from config import EXCLUDED_DIRS, VAULT_PATH
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     do_move_file,
