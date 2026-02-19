@@ -246,14 +246,13 @@ async def ensure_interaction_logged(
         return  # Agent already logged
 
     logger.warning("Agent did not call log_interaction — auto-logging")
-    try:
-        await execute_tool_call(session, "log_interaction", {
-            "task_description": "(auto-logged)",
-            "query": user_query,
-            "summary": response[:2000],
-        })
-    except Exception:
-        logger.exception("Auto-log failed")
+    result = await execute_tool_call(session, "log_interaction", {
+        "task_description": "(auto-logged)",
+        "query": user_query,
+        "summary": response[:2000],
+    })
+    if result.startswith(("Tool error:", "Failed to execute tool")):
+        logger.error("Auto-log failed: %s", result)
 
 
 GET_CONTINUATION_TOOL = {

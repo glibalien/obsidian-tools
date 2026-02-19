@@ -1,6 +1,7 @@
 """Tests for agent turn behavior: iteration cap and tool result truncation."""
 
 import json
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -718,6 +719,29 @@ class TestEnsureInteractionLogged:
             user_query="hello", response="Hi there!",
         )
         mock_session.call_tool.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_logs_error_on_failed_auto_log(self, caplog):
+        """Logs error when auto-log MCP call fails."""
+        mock_session = AsyncMock()
+        mock_session.call_tool.return_value = MagicMock(
+            isError=True, content=[MagicMock(text="write failed")]
+        )
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "query"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
+            {"role": "assistant", "content": "Done."},
+        ]
+        with caplog.at_level(logging.ERROR, logger="agent"):
+            await ensure_interaction_logged(
+                mock_session, messages, turn_start=1,
+                user_query="query", response="Done.",
+            )
+        assert any("Auto-log failed" in r.message for r in caplog.records)
 
     @pytest.mark.anyio
     async def test_truncates_long_response(self):
