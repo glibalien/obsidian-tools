@@ -29,30 +29,6 @@ def _extract_audio_embeds(content: str) -> list[str]:
     return AUDIO_EMBED_PATTERN.findall(content)
 
 
-def _resolve_audio_file(filename: str) -> tuple[Path | None, str | None]:
-    """Resolve an audio filename to its path in the Attachments folder.
-
-    Args:
-        filename: Audio filename (e.g., "recording.m4a").
-
-    Returns:
-        Tuple of (resolved_path, None) on success, or (None, error_message) on failure.
-    """
-    try:
-        audio_path = (ATTACHMENTS_DIR / filename).resolve()
-        audio_path.relative_to(ATTACHMENTS_DIR.resolve())
-    except (ValueError, OSError, RuntimeError):
-        return None, f"Invalid audio file path: {filename}"
-
-    if not audio_path.exists():
-        return None, f"Audio file not found: {filename}"
-
-    if not audio_path.is_file():
-        return None, f"Not a file: {filename}"
-
-    return audio_path, None
-
-
 def _transcribe_single_file(
     client: OpenAI,
     audio_path: Path,
@@ -126,7 +102,7 @@ def transcribe_audio(path: str) -> str:
     errors = []
 
     for filename in audio_files:
-        audio_path, resolve_error = _resolve_audio_file(filename)
+        audio_path, resolve_error = resolve_file(filename, base_path=ATTACHMENTS_DIR)
         if resolve_error:
             errors.append(resolve_error)
             continue

@@ -2,8 +2,8 @@
 
 import re
 
-from config import EXCLUDED_DIRS, VAULT_PATH
-from services.vault import err, get_vault_files, ok, resolve_dir, resolve_file
+from config import EXCLUDED_DIRS
+from services.vault import err, get_relative_path, get_vault_files, ok, resolve_dir, resolve_file
 from tools._validation import validate_pagination
 
 
@@ -43,7 +43,6 @@ def _scan_backlinks(note_name: str) -> list[str]:
     """Fallback: scan all vault files for backlinks (O(n))."""
     pattern = rf"\[\[{re.escape(note_name)}(?:\|[^\]]+)?\]\]"
     backlinks = []
-    vault_resolved = VAULT_PATH.resolve()
 
     for md_file in get_vault_files():
         try:
@@ -51,8 +50,7 @@ def _scan_backlinks(note_name: str) -> list[str]:
         except Exception:
             continue
         if re.search(pattern, content, re.IGNORECASE):
-            rel_path = md_file.relative_to(vault_resolved)
-            backlinks.append(str(rel_path))
+            backlinks.append(get_relative_path(md_file))
 
     return sorted(backlinks)
 
@@ -126,13 +124,11 @@ def search_by_folder(
     pattern_func = folder_path.rglob if recursive else folder_path.glob
 
     files = []
-    vault_resolved = VAULT_PATH.resolve()
 
     for md_file in pattern_func("*.md"):
         if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
             continue
-        rel_path = md_file.relative_to(vault_resolved)
-        files.append(str(rel_path))
+        files.append(get_relative_path(md_file))
 
     if not files:
         mode = "recursively " if recursive else ""

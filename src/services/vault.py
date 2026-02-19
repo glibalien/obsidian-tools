@@ -56,28 +56,32 @@ def err(message: str, **kwargs) -> str:
 # =============================================================================
 
 
-def resolve_vault_path(path: str) -> Path:
-    """Resolve a path ensuring it stays within the vault.
+def resolve_vault_path(path: str, base_path: Path | None = None) -> Path:
+    """Resolve a path ensuring it stays within an allowed directory.
 
     Args:
-        path: Relative path (from vault root) or absolute path.
+        path: Relative path (from base root) or absolute path.
+        base_path: Base directory to resolve against and constrain to.
+            Defaults to VAULT_PATH.
 
     Returns:
-        Resolved absolute Path within the vault.
+        Resolved absolute Path within the base directory.
 
     Raises:
-        ValueError: If path escapes vault or is in excluded directory.
+        ValueError: If path escapes base directory or is in excluded directory.
     """
+    base = base_path if base_path is not None else VAULT_PATH
+
     if Path(path).is_absolute():
         resolved = Path(path).resolve()
     else:
-        resolved = (VAULT_PATH / path).resolve()
+        resolved = (base / path).resolve()
 
-    # Security: ensure path is within vault
+    # Security: ensure path is within base directory
     try:
-        resolved.relative_to(VAULT_PATH.resolve())
+        resolved.relative_to(base.resolve())
     except ValueError:
-        raise ValueError(f"Path must be within vault: {VAULT_PATH}")
+        raise ValueError(f"Path must be within vault: {base}")
 
     # Block excluded directories
     if any(excluded in resolved.parts for excluded in EXCLUDED_DIRS):
@@ -86,19 +90,20 @@ def resolve_vault_path(path: str) -> Path:
     return resolved
 
 
-def resolve_file(path: str) -> tuple[Path | None, str | None]:
+def resolve_file(path: str, base_path: Path | None = None) -> tuple[Path | None, str | None]:
     """Resolve and validate a file path within the vault.
 
     Combines path resolution with existence and file-type checks.
 
     Args:
-        path: Relative path (from vault root) or absolute path.
+        path: Relative path (from base root) or absolute path.
+        base_path: Base directory to resolve against. Defaults to VAULT_PATH.
 
     Returns:
         Tuple of (resolved_path, None) on success, or (None, error_message) on failure.
     """
     try:
-        file_path = resolve_vault_path(path)
+        file_path = resolve_vault_path(path, base_path=base_path)
     except ValueError as e:
         return None, str(e)
 
@@ -111,17 +116,18 @@ def resolve_file(path: str) -> tuple[Path | None, str | None]:
     return file_path, None
 
 
-def resolve_dir(path: str) -> tuple[Path | None, str | None]:
+def resolve_dir(path: str, base_path: Path | None = None) -> tuple[Path | None, str | None]:
     """Resolve and validate a directory path within the vault.
 
     Args:
-        path: Relative path (from vault root) or absolute path.
+        path: Relative path (from base root) or absolute path.
+        base_path: Base directory to resolve against. Defaults to VAULT_PATH.
 
     Returns:
         Tuple of (resolved_path, None) on success, or (None, error_message) on failure.
     """
     try:
-        dir_path = resolve_vault_path(path)
+        dir_path = resolve_vault_path(path, base_path=base_path)
     except ValueError as e:
         return None, str(e)
 
