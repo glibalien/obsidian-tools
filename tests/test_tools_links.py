@@ -138,6 +138,24 @@ class TestFindOutlinks:
         names = [r["name"] for r in result["results"]]
         assert names.count("same") == 1
 
+    def test_find_outlinks_folder_qualified_with_colliding_stems(self, vault_config):
+        """Should resolve folder-qualified links even when stems collide."""
+        # Create two notes with the same stem in different folders
+        (vault_config / "foo.md").write_text("# Root foo")
+        sub = vault_config / "sub"
+        sub.mkdir()
+        (sub / "foo.md").write_text("# Sub foo")
+
+        (vault_config / "qualifier_test.md").write_text(
+            "[[foo]] and [[sub/foo]]"
+        )
+        result = json.loads(find_outlinks("qualifier_test.md"))
+        by_name = {r["name"]: r["path"] for r in result["results"]}
+        # Bare stem resolves to shortest path (root)
+        assert by_name["foo"] == "foo.md"
+        # Folder-qualified link resolves to the specific path
+        assert by_name["sub/foo"] == "sub/foo.md"
+
 
 class TestSearchByFolder:
     """Tests for search_by_folder tool."""
