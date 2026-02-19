@@ -48,6 +48,17 @@ MAX_SESSION_MESSAGES = max(2, int(os.getenv("MAX_SESSION_MESSAGES", "50")))
 # Indexer configuration
 INDEX_INTERVAL = int(os.getenv("INDEX_INTERVAL", "60"))
 
+# Batch operations
+BATCH_CONFIRM_THRESHOLD = 5  # Require confirmation above this many files
+
+# Hybrid search
+RRF_K = 60  # Reciprocal rank fusion constant
+KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
+
+# Tool message compaction
+COMPACTION_SNIPPET_LENGTH = 80  # search_vault result snippet length
+COMPACTION_CONTENT_PREVIEW_LENGTH = 100  # generic tool content preview length
+
 # Logging configuration
 LOG_DIR = Path(os.getenv("LOG_DIR", str(VAULT_PATH / "logs"))).expanduser()
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB

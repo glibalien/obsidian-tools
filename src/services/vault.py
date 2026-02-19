@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from config import EXCLUDED_DIRS, VAULT_PATH
+from config import BATCH_CONFIRM_THRESHOLD, EXCLUDED_DIRS, VAULT_PATH
 
 
 # =============================================================================
@@ -499,8 +499,6 @@ def do_move_file(
 # =============================================================================
 # Batch Operations
 # =============================================================================
-
-BATCH_CONFIRM_THRESHOLD = 5
 
 
 def format_batch_result(
