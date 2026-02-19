@@ -1,6 +1,7 @@
 """Vault service - path resolution, file scanning, and utility functions."""
 
 import json
+import logging
 import re
 import shutil
 from datetime import datetime
@@ -9,6 +10,8 @@ from pathlib import Path
 import yaml
 
 from config import BATCH_CONFIRM_THRESHOLD, EXCLUDED_DIRS, VAULT_PATH
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -200,7 +203,8 @@ def extract_frontmatter(file_path: Path) -> dict:
     """
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
+    except OSError as e:
+        logger.debug("Could not read frontmatter from %s: %s", file_path, e)
         return {}
 
     match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)

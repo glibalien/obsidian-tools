@@ -1,8 +1,11 @@
 """Link tools - backlinks, outlinks, folder search."""
 
+import logging
 import re
 
 from config import EXCLUDED_DIRS
+
+logger = logging.getLogger(__name__)
 from services.vault import err, get_relative_path, get_vault_files, ok, resolve_dir, resolve_file
 from tools._validation import validate_pagination
 
@@ -47,7 +50,8 @@ def _scan_backlinks(note_name: str) -> list[str]:
     for md_file in get_vault_files():
         try:
             content = md_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        except OSError as e:
+            logger.debug("Skipping %s during backlink scan: %s", md_file, e)
             continue
         if re.search(pattern, content, re.IGNORECASE):
             backlinks.append(get_relative_path(md_file))
