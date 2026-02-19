@@ -29,7 +29,10 @@ PREFERENCES_FILE = VAULT_PATH / "Preferences.md"
 # Attachments directory (where Obsidian stores audio, images, etc.)
 ATTACHMENTS_DIR = VAULT_PATH / "Attachments"
 
-# Model configuration
+# Fireworks API
+FIREWORKS_BASE_URL = os.getenv(
+    "FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1"
+)
 FIREWORKS_MODEL = os.getenv(
     "FIREWORKS_MODEL",
     os.getenv("LLM_MODEL", "accounts/fireworks/models/gpt-oss-120b"),

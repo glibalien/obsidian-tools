@@ -18,7 +18,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
-from config import LLM_MODEL, PREFERENCES_FILE, VAULT_PATH, setup_logging
+from config import FIREWORKS_BASE_URL, LLM_MODEL, PREFERENCES_FILE, VAULT_PATH, setup_logging
 from services.compaction import compact_tool_messages
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,6 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
 MAX_TOOL_RESULT_CHARS = 100_000
 
 

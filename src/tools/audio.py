@@ -6,7 +6,7 @@ from pathlib import Path
 
 from openai import OpenAI
 
-from config import ATTACHMENTS_DIR, WHISPER_MODEL
+from config import ATTACHMENTS_DIR, FIREWORKS_BASE_URL, WHISPER_MODEL
 from services.vault import err, ok, resolve_file
 
 # Pattern to match Obsidian audio embeds: ![[filename.ext]]
@@ -118,7 +118,7 @@ def transcribe_audio(path: str) -> str:
     # Initialize Whisper client
     client = OpenAI(
         api_key=api_key,
-        base_url="https://api.fireworks.ai/inference/v1",
+        base_url=FIREWORKS_BASE_URL,
     )
 
     # Transcribe each audio file
