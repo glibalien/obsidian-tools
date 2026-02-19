@@ -24,6 +24,7 @@ from agent import (
     SYSTEM_PROMPT,
     agent_turn,
     create_llm_client,
+    ensure_interaction_logged,
     load_preferences,
     mcp_tool_to_openai_function,
 )
@@ -200,6 +201,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     """Process a chat message and return the agent's response."""
     session, compacted_indices = _prepare_turn(request)
     messages = session.messages
+    turn_start = len(messages) - 1  # index of user message just added
 
     try:
         response = await agent_turn(
@@ -207,6 +209,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
             app.state.mcp_session,
             messages,
             app.state.tools,
+        )
+        await ensure_interaction_logged(
+            app.state.mcp_session, messages, turn_start, request.message, response,
         )
         _restore_compacted_flags(messages, compacted_indices)
         compact_tool_messages(messages)
@@ -223,6 +228,7 @@ async def chat_stream(request: ChatRequest):
     """Process a chat message and stream events as SSE."""
     session, compacted_indices = _prepare_turn(request)
     messages = session.messages
+    turn_start = len(messages) - 1  # index of user message just added
 
     queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
@@ -231,12 +237,16 @@ async def chat_stream(request: ChatRequest):
 
     async def run_agent():
         try:
-            await agent_turn(
+            response = await agent_turn(
                 app.state.llm_client,
                 app.state.mcp_session,
                 messages,
                 app.state.tools,
                 on_event=on_event,
+            )
+            await ensure_interaction_logged(
+                app.state.mcp_session, messages, turn_start,
+                request.message, response,
             )
             _restore_compacted_flags(messages, compacted_indices)
             compact_tool_messages(messages)

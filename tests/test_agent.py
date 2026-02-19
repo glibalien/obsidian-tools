@@ -1,6 +1,7 @@
 """Tests for agent turn behavior: iteration cap and tool result truncation."""
 
 import json
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +14,7 @@ from agent import (
     _parse_tool_arguments,
     _simplify_schema,
     agent_turn,
+    ensure_interaction_logged,
     truncate_tool_result,
     MAX_TOOL_RESULT_CHARS,
 )
@@ -649,3 +651,118 @@ class TestAgentCompaction:
         new_stub = json.loads(messages[7]["content"])
         assert "content_preview" in new_stub  # read_file stub format
         assert messages[7]["_compacted"] is True
+
+
+class TestEnsureInteractionLogged:
+    """Tests for ensure_interaction_logged auto-logging safety net."""
+
+    @pytest.mark.anyio
+    async def test_noop_when_log_interaction_was_called(self):
+        """No auto-log when agent already called log_interaction."""
+        mock_session = AsyncMock()
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "find recipes"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c2", "function": {"name": "log_interaction", "arguments": "{}"}, "type": "function"},
+            ]},
+            {"role": "tool", "tool_call_id": "c2", "content": '{"success": true}'},
+            {"role": "assistant", "content": "Here are your recipes."},
+        ]
+        await ensure_interaction_logged(
+            mock_session, messages, turn_start=1,
+            user_query="find recipes", response="Here are your recipes.",
+        )
+        mock_session.call_tool.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_auto_logs_when_tools_used_but_no_log_interaction(self):
+        """Auto-logs when agent used tools but forgot log_interaction."""
+        mock_session = AsyncMock()
+        mock_session.call_tool.return_value = MagicMock(
+            isError=False, content=[MagicMock(text='{"success": true}')]
+        )
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "find recipes"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
+            {"role": "assistant", "content": "Here are your recipes."},
+        ]
+        await ensure_interaction_logged(
+            mock_session, messages, turn_start=1,
+            user_query="find recipes", response="Here are your recipes.",
+        )
+        mock_session.call_tool.assert_called_once_with("log_interaction", {
+            "task_description": "(auto-logged)",
+            "query": "find recipes",
+            "summary": "Here are your recipes.",
+        })
+
+    @pytest.mark.anyio
+    async def test_noop_when_no_tools_called(self):
+        """No auto-log for conversation-only turns (no tool calls)."""
+        mock_session = AsyncMock()
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hi there!"},
+        ]
+        await ensure_interaction_logged(
+            mock_session, messages, turn_start=1,
+            user_query="hello", response="Hi there!",
+        )
+        mock_session.call_tool.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_logs_error_on_failed_auto_log(self, caplog):
+        """Logs error when auto-log MCP call fails."""
+        mock_session = AsyncMock()
+        mock_session.call_tool.return_value = MagicMock(
+            isError=True, content=[MagicMock(text="write failed")]
+        )
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "query"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
+            {"role": "assistant", "content": "Done."},
+        ]
+        with caplog.at_level(logging.ERROR, logger="agent"):
+            await ensure_interaction_logged(
+                mock_session, messages, turn_start=1,
+                user_query="query", response="Done.",
+            )
+        assert any("Auto-log failed" in r.message for r in caplog.records)
+
+    @pytest.mark.anyio
+    async def test_truncates_long_response(self):
+        """Auto-log truncates response summary to 2000 chars."""
+        mock_session = AsyncMock()
+        mock_session.call_tool.return_value = MagicMock(
+            isError=False, content=[MagicMock(text='{"success": true}')]
+        )
+        long_response = "x" * 5000
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "query"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "read_file", "arguments": "{}"}, "type": "function"},
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
+            {"role": "assistant", "content": long_response},
+        ]
+        await ensure_interaction_logged(
+            mock_session, messages, turn_start=1,
+            user_query="query", response=long_response,
+        )
+        call_args = mock_session.call_tool.call_args[0][1]
+        assert len(call_args["summary"]) == 2000
