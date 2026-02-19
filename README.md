@@ -110,6 +110,8 @@ INDEX_INTERVAL=60
 | `API_PORT` | Port for the HTTP API server (default: `8000`) |
 | `INDEX_INTERVAL` | How often the vault indexer runs, in minutes (default: `60`) |
 
+See `.env.example` for additional optional variables (logging, session limits, Whisper model, etc.).
+
 </details>
 
 ## Usage
