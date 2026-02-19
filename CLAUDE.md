@@ -44,7 +44,7 @@ services/                # systemd/launchd/taskscheduler templates
 
 - **services/vault.py**: `ok()`/`err()` response helpers, `resolve_file()`/`resolve_dir()` path validation, `find_section()` for heading lookup, `get_vault_files()`/`get_vault_note_names()` for scanning, `is_fence_line()` for code fence detection.
 - **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for search_vault, read_file, list tools, web_search; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
-- **agent.py**: Connects LLM (Fireworks) to MCP server. Loads system prompt from `system_prompt.txt` (falls back to `.example`). Features: agent loop cap (20 iterations), 100K-char tool result truncation with `get_continuation`, compaction between turns, `on_event` callback for SSE streaming, preferences reload per turn.
+- **agent.py**: Connects LLM (Fireworks) to MCP server. Loads system prompt from `system_prompt.txt` (falls back to `.example`). Features: agent loop cap (20 iterations), 100K-char tool result truncation with `get_continuation`, compaction between turns, `on_event` callback for SSE streaming, preferences reload per turn, `ensure_interaction_logged` auto-calls `log_interaction` when agent forgets.
 - **api_server.py**: FastAPI on 127.0.0.1. File-keyed sessions (LRU eviction, message trimming). CORS enabled. `/chat` and `/chat/stream` share `_prepare_turn`/`_restore_compacted_flags`.
 - **hybrid_search.py**: Semantic (ChromaDB) + keyword search merged via RRF. Keyword: single `$or` query, term frequency ranking, `_case_variants()` for case-insensitive matching. Returns `heading` metadata.
 - **index_vault.py**: Structure-aware chunking (headings → paragraphs → sentences). Frontmatter indexed as dedicated chunk with wikilink brackets stripped. Batch upserts per file. Incremental indexing uses scan-start time. `--full` for full reindex.
@@ -78,25 +78,9 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `web_search` | DuckDuckGo search | `query` |
 | `transcribe_audio` | Whisper transcription of audio embeds | `path` (note with `![[audio.m4a]]` embeds) |
 
-### Tool Behavior Notes
-
-- **search_vault**: `heading` field shows which section a result came from. `chunk_type="frontmatter"` searches YAML metadata only.
-- **read_file**: Path traversal protection. Truncation marker shows offset for next chunk.
-- **list_files_by_frontmatter**: `"contains"` match handles wikilinked values (`[[Adam Bird]]` matches `"Adam Bird"`). `"missing"`/`"exists"` check field presence (value ignored). `"not_contains"`/`"not_equals"` match files where field is absent or doesn't match. `folder` restricts search to a directory.
-- **batch_update_frontmatter**: Three targeting modes: `paths` (explicit), `target_field`/`target_value` (query-based), or `folder` (all files in directory). `folder` can combine with `target_field` for scoped queries. All match types supported in `target_match_type`.
-- **find_backlinks**: Case-insensitive, matches `[[note]]` and `[[note|alias]]` patterns. Uses direct vault scan.
-- **search_by_date_range**: `"created"` uses frontmatter `Date` field (falls back to filesystem). Handles wikilink date format.
-- **replace_section / append_to_section**: Case-insensitive heading match, heading level must match exactly. Ignores headings inside code fences. Errors on multiple matches (reports line numbers).
-- **update_frontmatter**: `"append"` creates list if missing, skips duplicates. Complex values via JSON: `'["tag1", "tag2"]'`.
-- **transcribe_audio**: Resolves audio from `Attachments/` folder. Requires `FIREWORKS_API_KEY`.
-
 ### System Prompt
 
-Lives at `system_prompt.txt.example` (copied to `system_prompt.txt` at install). Agent also loads `Preferences.md` as appended "User Preferences" section.
-
-**Sections**: (1) Vault Structure, (2) Vault Relationships, (3) Choosing the Right Tool (decision tree — critical for tool selection), (4) Vault Navigation Strategy, (5) Available Tools, (6) Handling Large Results, (7) Tool Usage Guidelines, (8) Interaction Logging.
-
-When adding new MCP tools, update both the tool reference in section 5 and the decision tree in section 3.
+Lives at `system_prompt.txt.example` (copied to `system_prompt.txt` at install). Agent also loads `Preferences.md` as appended "User Preferences" section. When adding new MCP tools, update the tool reference and decision tree sections.
 
 ## Testing
 
@@ -144,20 +128,10 @@ All paths configured via `.env`:
 
 API server binds to `127.0.0.1:API_PORT`. Two endpoints:
 
-- **POST /chat**: Send message, receive response. Request: `{message, session_id?, active_file?}`. Response: `{response, session_id}`.
-- **POST /chat/stream**: Same request, returns SSE with events: `tool_call`, `tool_result`, `response`, `error`, `done`.
+- **POST /chat**: Send message, receive response.
+- **POST /chat/stream**: Same request, returns SSE events.
 
-### Session Management
-
-Sessions keyed by `active_file` (not UUID). Same file = same session; different file = different session; `null` = dedicated session.
-
-**Compaction**: Tool messages replaced with stubs between turns (not within `agent_turn` — LLM needs full results during multi-step research). `_compacted` flag stripped before LLM calls (Fireworks rejects unknown fields), restored on both success and error paths via `_restore_compacted_flags()`.
-
-**Bounds**: LRU eviction at `MAX_SESSIONS`. Message trimming at `MAX_SESSION_MESSAGES` (preserves system prompt, advances past tool call groups).
-
-**Truncation**: Results >100K chars truncated with `get_continuation(id, offset)` for retrieval in chunks. Cache freed when turn ends.
-
-**Loop safeguard**: `max_iterations=20`. `log_interaction` and `get_continuation` excluded from count.
+Sessions keyed by `active_file` (not UUID). See `api_server.py` for session management, compaction, and message trimming details.
 
 ## Obsidian Plugin
 
@@ -171,8 +145,6 @@ Key details: Uses `MarkdownRenderer.render()` with `sourcePath` captured at requ
 ./install.sh          # macOS / Linux
 .\install.ps1         # Windows
 ```
-
-Resolves real Python path (not pyenv shims) for service contexts. Service templates use `__PLACEHOLDER__` substitution. Uninstall scripts preserve `.env` and `.chroma_db/`.
 
 ## Development Workflow
 
@@ -192,6 +164,4 @@ Resolves real Python path (not pyenv shims) for service contexts. Service templa
 
 ## Notes
 
-- `.venv/` and `.chroma_db/` are tooling, not content
 - Daily notes: `Daily Notes/YYYY-MM-DD.md`
-- The vault's `tags` frontmatter field describes content types: task, project, meeting, recipe, etc.
