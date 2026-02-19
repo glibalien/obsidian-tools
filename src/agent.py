@@ -272,6 +272,75 @@ def _handle_get_continuation(cache: dict[str, str], arguments: dict) -> str:
 EventCallback = Callable[[str, dict], Awaitable[None]]
 
 
+async def _process_tool_calls(
+    tool_calls,
+    session: ClientSession,
+    messages: list[dict],
+    truncated_results: dict[str, str],
+    next_result_id: int,
+    emit: EventCallback | None,
+) -> int:
+    """Execute tool calls from an assistant message and append results to messages.
+
+    Returns the updated next_result_id counter.
+    """
+
+    async def _emit(event_type: str, data: dict) -> None:
+        if emit is not None:
+            await emit(event_type, data)
+
+    for tool_call in tool_calls:
+        tool_name = tool_call.function.name
+        raw_args = tool_call.function.arguments or ""
+        arguments = _parse_tool_arguments(raw_args)
+
+        if not arguments and raw_args.strip():
+            logger.warning(
+                "Failed to parse arguments for %s: %r", tool_name, raw_args
+            )
+
+        logger.info("Tool call: %s args=%s", tool_name, arguments)
+        brief_args = {
+            k: (v[:80] + "..." if isinstance(v, str) and len(v) > 80 else v)
+            for k, v in arguments.items()
+        }
+        await _emit("tool_call", {"tool": tool_name, "args": brief_args})
+
+        if tool_name == "get_continuation":
+            result = _handle_get_continuation(truncated_results, arguments)
+            logger.info("Tool result: %s chars=%d", tool_name, len(result))
+        else:
+            result = await execute_tool_call(session, tool_name, arguments)
+            raw_len = len(result)
+            if raw_len > MAX_TOOL_RESULT_CHARS:
+                rid = str(next_result_id)
+                next_result_id += 1
+                truncated_results[rid] = result
+                result = truncate_tool_result(result, result_id=rid)
+            else:
+                result = truncate_tool_result(result)
+            logger.info(
+                "Tool result: %s chars=%d truncated=%s",
+                tool_name, raw_len, raw_len > MAX_TOOL_RESULT_CHARS,
+            )
+
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result,
+            }
+        )
+        try:
+            parsed = json.loads(result)
+            success = parsed.get("success", True)
+        except (json.JSONDecodeError, AttributeError):
+            success = not result.startswith(("Tool error:", "Failed to execute tool"))
+        await _emit("tool_result", {"tool": tool_name, "success": success})
+
+    return next_result_id
+
+
 async def agent_turn(
     client: OpenAI,
     session: ClientSession,
@@ -281,11 +350,6 @@ async def agent_turn(
     on_event: EventCallback | None = None,
 ) -> str:
     """Execute one agent turn, handling tool calls until final response."""
-
-    async def _emit(event_type: str, data: dict) -> None:
-        if on_event is not None:
-            await on_event(event_type, data)
-
     turn_prompt_tokens = 0
     turn_completion_tokens = 0
     llm_calls = 0
@@ -296,6 +360,10 @@ async def agent_turn(
     UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
     all_tools = tools + [GET_CONTINUATION_TOOL]
 
+    async def _emit(event_type: str, data: dict) -> None:
+        if on_event is not None:
+            await on_event(event_type, data)
+
     while True:
         if llm_calls >= max_iterations:
             logger.warning(
@@ -304,6 +372,7 @@ async def agent_turn(
             content = last_content + "\n\n[Tool call limit reached]"
             await _emit("response", {"content": content})
             return content
+
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -347,59 +416,13 @@ async def agent_turn(
             await _emit("response", {"content": content})
             return content
 
-        # Log assistant reasoning that accompanies tool calls
         if last_content:
             logger.info("Assistant text: %s", last_content)
 
-        # Execute each tool call
-        for tool_call in assistant_message.tool_calls:
-            tool_name = tool_call.function.name
-            raw_args = tool_call.function.arguments or ""
-            arguments = _parse_tool_arguments(raw_args)
-
-            if not arguments and raw_args.strip():
-                logger.warning(
-                    "Failed to parse arguments for %s: %r", tool_name, raw_args
-                )
-
-            logger.info("Tool call: %s args=%s", tool_name, arguments)
-            brief_args = {
-                k: (v[:80] + "..." if isinstance(v, str) and len(v) > 80 else v)
-                for k, v in arguments.items()
-            }
-            await _emit("tool_call", {"tool": tool_name, "args": brief_args})
-
-            if tool_name == "get_continuation":
-                result = _handle_get_continuation(truncated_results, arguments)
-                logger.info("Tool result: %s chars=%d", tool_name, len(result))
-            else:
-                result = await execute_tool_call(session, tool_name, arguments)
-                raw_len = len(result)
-                if raw_len > MAX_TOOL_RESULT_CHARS:
-                    rid = str(next_result_id)
-                    next_result_id += 1
-                    truncated_results[rid] = result
-                    result = truncate_tool_result(result, result_id=rid)
-                else:
-                    result = truncate_tool_result(result)
-                logger.info(
-                    "Tool result: %s chars=%d truncated=%s",
-                    tool_name, raw_len, raw_len > MAX_TOOL_RESULT_CHARS,
-                )
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result,
-                }
-            )
-            try:
-                parsed = json.loads(result)
-                success = parsed.get("success", True)
-            except (json.JSONDecodeError, AttributeError):
-                success = not result.startswith(("Tool error:", "Failed to execute tool"))
-            await _emit("tool_result", {"tool": tool_name, "success": success})
+        next_result_id = await _process_tool_calls(
+            assistant_message.tool_calls, session, messages,
+            truncated_results, next_result_id, on_event,
+        )
 
 
 
