@@ -4,6 +4,7 @@
 import logging
 from collections import defaultdict
 
+from config import KEYWORD_LIMIT, RRF_K
 from services.chroma import get_collection
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,6 @@ STOPWORDS = {
     "was", "were", "been", "not", "but", "are", "can", "will", "just",
     "about", "into", "over", "also",
 }
-RRF_K = 60  # Standard reciprocal rank fusion constant
-KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 
 
 def semantic_search(

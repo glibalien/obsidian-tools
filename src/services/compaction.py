@@ -3,8 +3,7 @@
 import json
 from typing import Callable
 
-SNIPPET_LENGTH = 80
-CONTENT_PREVIEW_LENGTH = 100
+from config import COMPACTION_CONTENT_PREVIEW_LENGTH, COMPACTION_SNIPPET_LENGTH
 
 
 def _base_stub(data: dict) -> dict:
@@ -57,7 +56,7 @@ def _build_search_vault_stub(data: dict) -> str:
             {
                 "source": r["source"],
                 "heading": r.get("heading", ""),
-                "snippet": r.get("content", "")[:SNIPPET_LENGTH],
+                "snippet": r.get("content", "")[:COMPACTION_SNIPPET_LENGTH],
             }
             for r in data["results"]
             if isinstance(r, dict) and "source" in r
@@ -71,7 +70,7 @@ def _build_read_file_stub(data: dict) -> str:
     if "content" in data:
         content = data["content"]
         stub["content_length"] = len(content)
-        stub["content_preview"] = content[:CONTENT_PREVIEW_LENGTH]
+        stub["content_preview"] = content[:COMPACTION_CONTENT_PREVIEW_LENGTH]
         trunc_marker = "[... truncated at char"
         if trunc_marker in content:
             idx = content.rfind(trunc_marker)
