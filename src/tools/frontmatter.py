@@ -315,6 +315,99 @@ def update_frontmatter(
     return err(message)
 
 
+def _confirmation_preview(
+    operation: str, field: str, value: str | None, paths: list, context: str,
+) -> str:
+    """Return a confirmation preview for a batch operation."""
+    desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
+    return ok(
+        f"This will {desc} on {len(paths)} files{context}. "
+        "Show the file list to the user and call again with confirm=true to proceed.",
+        confirmation_required=True,
+        files=paths,
+    )
+
+
+def _resolve_batch_targets(
+    paths: list[str] | None,
+    target_field: str | None,
+    target_value: str | None,
+    target_match_type: str,
+    target_filters: list[FilterCondition] | None,
+    folder: str,
+    confirm: bool,
+    operation: str,
+    field: str,
+    value: str | None,
+) -> tuple[list[str] | None, str | None]:
+    """Resolve target file paths for batch operations.
+
+    Returns:
+        (resolved_paths, early_return_json). If early_return_json is not None,
+        the caller should return it directly (validation error or confirmation preview).
+    """
+    folder_path = None
+    if folder:
+        if paths is not None:
+            return None, err("Cannot combine 'folder' with explicit 'paths'")
+        folder_path, folder_err = resolve_dir(folder)
+        if folder_err:
+            return None, err(folder_err)
+
+    if target_field is not None and paths is not None:
+        return None, err("Provide either paths or target_field/target_value, not both")
+
+    if target_field is not None:
+        if target_match_type not in VALID_MATCH_TYPES:
+            return None, err(
+                f"target_match_type must be one of {VALID_MATCH_TYPES}, "
+                f"got '{target_match_type}'"
+            )
+        if target_match_type not in NO_VALUE_MATCH_TYPES and target_value is None:
+            return None, err(f"target_value is required for target_match_type '{target_match_type}'")
+
+        parsed_target_filters, filter_err = _validate_filters(target_filters)
+        if filter_err:
+            return None, err(filter_err)
+
+        paths = _find_matching_files(
+            target_field, target_value or "", target_match_type,
+            parsed_target_filters, folder=folder_path,
+        )
+        if not paths:
+            return None, ok("No files matched the targeting criteria", results=[], total=0)
+
+        if not confirm:
+            folder_note = f" in folder '{folder}'" if folder else ""
+            context = (
+                f" matched by target_field='{target_field}', "
+                f"target_value='{target_value}'{folder_note}"
+            )
+            return None, _confirmation_preview(operation, field, value, paths, context)
+
+    elif folder_path is not None:
+        paths = _find_matching_files(None, "", "contains", [], folder=folder_path)
+        if not paths:
+            return None, ok(f"No files found in folder '{folder}'", results=[], total=0)
+
+        if not confirm:
+            return None, _confirmation_preview(
+                operation, field, value, paths, f" in folder '{folder}'"
+            )
+
+    elif paths is not None:
+        if not paths:
+            return None, err("paths list is empty")
+
+        if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
+            return None, _confirmation_preview(operation, field, value, paths, "")
+
+    else:
+        return None, err("Provide paths, target_field/target_value, or folder")
+
+    return paths, None
+
+
 def batch_update_frontmatter(
     field: str,
     value: str | None = None,
@@ -357,90 +450,17 @@ def batch_update_frontmatter(
     if operation in ("set", "append") and value is None:
         return err(f"value is required for '{operation}' operation")
 
-    # Resolve folder if provided
-    folder_path = None
-    if folder:
-        if paths is not None:
-            return err("Cannot combine 'folder' with explicit 'paths'")
-        folder_path, folder_err = resolve_dir(folder)
-        if folder_err:
-            return err(folder_err)
+    resolved_paths, early_return = _resolve_batch_targets(
+        paths, target_field, target_value, target_match_type,
+        target_filters, folder, confirm, operation, field, value,
+    )
+    if early_return is not None:
+        return early_return
 
-    # Resolve target files
-    if target_field is not None and paths is not None:
-        return err("Provide either paths or target_field/target_value, not both")
-
-    if target_field is not None:
-        if target_match_type not in VALID_MATCH_TYPES:
-            return err(
-                f"target_match_type must be one of {VALID_MATCH_TYPES}, "
-                f"got '{target_match_type}'"
-            )
-        if target_match_type not in NO_VALUE_MATCH_TYPES and target_value is None:
-            return err(f"target_value is required for target_match_type '{target_match_type}'")
-
-        parsed_target_filters, filter_err = _validate_filters(target_filters)
-        if filter_err:
-            return err(filter_err)
-
-        paths = _find_matching_files(
-            target_field, target_value or "", target_match_type,
-            parsed_target_filters, folder=folder_path,
-        )
-        if not paths:
-            return ok("No files matched the targeting criteria", results=[], total=0)
-
-        # Query-based targeting always requires confirmation
-        if not confirm:
-            desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
-            folder_note = f" in folder '{folder}'" if folder else ""
-            return ok(
-                f"This will {desc} on {len(paths)} files matched by "
-                f"target_field='{target_field}', target_value='{target_value}'"
-                f"{folder_note}. "
-                "Show the file list to the user and call again with confirm=true to proceed.",
-                confirmation_required=True,
-                files=paths,
-            )
-
-    elif folder_path is not None:
-        # Folder-only mode: target all files in the folder
-        paths = _find_matching_files(None, "", "contains", [], folder=folder_path)
-        if not paths:
-            return ok(f"No files found in folder '{folder}'", results=[], total=0)
-
-        # Folder-only always requires confirmation
-        if not confirm:
-            desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
-            return ok(
-                f"This will {desc} on {len(paths)} files in folder '{folder}'. "
-                "Show the file list to the user and call again with confirm=true to proceed.",
-                confirmation_required=True,
-                files=paths,
-            )
-
-    elif paths is not None:
-        if not paths:
-            return err("paths list is empty")
-
-        # Require confirmation for large explicit batches
-        if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
-            desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
-            return ok(
-                f"This will {desc} on {len(paths)} files. "
-                "Show the file list to the user and call again with confirm=true to proceed.",
-                confirmation_required=True,
-                files=paths,
-            )
-    else:
-        return err("Provide paths, target_field/target_value, or folder")
-
-    # Normalize value once (same for all files)
     parsed_value = _normalize_frontmatter_value(value)
 
-    # Process each file
     results = []
-    for path in paths:
+    for path in resolved_paths:
         success, message = do_update_frontmatter(path, field, parsed_value, operation)
         results.append((success, message))
 
