@@ -19,7 +19,7 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 ![Architecture diagram](obsidian-tools-architecture.svg)
 
 1. **Indexer** scans your vault and creates embeddings in ChromaDB, splitting notes by headings, paragraphs, and sentences for precise retrieval
-2. **MCP Server** exposes 22 tools for searching, reading, and modifying vault content
+2. **MCP Server** exposes 23 tools for searching, reading, and modifying vault content
 3. **LLM Agent** (powered by [Fireworks AI](https://fireworks.ai/)) orchestrates the tools to answer your questions
 4. **Interfaces** — chat in Obsidian via the sidebar plugin, from the terminal via the CLI agent, or programmatically via the HTTP API
 
@@ -96,7 +96,7 @@ Edit `.env`:
 VAULT_PATH=~/Documents/your-vault-name
 CHROMA_PATH=./.chroma_db
 FIREWORKS_API_KEY=your-api-key-here
-FIREWORKS_MODEL=accounts/fireworks/models/kimi-k2p5
+FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b
 API_PORT=8000
 INDEX_INTERVAL=60
 ```
@@ -106,7 +106,7 @@ INDEX_INTERVAL=60
 | `VAULT_PATH` | Path to your Obsidian vault |
 | `CHROMA_PATH` | Where to store the ChromaDB database (relative or absolute) |
 | `FIREWORKS_API_KEY` | API key from [Fireworks AI](https://fireworks.ai/) |
-| `FIREWORKS_MODEL` | Fireworks model ID (default: Kimi K2.5) |
+| `FIREWORKS_MODEL` | Fireworks model ID (default: gpt-oss-120b) |
 | `API_PORT` | Port for the HTTP API server (default: `8000`) |
 | `INDEX_INTERVAL` | How often the vault indexer runs, in minutes (default: `60`) |
 
