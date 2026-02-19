@@ -29,6 +29,7 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 MAX_TOOL_RESULT_CHARS = 100_000
+TOOL_TIMEOUT = 60  # seconds
 
 
 SYSTEM_PROMPT_FILE = PROJECT_ROOT / "system_prompt.txt"
@@ -210,10 +211,14 @@ async def execute_tool_call(
 ) -> str:
     """Execute a tool call via MCP and return the result."""
     try:
-        result = await session.call_tool(tool_name, arguments)
+        with anyio.fail_after(TOOL_TIMEOUT):
+            result = await session.call_tool(tool_name, arguments)
         if result.isError:
             return f"Tool error: {extract_text_content(result.content)}"
         return extract_text_content(result.content)
+    except TimeoutError:
+        logger.warning("Tool '%s' timed out after %ds", tool_name, TOOL_TIMEOUT)
+        return f"Tool '{tool_name}' timed out after {TOOL_TIMEOUT}s"
     except Exception as e:
         return f"Failed to execute tool {tool_name}: {e}"
 
