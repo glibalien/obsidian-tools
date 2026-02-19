@@ -4,6 +4,8 @@
 import logging
 from collections import defaultdict
 
+from chromadb.errors import ChromaError
+
 from config import KEYWORD_LIMIT, RRF_K
 from services.chroma import get_collection
 
@@ -107,8 +109,8 @@ def keyword_search(
 
     try:
         matches = collection.get(**get_kwargs)
-    except Exception as e:
-        logger.warning(f"Keyword search failed: {e}")
+    except ChromaError as e:
+        logger.warning("Keyword search failed: %s", e)
         return []
 
     if not matches["ids"]:
