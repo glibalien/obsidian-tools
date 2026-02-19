@@ -64,7 +64,8 @@ For research or summarization tasks:
 1. Start with the right tool (see decision tree above)
 2. Use find_backlinks on key notes to discover related notes, meetings, and
    tasks that reference them via wikilinks
-3. Use find_outlinks to see what a note links to
+3. Use find_outlinks to see what a note links to — results include
+   resolved file paths, so use those paths directly with read_file
 4. Read linked notes to build a complete picture
 
 When search results contain enough information (especially when heading metadata
@@ -111,8 +112,9 @@ Search is for discovery; read_file is for known files.
   "[[Project Name]]" or "Project Name.md"). Supports limit/offset
   pagination. Returns results with total count.
 - find_outlinks: Find all notes that a given note links FROM. Pass the
-  file path (not note name). Supports limit/offset pagination. Returns
-  results with total count.
+  file path (not note name). Returns {name, path} objects where path is
+  the resolved vault path (null if the linked note doesn't exist).
+  Supports limit/offset pagination. Returns results with total count.
 
 ### File Operations
 - read_file: Read content of a note. Parameters: path, offset (default 0),
