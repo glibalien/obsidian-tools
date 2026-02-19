@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from config import VAULT_PATH
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     do_update_frontmatter,
@@ -15,6 +14,7 @@ from services.vault import (
     extract_frontmatter,
     format_batch_result,
     get_file_creation_time,
+    get_relative_path,
     get_vault_files,
     ok,
     parse_frontmatter_date,
@@ -184,7 +184,6 @@ def _find_matching_files(
         Sorted list of path strings or dicts (when include_fields is set).
     """
     matching = []
-    vault_resolved = VAULT_PATH.resolve()
 
     files = get_vault_files()
     if folder:
@@ -205,7 +204,7 @@ def _find_matching_files(
         ):
             continue
 
-        rel_path = str(md_file.resolve().relative_to(vault_resolved))
+        rel_path = get_relative_path(md_file)
         if include_fields:
             result = {"path": rel_path}
             for inc_field in include_fields:
@@ -508,7 +507,6 @@ def search_by_date_range(
         return err(f"start_date ({start_date}) is after end_date ({end_date})")
 
     matching = []
-    vault_resolved = VAULT_PATH.resolve()
 
     for md_file in get_vault_files():
         file_date = None
@@ -532,8 +530,7 @@ def search_by_date_range(
         # Compare date only (ignore time component)
         file_date_only = file_date.replace(hour=0, minute=0, second=0, microsecond=0)
         if start <= file_date_only <= end:
-            rel_path = md_file.relative_to(vault_resolved)
-            matching.append(str(rel_path))
+            matching.append(get_relative_path(md_file))
 
     if not matching:
         return ok(

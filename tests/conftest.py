@@ -126,8 +126,6 @@ def vault_config(temp_vault, monkeypatch):
     monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian"})
 
     # Patch in tools modules that import from config
-    monkeypatch.setattr(tools.frontmatter, "VAULT_PATH", temp_vault)
-    monkeypatch.setattr(tools.links, "VAULT_PATH", temp_vault)
     monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian"})
     monkeypatch.setattr(tools.audio, "ATTACHMENTS_DIR", attachments_dir)
 
