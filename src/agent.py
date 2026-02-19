@@ -218,6 +218,44 @@ async def execute_tool_call(
         return f"Failed to execute tool {tool_name}: {e}"
 
 
+async def ensure_interaction_logged(
+    session: ClientSession,
+    messages: list[dict],
+    turn_start: int,
+    user_query: str,
+    response: str,
+) -> None:
+    """Auto-log interaction if agent didn't call log_interaction during the turn.
+
+    Scans messages added during the turn for tool calls. If any tool calls
+    were made but none named ``log_interaction``, fires a log_interaction
+    call via MCP so the interaction is recorded in the daily note.
+    """
+    tool_names_called: list[str] = []
+    for msg in messages[turn_start:]:
+        if msg.get("role") == "assistant":
+            for tc in msg.get("tool_calls") or []:
+                name = tc.get("function", {}).get("name", "")
+                if name:
+                    tool_names_called.append(name)
+
+    if not tool_names_called:
+        return  # Conversation only — no action taken
+
+    if "log_interaction" in tool_names_called:
+        return  # Agent already logged
+
+    logger.warning("Agent did not call log_interaction — auto-logging")
+    try:
+        await execute_tool_call(session, "log_interaction", {
+            "task_description": "(auto-logged)",
+            "query": user_query,
+            "summary": response[:2000],
+        })
+    except Exception:
+        logger.exception("Auto-log failed")
+
+
 GET_CONTINUATION_TOOL = {
     "type": "function",
     "function": {
@@ -485,6 +523,7 @@ async def chat_loop():
                 updated_prompt += preferences
             messages[0]["content"] = updated_prompt
 
+            turn_start = len(messages)
             messages.append({"role": "user", "content": user_input})
 
             # Strip _compacted flags before LLM call (Fireworks rejects them),
@@ -502,6 +541,9 @@ async def chat_loop():
 
             try:
                 response = await agent_turn(client, session, messages, tools)
+                await ensure_interaction_logged(
+                    session, messages, turn_start, user_input, response,
+                )
                 _restore_compacted_flags()
                 compact_tool_messages(messages)
                 print(f"\nAssistant: {response}\n")
