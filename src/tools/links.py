@@ -56,7 +56,7 @@ def _scan_backlinks(note_name: str) -> list[str]:
 
 
 def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
-    """Extract all wikilinks from a vault file.
+    """Extract all wikilinks from a vault file with resolved paths.
 
     Args:
         path: Path to the note (relative to vault or absolute).
@@ -64,8 +64,8 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
         offset: Number of results to skip (default 0).
 
     Returns:
-        JSON response with list of linked note names (without brackets),
-        or a message if no outlinks found.
+        JSON response with list of {name, path} objects. path is null
+        for unresolved links (non-existent notes).
     """
     file_path, error = resolve_file(path)
     if error:
@@ -87,11 +87,61 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     if not matches:
         return ok(f"No outlinks found in {path}", results=[], total=0)
 
-    # Deduplicate and sort
-    all_results = sorted(set(matches))
+    # Build lookup maps for resolution
+    stem_map, path_map = _build_note_path_map()
+
+    # Deduplicate, resolve paths, and sort
+    unique_names = sorted(set(matches))
+    all_results = [
+        {"name": name, "path": _resolve_link(name, stem_map, path_map)}
+        for name in unique_names
+    ]
     total = len(all_results)
     page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)
+
+
+def _build_note_path_map() -> tuple[dict[str, str], dict[str, str]]:
+    """Build mappings for resolving wikilink names to vault paths.
+
+    Returns:
+        Tuple of (stem_map, path_map):
+        - stem_map: lowercase stem → relative path (shortest wins for collisions)
+        - path_map: lowercase relative path without .md → relative path (all files)
+    """
+    stem_map: dict[str, str] = {}
+    path_map: dict[str, str] = {}
+    for md_file in get_vault_files():
+        rel_path = get_relative_path(md_file)
+        # Normalize separators for cross-platform matching
+        normalized = rel_path.replace("\\", "/")
+        stem = md_file.stem.lower()
+        if stem not in stem_map or len(rel_path) < len(stem_map[stem]):
+            stem_map[stem] = rel_path
+        # Store without .md for folder-qualified lookup
+        key = normalized[:-3].lower() if normalized.endswith(".md") else normalized.lower()
+        path_map[key] = rel_path
+    return stem_map, path_map
+
+
+def _resolve_link(
+    name: str, stem_map: dict[str, str], path_map: dict[str, str]
+) -> str | None:
+    """Resolve a wikilink name to a relative vault path.
+
+    Handles #heading suffixes and folder-prefixed links.
+    """
+    # Strip #heading suffix for resolution
+    base_name = name.split("#")[0] if "#" in name else name
+
+    # Try as bare stem (most common case)
+    resolved = stem_map.get(base_name.lower())
+    if resolved:
+        return resolved
+
+    # Try as folder-qualified path (e.g. [[Projects/note1]])
+    normalized = base_name.replace("\\", "/").lower()
+    return path_map.get(normalized)
 
 
 def search_by_folder(
