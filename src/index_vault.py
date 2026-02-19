@@ -2,6 +2,7 @@
 """Index the Obsidian vault into ChromaDB for semantic search."""
 
 import hashlib
+import logging
 import os
 import re
 import sys
@@ -10,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from config import VAULT_PATH, CHROMA_PATH
 from services.chroma import get_collection
@@ -81,7 +84,8 @@ def _parse_frontmatter(text: str) -> dict:
         return {}
     try:
         return yaml.safe_load(text[4:end]) or {}
-    except Exception:
+    except yaml.YAMLError as e:
+        logger.debug("Invalid frontmatter YAML: %s", e)
         return {}
 
 
