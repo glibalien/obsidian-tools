@@ -99,17 +99,19 @@ class TestPathResolution:
         assert error is None
         assert path == vault_config / "note1.md"
 
-    def test_resolve_file_not_found(self, vault_config):
-        """resolve_file should return error for missing file."""
-        path, error = resolve_file("nonexistent.md")
+    @pytest.mark.parametrize(
+        ("input_path", "expected_error"),
+        [
+            ("nonexistent.md", "File not found"),
+            ("projects", "Not a file"),
+        ],
+        ids=["missing", "is_directory"],
+    )
+    def test_resolve_file_error(self, vault_config, input_path, expected_error):
+        """resolve_file should return error for invalid targets."""
+        path, error = resolve_file(input_path)
         assert path is None
-        assert "File not found" in error
-
-    def test_resolve_file_is_directory(self, vault_config):
-        """resolve_file should return error for directory."""
-        path, error = resolve_file("projects")
-        assert path is None
-        assert "Not a file" in error
+        assert expected_error in error
 
     def test_resolve_dir_success(self, vault_config):
         """resolve_dir should return path for existing directory."""
@@ -117,17 +119,19 @@ class TestPathResolution:
         assert error is None
         assert path == vault_config / "projects"
 
-    def test_resolve_dir_not_found(self, vault_config):
-        """resolve_dir should return error for missing directory."""
-        path, error = resolve_dir("nonexistent")
+    @pytest.mark.parametrize(
+        ("input_path", "expected_error"),
+        [
+            ("nonexistent", "Folder not found"),
+            ("note1.md", "Not a folder"),
+        ],
+        ids=["missing", "is_file"],
+    )
+    def test_resolve_dir_error(self, vault_config, input_path, expected_error):
+        """resolve_dir should return error for invalid targets."""
+        path, error = resolve_dir(input_path)
         assert path is None
-        assert "Folder not found" in error
-
-    def test_resolve_dir_is_file(self, vault_config):
-        """resolve_dir should return error for file."""
-        path, error = resolve_dir("note1.md")
-        assert path is None
-        assert "Not a folder" in error
+        assert expected_error in error
 
 
 class TestFrontmatter:
