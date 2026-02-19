@@ -307,11 +307,26 @@ class TestCompactToolMessages:
 from api_server import Session, get_or_create_session, file_sessions, trim_messages
 
 
+@pytest.fixture(autouse=False)
+def clear_sessions():
+    """Clear file_sessions before each test."""
+    file_sessions.clear()
+    yield
+    file_sessions.clear()
+
+
+@pytest.fixture(autouse=False)
+def mock_app(clear_sessions):
+    """Clear sessions and set up mock app state for endpoint tests."""
+    app.state.mcp_session = AsyncMock()
+    app.state.llm_client = MagicMock()
+    app.state.tools = []
+    app.state.system_prompt = "test system prompt"
+
+
+@pytest.mark.usefixtures("clear_sessions")
 class TestSessionRouting:
     """Tests for file-keyed session routing."""
-
-    def setup_method(self):
-        file_sessions.clear()
 
     def test_new_session_created(self):
         """First request for a file creates a new session."""
@@ -355,15 +370,9 @@ class TestSessionRouting:
         assert session.session_id is not None
 
 
+@pytest.mark.usefixtures("mock_app")
 class TestChatEndpointIntegration:
     """Integration tests for /chat with file-keyed sessions."""
-
-    def setup_method(self):
-        file_sessions.clear()
-        app.state.mcp_session = AsyncMock()
-        app.state.llm_client = MagicMock()
-        app.state.tools = []
-        app.state.system_prompt = "test system prompt"
 
     @patch("api_server.agent_turn", new_callable=AsyncMock)
     def test_same_file_continues_session(self, mock_agent_turn):
@@ -500,11 +509,9 @@ class TestChatEndpointIntegration:
             assert "Always be concise" in session.messages[0]["content"]
 
 
+@pytest.mark.usefixtures("clear_sessions")
 class TestLRUEviction:
     """Tests for LRU session eviction."""
-
-    def setup_method(self):
-        file_sessions.clear()
 
     @patch("api_server.MAX_SESSIONS", 3)
     def test_oldest_evicted_when_full(self):
@@ -621,15 +628,9 @@ class TestTrimMessages:
         assert messages[0]["content"] == "important system prompt"
 
 
+@pytest.mark.usefixtures("mock_app")
 class TestStreamEndpoint:
     """Tests for POST /chat/stream SSE endpoint."""
-
-    def setup_method(self):
-        file_sessions.clear()
-        app.state.mcp_session = AsyncMock()
-        app.state.llm_client = MagicMock()
-        app.state.tools = []
-        app.state.system_prompt = "test system prompt"
 
     @patch("api_server.agent_turn", new_callable=AsyncMock)
     def test_stream_returns_sse_events(self, mock_agent_turn):
