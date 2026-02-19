@@ -56,7 +56,7 @@ def _scan_backlinks(note_name: str) -> list[str]:
 
 
 def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
-    """Extract all wikilinks from a vault file.
+    """Extract all wikilinks from a vault file with resolved paths.
 
     Args:
         path: Path to the note (relative to vault or absolute).
@@ -64,8 +64,8 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
         offset: Number of results to skip (default 0).
 
     Returns:
-        JSON response with list of linked note names (without brackets),
-        or a message if no outlinks found.
+        JSON response with list of {name, path} objects. path is null
+        for unresolved links (non-existent notes).
     """
     file_path, error = resolve_file(path)
     if error:
@@ -87,11 +87,55 @@ def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
     if not matches:
         return ok(f"No outlinks found in {path}", results=[], total=0)
 
-    # Deduplicate and sort
-    all_results = sorted(set(matches))
+    # Build stem → relative path lookup for resolution
+    name_to_path = _build_note_path_map()
+
+    # Deduplicate, resolve paths, and sort
+    unique_names = sorted(set(matches))
+    all_results = [
+        {"name": name, "path": _resolve_link(name, name_to_path)}
+        for name in unique_names
+    ]
     total = len(all_results)
     page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)
+
+
+def _build_note_path_map() -> dict[str, str]:
+    """Build a mapping from note stem (lowercase) to relative vault path.
+
+    When multiple notes share a stem, the shortest path wins
+    (matches Obsidian's default resolution behavior).
+    """
+    name_to_path: dict[str, str] = {}
+    for md_file in get_vault_files():
+        rel_path = get_relative_path(md_file)
+        stem = md_file.stem.lower()
+        if stem not in name_to_path or len(rel_path) < len(name_to_path[stem]):
+            name_to_path[stem] = rel_path
+    return name_to_path
+
+
+def _resolve_link(name: str, name_to_path: dict[str, str]) -> str | None:
+    """Resolve a wikilink name to a relative vault path.
+
+    Handles #heading suffixes and folder-prefixed links.
+    """
+    # Strip #heading suffix for resolution
+    base_name = name.split("#")[0] if "#" in name else name
+
+    # Try as bare stem (most common case)
+    resolved = name_to_path.get(base_name.lower())
+    if resolved:
+        return resolved
+
+    # Try as relative path (e.g. [[Projects/note1]])
+    with_ext = base_name if base_name.endswith(".md") else base_name + ".md"
+    for path in name_to_path.values():
+        if path.lower() == with_ext.lower():
+            return path
+
+    return None
 
 
 def search_by_folder(

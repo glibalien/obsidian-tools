@@ -72,17 +72,46 @@ class TestFindOutlinks:
     """Tests for find_outlinks tool."""
 
     def test_find_outlinks_basic(self, vault_config):
-        """Should extract wikilinks from file."""
+        """Should extract wikilinks with resolved paths."""
         result = json.loads(find_outlinks("note2.md"))
         assert result["success"] is True
-        assert "note1" in result["results"]
-        assert "note3" in result["results"]
+        names = [r["name"] for r in result["results"]]
+        assert "note1" in names
+        assert "note3" in names
+        # Paths should resolve to existing vault files
+        by_name = {r["name"]: r["path"] for r in result["results"]}
+        assert by_name["note1"] == "note1.md"
+        assert by_name["note3"] == "note3.md"
 
-    def test_find_outlinks_simple_link(self, vault_config):
-        """Should find simple wikilinks."""
+    def test_find_outlinks_unresolved_link(self, vault_config):
+        """Should return null path for links to non-existent notes."""
         result = json.loads(find_outlinks("note1.md"))
         assert result["success"] is True
-        assert "wikilink" in result["results"]
+        by_name = {r["name"]: r["path"] for r in result["results"]}
+        assert "wikilink" in by_name
+        assert by_name["wikilink"] is None
+
+    def test_find_outlinks_heading_suffix(self, vault_config):
+        """Should resolve links with #heading suffixes."""
+        (vault_config / "heading_links.md").write_text(
+            "See [[note1#Section A]] for details."
+        )
+        result = json.loads(find_outlinks("heading_links.md"))
+        assert result["success"] is True
+        link = result["results"][0]
+        assert link["name"] == "note1#Section A"
+        assert link["path"] == "note1.md"
+
+    def test_find_outlinks_subfolder_resolution(self, vault_config):
+        """Should resolve links to notes in subfolders."""
+        (vault_config / "links_to_project.md").write_text(
+            "Check [[project1]] for status."
+        )
+        result = json.loads(find_outlinks("links_to_project.md"))
+        assert result["success"] is True
+        link = result["results"][0]
+        assert link["name"] == "project1"
+        assert link["path"] == "projects/project1.md"
 
     def test_find_outlinks_none_found(self, vault_config):
         """Should return message when no outlinks found."""
@@ -106,7 +135,8 @@ class TestFindOutlinks:
         )
         result = json.loads(find_outlinks("dupes.md"))
         assert result["success"] is True
-        assert result["results"].count("same") == 1
+        names = [r["name"] for r in result["results"]]
+        assert names.count("same") == 1
 
 
 class TestSearchByFolder:
