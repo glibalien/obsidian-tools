@@ -664,29 +664,24 @@ class TestQueryBasedBatchUpdate:
 class TestCaseInsensitiveMatching:
     """Tests for case-insensitive frontmatter matching."""
 
-    def test_contains_case_insensitive(self, vault_config):
-        """Contains matching should be case-insensitive."""
-        (vault_config / "ci1.md").write_text(
-            "---\nstatus: Open\n---\n"
-        )
+    @pytest.mark.parametrize(
+        ("filename", "frontmatter", "field", "value", "match_type"),
+        [
+            ("ci1.md", "---\nstatus: Open\n---\n", "status", "open", "contains"),
+            ("ci2.md", "---\ncategory: Meeting\n---\n", "category", "meeting", "equals"),
+            ("ci4.md", "---\ntags:\n  - Project\n  - Work\n---\n", "tags", "work", "contains"),
+            ("ci5.md", "---\npriority: 1\n---\n", "priority", "1", "equals"),
+        ],
+        ids=["contains", "equals", "list_values", "non_string"],
+    )
+    def test_simple_case_insensitive(self, vault_config, filename, frontmatter, field, value, match_type):
+        """Case-insensitive matching should work for contains, equals, list values, and non-string types."""
+        (vault_config / filename).write_text(frontmatter)
         result = json.loads(
-            list_files_by_frontmatter(field="status", value="open")
+            list_files_by_frontmatter(field=field, value=value, match_type=match_type)
         )
         assert result["total"] >= 1
-        assert any("ci1.md" in p for p in result["results"])
-
-    def test_equals_case_insensitive(self, vault_config):
-        """Equals matching should be case-insensitive."""
-        (vault_config / "ci2.md").write_text(
-            "---\ncategory: Meeting\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="category", value="meeting", match_type="equals"
-            )
-        )
-        assert result["total"] >= 1
-        assert any("ci2.md" in p for p in result["results"])
+        assert any(filename in p for p in result["results"])
 
     def test_filter_case_insensitive(self, vault_config):
         """Compound filter values should also be case-insensitive."""
@@ -701,17 +696,6 @@ class TestCaseInsensitiveMatching:
         )
         assert result["total"] >= 1
         assert any("ci3.md" in p for p in result["results"])
-
-    def test_list_values_case_insensitive(self, vault_config):
-        """Contains in list values should be case-insensitive."""
-        (vault_config / "ci4.md").write_text(
-            "---\ntags:\n  - Project\n  - Work\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(field="tags", value="work")
-        )
-        assert result["total"] >= 1
-        assert any("ci4.md" in p for p in result["results"])
 
     def test_field_name_case_insensitive(self, vault_config):
         """Field names should match case-insensitively (e.g. Project vs project)."""
@@ -742,81 +726,29 @@ class TestCaseInsensitiveMatching:
         item = next(r for r in result["results"] if "ci_inc.md" in r["path"])
         assert item["status"] == "Open"
 
-    def test_non_string_field_value(self, vault_config):
-        """Non-string field values (e.g. int) should be handled via str conversion."""
-        (vault_config / "ci5.md").write_text(
-            "---\npriority: 1\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="priority", value="1", match_type="equals"
-            )
-        )
-        assert result["total"] >= 1
-        assert any("ci5.md" in p for p in result["results"])
-
 
 class TestWikilinkStripping:
     """Tests for wikilink bracket stripping in frontmatter matching."""
 
-    def test_contains_strips_brackets_from_stored_value(self, vault_config):
-        """'Agentic S2P' should match frontmatter containing '[[Agentic S2P]]'."""
-        (vault_config / "wl1.md").write_text(
-            "---\nProject:\n- '[[Agentic S2P]]'\nstatus: open\n---\n"
-        )
+    @pytest.mark.parametrize(
+        ("filename", "frontmatter", "value", "match_type"),
+        [
+            ("wl1.md", "---\nProject:\n- '[[Agentic S2P]]'\nstatus: open\n---\n", "Agentic S2P", "contains"),
+            ("wl2.md", "---\nProject:\n- '[[Agentic S2P]]'\n---\n", "[[Agentic S2P]]", "contains"),
+            ("wl3.md", "---\nProject:\n- '[[Agentic S2P]]'\n---\n", "Agentic S2P", "equals"),
+            ("wl4.md", "---\nproject: '[[Agentic S2P]]'\n---\n", "Agentic S2P", "equals"),
+            ("wl5.md", "---\nproject: '[[Agentic S2P|S2P Project]]'\n---\n", "Agentic S2P", "contains"),
+        ],
+        ids=["stored_brackets", "search_brackets", "equals_list", "equals_string", "aliased"],
+    )
+    def test_wikilink_stripping(self, vault_config, filename, frontmatter, value, match_type):
+        """Wikilink brackets should be stripped during frontmatter matching."""
+        (vault_config / filename).write_text(frontmatter)
         result = json.loads(
-            list_files_by_frontmatter(field="project", value="Agentic S2P")
+            list_files_by_frontmatter(field="project", value=value, match_type=match_type)
         )
         assert result["total"] >= 1
-        assert any("wl1.md" in p for p in result["results"])
-
-    def test_contains_strips_brackets_from_search_value(self, vault_config):
-        """'[[Agentic S2P]]' search value should also match."""
-        (vault_config / "wl2.md").write_text(
-            "---\nProject:\n- '[[Agentic S2P]]'\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(field="project", value="[[Agentic S2P]]")
-        )
-        assert result["total"] >= 1
-        assert any("wl2.md" in p for p in result["results"])
-
-    def test_equals_with_wikilink_list(self, vault_config):
-        """equals match_type should work with wikilinked list values."""
-        (vault_config / "wl3.md").write_text(
-            "---\nProject:\n- '[[Agentic S2P]]'\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="project", value="Agentic S2P", match_type="equals"
-            )
-        )
-        assert result["total"] >= 1
-        assert any("wl3.md" in p for p in result["results"])
-
-    def test_equals_with_wikilink_string(self, vault_config):
-        """equals should strip brackets from non-list string values too."""
-        (vault_config / "wl4.md").write_text(
-            "---\nproject: '[[Agentic S2P]]'\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(
-                field="project", value="Agentic S2P", match_type="equals"
-            )
-        )
-        assert result["total"] >= 1
-        assert any("wl4.md" in p for p in result["results"])
-
-    def test_aliased_wikilink(self, vault_config):
-        """Aliased wikilinks like '[[Foo|Bar]]' should match on 'Foo'."""
-        (vault_config / "wl5.md").write_text(
-            "---\nproject: '[[Agentic S2P|S2P Project]]'\n---\n"
-        )
-        result = json.loads(
-            list_files_by_frontmatter(field="project", value="Agentic S2P")
-        )
-        assert result["total"] >= 1
-        assert any("wl5.md" in p for p in result["results"])
+        assert any(filename in p for p in result["results"])
 
     def test_compound_filter_strips_wikilinks(self, vault_config):
         """Wikilink stripping should also apply to compound filter values."""

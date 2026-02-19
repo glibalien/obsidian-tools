@@ -172,16 +172,18 @@ class TestSimplifySchema:
         assert json.dumps(schema) == original
 
 
-def test_truncate_tool_result_short():
-    """Short results are returned unchanged."""
-    result = "short result"
-    assert truncate_tool_result(result) == "short result"
-
-
-def test_truncate_tool_result_exact_limit():
-    """Result exactly at limit is not truncated."""
-    result = "x" * MAX_TOOL_RESULT_CHARS
-    assert truncate_tool_result(result) == result
+@pytest.mark.parametrize(
+    ("result", "result_id"),
+    [
+        ("short result", None),
+        ("x" * MAX_TOOL_RESULT_CHARS, None),
+        ("short", "1"),
+    ],
+    ids=["short", "exact_limit", "short_with_id"],
+)
+def test_truncate_tool_result_not_truncated(result, result_id):
+    """Results at or under the limit are returned unchanged."""
+    assert truncate_tool_result(result, result_id=result_id) == result
 
 
 def test_truncate_tool_result_over_limit():
@@ -202,19 +204,6 @@ def test_truncate_tool_result_with_result_id():
     assert "tool_call_id" not in truncated  # no longer uses tool_call_id
     assert str(MAX_TOOL_RESULT_CHARS) in truncated
     assert str(MAX_TOOL_RESULT_CHARS + 500) in truncated
-
-
-def test_truncate_tool_result_no_id_still_works():
-    """Without tool_call_id, truncation marker omits continuation hint."""
-    result = "x" * (MAX_TOOL_RESULT_CHARS + 100)
-    truncated = truncate_tool_result(result)
-    assert truncated.endswith("\n\n[truncated]")
-
-
-def test_truncate_tool_result_short_with_id():
-    """Short results unchanged even when result_id provided."""
-    result = "short"
-    assert truncate_tool_result(result, result_id="1") == "short"
 
 
 @pytest.mark.anyio
