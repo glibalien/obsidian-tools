@@ -330,10 +330,11 @@ class TestConfirmationHelpers:
         h2 = compute_op_hash({"paths": ["a.md", "b.md"]})
         assert h1 == h2
 
-    def test_compute_op_hash_sorts_moves(self):
+    def test_compute_op_hash_preserves_move_order(self):
+        """Move order matters (chained renames), so different order = different hash."""
         h1 = compute_op_hash({"moves": [{"source": "b.md", "destination": "x/"}, {"source": "a.md", "destination": "y/"}]})
         h2 = compute_op_hash({"moves": [{"source": "a.md", "destination": "y/"}, {"source": "b.md", "destination": "x/"}]})
-        assert h1 == h2
+        assert h1 != h2
 
     def test_compute_op_hash_different_params(self):
         h1 = compute_op_hash({"field": "status", "value": "done"})

@@ -520,8 +520,9 @@ _pending_confirmations: dict[str, dict] = {}
 def compute_op_hash(params: dict) -> str:
     """Compute a deterministic hash for batch operation parameters.
 
-    Sorts params by key. For 'paths' and 'moves' keys, sorts list values
-    to ensure order-independence. Returns SHA-256 hex digest.
+    Sorts params by key. For 'paths', sorts to ensure order-independence
+    (each update is independent). For 'moves', preserves order since
+    execution order can affect outcomes (e.g. chained renames).
     """
     normalized = {}
     for key in sorted(params.keys()):
@@ -529,9 +530,7 @@ def compute_op_hash(params: dict) -> str:
         if key == "paths" and isinstance(value, list):
             value = sorted(value)
         elif key == "moves" and isinstance(value, list):
-            value = sorted(
-                json.dumps(item, sort_keys=True) for item in value
-            )
+            value = [json.dumps(item, sort_keys=True) for item in value]
         normalized[key] = value
     canonical = json.dumps(normalized, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()
