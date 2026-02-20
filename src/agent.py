@@ -321,15 +321,17 @@ async def _process_tool_calls(
     truncated_results: dict[str, str],
     next_result_id: int,
     emit: EventCallback | None,
-) -> int:
+) -> tuple[int, bool]:
     """Execute tool calls from an assistant message and append results to messages.
 
-    Returns the updated next_result_id counter.
+    Returns (updated next_result_id, confirmation_required).
     """
 
     async def _emit(event_type: str, data: dict) -> None:
         if emit is not None:
             await emit(event_type, data)
+
+    confirmation_required = False
 
     for tool_call in tool_calls:
         tool_name = tool_call.function.name
@@ -376,11 +378,13 @@ async def _process_tool_calls(
         try:
             parsed = json.loads(result)
             success = parsed.get("success", True)
+            if parsed.get("confirmation_required"):
+                confirmation_required = True
         except (json.JSONDecodeError, AttributeError):
             success = not result.startswith(("Tool error:", "Failed to execute tool"))
         await _emit("tool_result", {"tool": tool_name, "success": success})
 
-    return next_result_id
+    return next_result_id, confirmation_required
 
 
 async def agent_turn(
@@ -461,10 +465,16 @@ async def agent_turn(
         if last_content:
             logger.info("Assistant text: %s", last_content)
 
-        next_result_id = await _process_tool_calls(
+        next_result_id, confirmation_required = await _process_tool_calls(
             assistant_message.tool_calls, session, messages,
             truncated_results, next_result_id, on_event,
         )
+
+        if confirmation_required:
+            logger.info("Confirmation required — ending turn for user approval")
+            content = last_content or ""
+            await _emit("response", {"content": content})
+            return content
 
 
 
