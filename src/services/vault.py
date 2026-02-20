@@ -1,9 +1,11 @@
 """Vault service - path resolution, file scanning, and utility functions."""
 
+import hashlib
 import json
 import logging
 import re
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -504,6 +506,60 @@ def do_move_file(
     src_rel = get_relative_path(source_path)
     dest_rel = get_relative_path(dest_path)
     return True, f"Moved {src_rel} to {dest_rel}"
+
+
+# =============================================================================
+# Batch Confirmation Tracking
+# =============================================================================
+
+CONFIRM_EXPIRY_SECONDS = 300
+
+_pending_confirmations: dict[str, dict] = {}
+
+
+def compute_op_hash(params: dict) -> str:
+    """Compute a deterministic hash for batch operation parameters.
+
+    Sorts params by key. For 'paths' and 'moves' keys, sorts list values
+    to ensure order-independence. Returns SHA-256 hex digest.
+    """
+    normalized = {}
+    for key in sorted(params.keys()):
+        value = params[key]
+        if key == "paths" and isinstance(value, list):
+            value = sorted(value)
+        elif key == "moves" and isinstance(value, list):
+            value = sorted(
+                json.dumps(item, sort_keys=True) for item in value
+            )
+        normalized[key] = value
+    canonical = json.dumps(normalized, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def store_confirmation(op_hash: str) -> None:
+    """Store a confirmation hash. Cleans expired records first."""
+    now = time.time()
+    expired = [
+        h for h, rec in _pending_confirmations.items()
+        if now - rec["created"] > CONFIRM_EXPIRY_SECONDS
+    ]
+    for h in expired:
+        del _pending_confirmations[h]
+    _pending_confirmations[op_hash] = {"created": now}
+
+
+def check_confirmation(op_hash: str) -> bool:
+    """Pop and validate a confirmation hash. Returns True if valid and not expired."""
+    record = _pending_confirmations.pop(op_hash, None)
+    if record is None:
+        return False
+    return time.time() - record["created"] <= CONFIRM_EXPIRY_SECONDS
+
+
+def clear_pending_confirmations() -> None:
+    """Clear all pending confirmations. For testing only."""
+    _pending_confirmations.clear()
 
 
 # =============================================================================

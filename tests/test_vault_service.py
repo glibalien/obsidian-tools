@@ -1,11 +1,17 @@
 """Tests for services/vault.py - path resolution, response helpers, and utilities."""
 
 import json
+import time
 from pathlib import Path
 
 import pytest
 
 from services.vault import (
+    CONFIRM_EXPIRY_SECONDS,
+    _pending_confirmations,
+    check_confirmation,
+    clear_pending_confirmations,
+    compute_op_hash,
     err,
     extract_frontmatter,
     find_section,
@@ -17,6 +23,7 @@ from services.vault import (
     resolve_dir,
     resolve_file,
     resolve_vault_path,
+    store_confirmation,
     update_file_frontmatter,
 )
 
@@ -309,3 +316,54 @@ class TestIsFenceLine:
 
     def test_empty_line(self):
         assert is_fence_line("") is False
+
+
+class TestConfirmationHelpers:
+    """Tests for batch confirmation tracking helpers."""
+
+    def test_compute_op_hash_deterministic(self):
+        params = {"field": "status", "value": "done", "paths": ["b.md", "a.md"]}
+        assert compute_op_hash(params) == compute_op_hash(params)
+
+    def test_compute_op_hash_sorts_paths(self):
+        h1 = compute_op_hash({"paths": ["b.md", "a.md"]})
+        h2 = compute_op_hash({"paths": ["a.md", "b.md"]})
+        assert h1 == h2
+
+    def test_compute_op_hash_sorts_moves(self):
+        h1 = compute_op_hash({"moves": [{"source": "b.md", "destination": "x/"}, {"source": "a.md", "destination": "y/"}]})
+        h2 = compute_op_hash({"moves": [{"source": "a.md", "destination": "y/"}, {"source": "b.md", "destination": "x/"}]})
+        assert h1 == h2
+
+    def test_compute_op_hash_different_params(self):
+        h1 = compute_op_hash({"field": "status", "value": "done"})
+        h2 = compute_op_hash({"field": "status", "value": "open"})
+        assert h1 != h2
+
+    def test_store_and_check_confirmation(self):
+        clear_pending_confirmations()
+        h = compute_op_hash({"field": "x"})
+        store_confirmation(h)
+        assert check_confirmation(h) is True
+        assert check_confirmation(h) is False  # single-use
+
+    def test_check_confirmation_missing(self):
+        clear_pending_confirmations()
+        assert check_confirmation("nonexistent") is False
+
+    def test_check_confirmation_expired(self):
+        clear_pending_confirmations()
+        h = compute_op_hash({"field": "x"})
+        store_confirmation(h)
+        _pending_confirmations[h]["created"] = time.time() - CONFIRM_EXPIRY_SECONDS - 1
+        assert check_confirmation(h) is False
+
+    def test_store_cleans_expired(self):
+        clear_pending_confirmations()
+        h_old = compute_op_hash({"field": "old"})
+        store_confirmation(h_old)
+        _pending_confirmations[h_old]["created"] = time.time() - CONFIRM_EXPIRY_SECONDS - 1
+        h_new = compute_op_hash({"field": "new"})
+        store_confirmation(h_new)
+        assert h_old not in _pending_confirmations
+        assert h_new in _pending_confirmations
