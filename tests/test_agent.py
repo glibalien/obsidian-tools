@@ -623,10 +623,9 @@ async def test_agent_turn_breaks_on_confirmation_required():
     assert result == "This will update 7 files. Shall I proceed?"
     # LLM called exactly twice: tool call + text-only presentation
     assert mock_client.chat.completions.create.call_count == 2
-    # Second call had no tools (forced text-only)
+    # Second call forced text-only via tool_choice="none"
     second_call = mock_client.chat.completions.create.call_args_list[1]
-    assert second_call.kwargs.get("tools") is None
-    assert second_call.kwargs.get("tool_choice") is None
+    assert second_call.kwargs.get("tool_choice") == "none"
 
 
 class TestAgentCompaction:
