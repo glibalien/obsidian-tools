@@ -294,8 +294,16 @@ def update_frontmatter(
     Args:
         path: Path to the note (relative to vault or absolute).
         field: Frontmatter field name to update.
-        value: Value to set. For complex values use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
-        operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
+        value: Value to set. Required for 'set'/'append'.
+            IMPORTANT — list-type fields (category, tags, aliases, cssclasses):
+            To set multiple values, pass a JSON array: '["person", "actor"]'.
+            A plain comma-separated string like "person, actor" becomes a SINGLE
+            value, not a list — Obsidian will treat it as one item.
+            To add one value to an existing list, use operation="append" instead.
+        operation: 'set' to replace the field value, 'remove' to delete the field,
+            'append' to add a single value to a list field (creates the list if
+            missing, skips duplicates). Prefer 'append' over 'set' when adding
+            to an existing list — it preserves other values.
 
     Returns:
         Confirmation message or error.
@@ -428,8 +436,14 @@ def batch_update_frontmatter(
 
     Args:
         field: Frontmatter field name to update.
-        value: Value to set. For complex values use JSON: '["tag1", "tag2"]'. Required for 'set'/'append'.
-        operation: 'set' to add/modify, 'remove' to delete, 'append' to add to list.
+        value: Value to set. Required for 'set'/'append'.
+            For list fields (category, tags, aliases): pass a JSON array like
+            '["person", "actor"]'. A comma-separated string like "person, actor"
+            becomes ONE value, not a list. Prefer operation="append" to add
+            a single value to an existing list without replacing it.
+        operation: 'set' to replace the field value, 'remove' to delete the field,
+            'append' to add a single value to a list field (creates the list if
+            missing, skips duplicates). Prefer 'append' when adding to existing lists.
         paths: List of file paths (relative to vault or absolute). Cannot combine with folder.
         target_field: Find files where this frontmatter field matches target_value.
         target_value: Value to match for target_field. Not required for 'missing'/'exists' match types.
