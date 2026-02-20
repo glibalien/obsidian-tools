@@ -189,9 +189,7 @@ def batch_move_files(
     # Require confirmation for large batches
     if len(moves) > BATCH_CONFIRM_THRESHOLD:
         op_hash = compute_op_hash({"tool": "batch_move_files", "moves": moves})
-        if confirm and check_confirmation(op_hash):
-            pass  # Fall through to execution
-        else:
+        if not (confirm and check_confirmation(op_hash)):
             store_confirmation(op_hash)
             files = []
             for m in moves:
