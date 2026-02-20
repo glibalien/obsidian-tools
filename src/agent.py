@@ -321,17 +321,19 @@ async def _process_tool_calls(
     truncated_results: dict[str, str],
     next_result_id: int,
     emit: EventCallback | None,
-) -> int:
+) -> tuple[int, bool]:
     """Execute tool calls from an assistant message and append results to messages.
 
-    Returns the updated next_result_id counter.
+    Returns (updated next_result_id, confirmation_required).
     """
 
     async def _emit(event_type: str, data: dict) -> None:
         if emit is not None:
             await emit(event_type, data)
 
-    for tool_call in tool_calls:
+    confirmation_required = False
+
+    for i, tool_call in enumerate(tool_calls):
         tool_name = tool_call.function.name
         raw_args = tool_call.function.arguments or ""
         arguments = _parse_tool_arguments(raw_args)
@@ -376,11 +378,22 @@ async def _process_tool_calls(
         try:
             parsed = json.loads(result)
             success = parsed.get("success", True)
+            if parsed.get("confirmation_required"):
+                confirmation_required = True
+                await _emit("tool_result", {"tool": tool_name, "success": success})
+                # Stub remaining tool calls so the API doesn't reject missing results
+                for remaining in tool_calls[i + 1:]:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": remaining.id,
+                        "content": '{"skipped": "Awaiting user confirmation"}',
+                    })
+                break
         except (json.JSONDecodeError, AttributeError):
             success = not result.startswith(("Tool error:", "Failed to execute tool"))
         await _emit("tool_result", {"tool": tool_name, "success": success})
 
-    return next_result_id
+    return next_result_id, confirmation_required
 
 
 async def agent_turn(
@@ -401,6 +414,7 @@ async def agent_turn(
     # Tool names excluded from the iteration cap count
     UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
     all_tools = tools + [GET_CONTINUATION_TOOL]
+    force_text_only = False
 
     async def _emit(event_type: str, data: dict) -> None:
         if on_event is not None:
@@ -419,7 +433,7 @@ async def agent_turn(
             model=LLM_MODEL,
             messages=messages,
             tools=all_tools if all_tools else None,
-            tool_choice="auto" if all_tools else None,
+            tool_choice="none" if force_text_only else ("auto" if all_tools else None),
         )
 
         # Count this iteration unless all tool calls are uncounted tools
@@ -461,10 +475,14 @@ async def agent_turn(
         if last_content:
             logger.info("Assistant text: %s", last_content)
 
-        next_result_id = await _process_tool_calls(
+        next_result_id, confirmation_required = await _process_tool_calls(
             assistant_message.tool_calls, session, messages,
             truncated_results, next_result_id, on_event,
         )
+
+        if confirmation_required:
+            logger.info("Confirmation required — forcing text-only response")
+            force_text_only = True
 
 
 

@@ -507,6 +507,33 @@ def do_move_file(
 
 
 # =============================================================================
+# Batch Confirmation Gate
+# =============================================================================
+
+# Tracks previewed operations so confirm=True only works after a preview.
+# Keys are tuples of operation parameters; consumed on use (single-use).
+_pending_previews: set[tuple] = set()
+
+
+def store_preview(key: tuple) -> None:
+    """Record that a confirmation preview was shown for this operation."""
+    _pending_previews.add(key)
+
+
+def consume_preview(key: tuple) -> bool:
+    """Check and consume a pending preview. Returns True if one existed."""
+    if key in _pending_previews:
+        _pending_previews.discard(key)
+        return True
+    return False
+
+
+def clear_pending_previews() -> None:
+    """Clear all pending previews. For testing only."""
+    _pending_previews.clear()
+
+
+# =============================================================================
 # Batch Operations
 # =============================================================================
 
