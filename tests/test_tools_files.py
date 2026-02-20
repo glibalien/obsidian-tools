@@ -1,9 +1,15 @@
 """Tests for tools/files.py - file operations."""
 
 import json
+import time
 
 import pytest
 
+from services.vault import (
+    CONFIRM_EXPIRY_SECONDS,
+    _pending_confirmations,
+    clear_pending_confirmations,
+)
 from tools.files import (
     append_to_file,
     batch_move_files,
@@ -230,6 +236,7 @@ class TestBatchMoveConfirmationGate:
 
     def test_requires_confirmation_over_threshold(self, vault_config):
         """Should return preview when move count exceeds threshold."""
+        clear_pending_confirmations()
         moves = self._create_files(vault_config, 10)
         result = json.loads(batch_move_files(moves=moves))
         assert result["success"] is True
@@ -242,8 +249,12 @@ class TestBatchMoveConfirmationGate:
             assert not (vault_config / move["destination"]).exists()
 
     def test_executes_with_confirm_true(self, vault_config):
-        """Should execute when confirm=True even over threshold."""
+        """Should execute via two-step flow: preview then confirm."""
+        clear_pending_confirmations()
         moves = self._create_files(vault_config, 10)
+        # Step 1: preview
+        batch_move_files(moves=moves)
+        # Step 2: confirm
         result = json.loads(batch_move_files(moves=moves, confirm=True))
         assert result["success"] is True
         assert "confirmation_required" not in result
@@ -256,3 +267,55 @@ class TestBatchMoveConfirmationGate:
         assert result["success"] is True
         assert "confirmation_required" not in result
         assert "3 succeeded" in result["message"]
+
+    def test_confirm_true_without_preview_returns_preview(self, vault_config):
+        """confirm=True on first call should still return preview."""
+        clear_pending_confirmations()
+        moves = self._create_files(vault_config, 10)
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["confirmation_required"] is True
+        # Verify no files were actually moved
+        for move in moves:
+            assert (vault_config / move["source"]).exists()
+
+    def test_two_step_confirmation_flow(self, vault_config):
+        """Preview then confirm with same params should execute."""
+        clear_pending_confirmations()
+        moves = self._create_files(vault_config, 10)
+        r1 = json.loads(batch_move_files(moves=moves))
+        assert r1["confirmation_required"] is True
+        r2 = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert r2["success"] is True
+        assert "confirmation_required" not in r2
+        assert "10 succeeded" in r2["message"]
+
+    def test_changed_params_returns_new_preview(self, vault_config):
+        """Changing moves between preview and confirm returns new preview."""
+        clear_pending_confirmations()
+        moves = self._create_files(vault_config, 10)
+        batch_move_files(moves=moves)
+        altered = [{"source": m["source"], "destination": f"other/{m['source']}"} for m in moves]
+        result = json.loads(batch_move_files(moves=altered, confirm=True))
+        assert result["confirmation_required"] is True
+
+    def test_confirmation_is_single_use(self, vault_config):
+        """After executing, same confirm call starts a new preview cycle."""
+        clear_pending_confirmations()
+        moves = self._create_files(vault_config, 10)
+        batch_move_files(moves=moves)
+        batch_move_files(moves=moves, confirm=True)
+        # Re-create files since they were moved
+        for m in moves:
+            (vault_config / m["source"]).write_text(f"# {m['source']}")
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["confirmation_required"] is True
+
+    def test_expired_confirmation(self, vault_config):
+        """Expired confirmation returns fresh preview."""
+        clear_pending_confirmations()
+        moves = self._create_files(vault_config, 10)
+        batch_move_files(moves=moves)
+        for v in _pending_confirmations.values():
+            v["created"] = time.time() - CONFIRM_EXPIRY_SECONDS - 1
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["confirmation_required"] is True

@@ -6,6 +6,8 @@ import yaml
 
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
+    check_confirmation,
+    compute_op_hash,
     do_move_file,
     err,
     format_batch_result,
@@ -13,6 +15,7 @@ from services.vault import (
     ok,
     resolve_file,
     resolve_vault_path,
+    store_confirmation,
 )
 
 
@@ -184,17 +187,22 @@ def batch_move_files(
         return err("moves list is empty")
 
     # Require confirmation for large batches
-    if len(moves) > BATCH_CONFIRM_THRESHOLD and not confirm:
-        files = []
-        for m in moves:
-            if isinstance(m, dict) and m.get("source"):
-                files.append(f"{m['source']} → {m.get('destination', '?')}")
-        return ok(
-            f"This will move {len(moves)} files. "
-            "Show the file list to the user and call again with confirm=true to proceed.",
-            confirmation_required=True,
-            files=files,
-        )
+    if len(moves) > BATCH_CONFIRM_THRESHOLD:
+        op_hash = compute_op_hash({"tool": "batch_move_files", "moves": moves})
+        if confirm and check_confirmation(op_hash):
+            pass  # Fall through to execution
+        else:
+            store_confirmation(op_hash)
+            files = []
+            for m in moves:
+                if isinstance(m, dict) and m.get("source"):
+                    files.append(f"{m['source']} → {m.get('destination', '?')}")
+            return ok(
+                f"This will move {len(moves)} files. "
+                "Show the file list to the user and call again with confirm=true to proceed.",
+                confirmation_required=True,
+                files=files,
+            )
 
     results = []
     for i, move in enumerate(moves):
