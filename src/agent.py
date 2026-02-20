@@ -414,6 +414,7 @@ async def agent_turn(
     # Tool names excluded from the iteration cap count
     UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
     all_tools = tools + [GET_CONTINUATION_TOOL]
+    force_text_only = False
 
     async def _emit(event_type: str, data: dict) -> None:
         if on_event is not None:
@@ -432,7 +433,7 @@ async def agent_turn(
             model=LLM_MODEL,
             messages=messages,
             tools=all_tools if all_tools else None,
-            tool_choice="auto" if all_tools else None,
+            tool_choice="none" if force_text_only else ("auto" if all_tools else None),
         )
 
         # Count this iteration unless all tool calls are uncounted tools
@@ -481,8 +482,7 @@ async def agent_turn(
 
         if confirmation_required:
             logger.info("Confirmation required — forcing text-only response")
-            # One more LLM call with no tools so it presents the preview
-            all_tools = None
+            force_text_only = True
 
 
 
