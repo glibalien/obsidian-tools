@@ -12,13 +12,13 @@ from api_server import format_context_prefix
 def test_format_context_prefix_with_file():
     """Context prefix includes the file path."""
     result = format_context_prefix("Projects/Marketing.md")
-    assert result == "[Context: Currently viewing 'Projects/Marketing.md']\n\n"
+    assert result == '[The user has a file open. Its exact path is: "Projects/Marketing.md"]\n\n'
 
 
 def test_format_context_prefix_with_nested_path():
     """Context prefix works with deeply nested paths."""
     result = format_context_prefix("Work/Projects/2024/Q1/report.md")
-    assert result == "[Context: Currently viewing 'Work/Projects/2024/Q1/report.md']\n\n"
+    assert result == '[The user has a file open. Its exact path is: "Work/Projects/2024/Q1/report.md"]\n\n'
 
 
 def test_format_context_prefix_without_file():
