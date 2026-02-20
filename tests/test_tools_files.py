@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from services.vault import clear_pending_previews
 from tools.files import (
     append_to_file,
     batch_move_files,
@@ -230,6 +231,7 @@ class TestBatchMoveConfirmationGate:
 
     def test_requires_confirmation_over_threshold(self, vault_config):
         """Should return preview when move count exceeds threshold."""
+        clear_pending_previews()
         moves = self._create_files(vault_config, 10)
         result = json.loads(batch_move_files(moves=moves))
         assert result["success"] is True
@@ -243,7 +245,11 @@ class TestBatchMoveConfirmationGate:
 
     def test_executes_with_confirm_true(self, vault_config):
         """Should execute when confirm=True even over threshold."""
+        clear_pending_previews()
         moves = self._create_files(vault_config, 10)
+        # First call: store preview
+        batch_move_files(moves=moves)
+        # Second call: confirm execution
         result = json.loads(batch_move_files(moves=moves, confirm=True))
         assert result["success"] is True
         assert "confirmation_required" not in result
@@ -256,3 +262,43 @@ class TestBatchMoveConfirmationGate:
         assert result["success"] is True
         assert "confirmation_required" not in result
         assert "3 succeeded" in result["message"]
+
+    def test_confirm_true_without_preview_returns_preview(self, vault_config):
+        """Passing confirm=True on first call should still return preview."""
+        clear_pending_previews()
+        moves = self._create_files(vault_config, 10)
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        # No files should be moved
+        for move in moves:
+            assert (vault_config / move["source"]).exists()
+            assert not (vault_config / move["destination"]).exists()
+
+    def test_two_step_confirmation_flow(self, vault_config):
+        """Preview then confirm should execute the batch move."""
+        clear_pending_previews()
+        moves = self._create_files(vault_config, 8)
+        # Step 1: preview
+        preview = json.loads(batch_move_files(moves=moves))
+        assert preview["confirmation_required"] is True
+        # Step 2: confirm
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+        assert "8 succeeded" in result["message"]
+
+    def test_confirmation_is_single_use(self, vault_config):
+        """After execution, same confirm=True requires a new preview."""
+        clear_pending_previews()
+        moves = self._create_files(vault_config, 8)
+        # Step 1: preview
+        batch_move_files(moves=moves)
+        # Step 2: confirm and execute
+        batch_move_files(moves=moves, confirm=True)
+        # Step 3: confirm again without new preview — should return preview
+        # Recreate files since they were moved
+        for move in moves:
+            (vault_config / move["source"]).write_text("# Recreated\n")
+        result = json.loads(batch_move_files(moves=moves, confirm=True))
+        assert result["confirmation_required"] is True
