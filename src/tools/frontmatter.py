@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
+    consume_preview,
     do_update_frontmatter,
     err,
     extract_frontmatter,
@@ -19,6 +20,7 @@ from services.vault import (
     ok,
     parse_frontmatter_date,
     resolve_dir,
+    store_preview,
 )
 from tools._validation import validate_pagination
 
@@ -335,6 +337,18 @@ def _confirmation_preview(
     )
 
 
+def _needs_confirmation(
+    field: str, value: str | None, operation: str,
+    paths: list[str], confirm: bool,
+) -> bool:
+    """Check confirmation gate. Returns True if preview is needed."""
+    key = ("batch_update_frontmatter", field, value, operation, tuple(sorted(paths)))
+    if confirm and consume_preview(key):
+        return False
+    store_preview(key)
+    return True
+
+
 def _resolve_batch_targets(
     paths: list[str] | None,
     target_field: str | None,
@@ -384,7 +398,7 @@ def _resolve_batch_targets(
         if not paths:
             return None, ok("No files matched the targeting criteria", results=[], total=0)
 
-        if not confirm:
+        if _needs_confirmation(field, value, operation, paths, confirm):
             folder_note = f" in folder '{folder}'" if folder else ""
             context = (
                 f" matched by target_field='{target_field}', "
@@ -397,7 +411,7 @@ def _resolve_batch_targets(
         if not paths:
             return None, ok(f"No files found in folder '{folder}'", results=[], total=0)
 
-        if not confirm:
+        if _needs_confirmation(field, value, operation, paths, confirm):
             return None, _confirmation_preview(
                 operation, field, value, paths, f" in folder '{folder}'"
             )
@@ -406,8 +420,9 @@ def _resolve_batch_targets(
         if not paths:
             return None, err("paths list is empty")
 
-        if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
-            return None, _confirmation_preview(operation, field, value, paths, "")
+        if len(paths) > BATCH_CONFIRM_THRESHOLD:
+            if _needs_confirmation(field, value, operation, paths, confirm):
+                return None, _confirmation_preview(operation, field, value, paths, "")
 
     else:
         return None, err("Provide paths, target_field/target_value, or folder")

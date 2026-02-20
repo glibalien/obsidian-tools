@@ -565,6 +565,69 @@ async def test_agent_turn_no_callback_unchanged():
     assert result == "Hello"
 
 
+@pytest.mark.anyio
+async def test_agent_turn_breaks_on_confirmation_required():
+    """After confirmation_required, agent gets one text-only call (no tools)."""
+    # First LLM call: agent decides to call batch_update_frontmatter
+    mock_tool_call = MagicMock()
+    mock_tool_call.id = "call_batch"
+    mock_tool_call.function.name = "batch_update_frontmatter"
+    mock_tool_call.function.arguments = '{"field": "status", "value": "done", "folder": "projects"}'
+
+    mock_msg_with_tool = MagicMock()
+    mock_msg_with_tool.tool_calls = [mock_tool_call]
+    mock_msg_with_tool.content = "Let me update those files."
+    mock_msg_with_tool.model_dump.return_value = {
+        "role": "assistant",
+        "content": "Let me update those files.",
+        "tool_calls": [{"id": "call_batch", "function": {"name": "batch_update_frontmatter", "arguments": "{}"}, "type": "function"}],
+    }
+
+    # Second LLM call: text-only response presenting the preview
+    mock_msg_present = MagicMock()
+    mock_msg_present.tool_calls = None
+    mock_msg_present.content = "This will update 7 files. Shall I proceed?"
+    mock_msg_present.model_dump.return_value = {
+        "role": "assistant",
+        "content": "This will update 7 files. Shall I proceed?",
+    }
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_with_tool)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_present)], usage=mock_usage),
+    ]
+
+    # Tool returns confirmation_required
+    confirmation_result = json.dumps({
+        "success": True,
+        "confirmation_required": True,
+        "message": "This will set 'status' on 7 files. Show the file list to the user.",
+        "files": ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md"],
+    })
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=confirmation_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "update all"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+
+    # Agent presents the preview to the user
+    assert result == "This will update 7 files. Shall I proceed?"
+    # LLM called exactly twice: tool call + text-only presentation
+    assert mock_client.chat.completions.create.call_count == 2
+    # Second call forced text-only via tool_choice="none"
+    second_call = mock_client.chat.completions.create.call_args_list[1]
+    assert second_call.kwargs.get("tool_choice") == "none"
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 
