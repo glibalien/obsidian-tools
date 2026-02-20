@@ -52,7 +52,7 @@ services/                # systemd/launchd/taskscheduler templates
 
 ## MCP Tools
 
-All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pagination with `total`. Batch tools (`batch_update_frontmatter`, `batch_move_files`) require `confirm=True` when affecting >5 files (`BATCH_CONFIRM_THRESHOLD` in `services/vault.py`); without it they return a preview listing the files.
+All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pagination with `total`. Batch tools (`batch_update_frontmatter`, `batch_move_files`) require a two-step confirmation flow when affecting >5 files (`BATCH_CONFIRM_THRESHOLD`): the first call always returns a preview (server-side gate via `store_preview`/`consume_preview` in `vault.py`), and `agent_turn` breaks after `confirmation_required` results so the user sees the preview before the agent can confirm (`force_text_only` / `tool_choice="none"`).
 
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|
