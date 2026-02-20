@@ -333,7 +333,7 @@ async def _process_tool_calls(
 
     confirmation_required = False
 
-    for tool_call in tool_calls:
+    for i, tool_call in enumerate(tool_calls):
         tool_name = tool_call.function.name
         raw_args = tool_call.function.arguments or ""
         arguments = _parse_tool_arguments(raw_args)
@@ -380,6 +380,15 @@ async def _process_tool_calls(
             success = parsed.get("success", True)
             if parsed.get("confirmation_required"):
                 confirmation_required = True
+                await _emit("tool_result", {"tool": tool_name, "success": success})
+                # Stub remaining tool calls so the API doesn't reject missing results
+                for remaining in tool_calls[i + 1:]:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": remaining.id,
+                        "content": '{"skipped": "Awaiting user confirmation"}',
+                    })
+                break
         except (json.JSONDecodeError, AttributeError):
             success = not result.startswith(("Tool error:", "Failed to execute tool"))
         await _emit("tool_result", {"tool": tool_name, "success": success})
