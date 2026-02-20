@@ -567,8 +567,8 @@ async def test_agent_turn_no_callback_unchanged():
 
 @pytest.mark.anyio
 async def test_agent_turn_breaks_on_confirmation_required():
-    """agent_turn ends when a tool result contains confirmation_required."""
-    # Tool call that returns a confirmation preview
+    """After confirmation_required, agent gets one text-only call (no tools)."""
+    # First LLM call: agent decides to call batch_update_frontmatter
     mock_tool_call = MagicMock()
     mock_tool_call.id = "call_batch"
     mock_tool_call.function.name = "batch_update_frontmatter"
@@ -583,15 +583,25 @@ async def test_agent_turn_breaks_on_confirmation_required():
         "tool_calls": [{"id": "call_batch", "function": {"name": "batch_update_frontmatter", "arguments": "{}"}, "type": "function"}],
     }
 
+    # Second LLM call: text-only response presenting the preview
+    mock_msg_present = MagicMock()
+    mock_msg_present.tool_calls = None
+    mock_msg_present.content = "This will update 7 files. Shall I proceed?"
+    mock_msg_present.model_dump.return_value = {
+        "role": "assistant",
+        "content": "This will update 7 files. Shall I proceed?",
+    }
+
     mock_usage = MagicMock()
     mock_usage.prompt_tokens = 100
     mock_usage.completion_tokens = 50
     mock_usage.total_tokens = 150
 
     mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = MagicMock(
-        choices=[MagicMock(message=mock_msg_with_tool)], usage=mock_usage,
-    )
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_with_tool)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_present)], usage=mock_usage),
+    ]
 
     # Tool returns confirmation_required
     confirmation_result = json.dumps({
@@ -609,10 +619,14 @@ async def test_agent_turn_breaks_on_confirmation_required():
 
     result = await agent_turn(mock_client, mock_session, messages, [])
 
-    # Turn should end with the assistant's text (not continue to a second LLM call)
-    assert result == "Let me update those files."
-    # LLM was called exactly once (no second call to auto-confirm)
-    assert mock_client.chat.completions.create.call_count == 1
+    # Agent presents the preview to the user
+    assert result == "This will update 7 files. Shall I proceed?"
+    # LLM called exactly twice: tool call + text-only presentation
+    assert mock_client.chat.completions.create.call_count == 2
+    # Second call had no tools (forced text-only)
+    second_call = mock_client.chat.completions.create.call_args_list[1]
+    assert second_call.kwargs.get("tools") is None
+    assert second_call.kwargs.get("tool_choice") is None
 
 
 class TestAgentCompaction:

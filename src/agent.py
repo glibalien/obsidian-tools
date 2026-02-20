@@ -471,10 +471,9 @@ async def agent_turn(
         )
 
         if confirmation_required:
-            logger.info("Confirmation required — ending turn for user approval")
-            content = last_content or ""
-            await _emit("response", {"content": content})
-            return content
+            logger.info("Confirmation required — forcing text-only response")
+            # One more LLM call with no tools so it presents the preview
+            all_tools = None
 
 
 
