@@ -6,6 +6,11 @@ import time
 
 import pytest
 
+from services.vault import (
+    CONFIRM_EXPIRY_SECONDS,
+    _pending_confirmations,
+    clear_pending_confirmations,
+)
 from tools.frontmatter import (
     FilterCondition,
     batch_update_frontmatter,
@@ -475,6 +480,7 @@ class TestBatchConfirmationGate:
 
     def test_requires_confirmation_over_threshold(self, vault_config):
         """Should return preview when file count exceeds threshold."""
+        clear_pending_confirmations()
         paths = self._create_files(vault_config, 10)
         result = json.loads(
             batch_update_frontmatter(
@@ -494,17 +500,14 @@ class TestBatchConfirmationGate:
             assert "status" not in content
 
     def test_executes_with_confirm_true(self, vault_config):
-        """Should execute when confirm=True even over threshold."""
+        """Should execute via two-step flow: preview then confirm."""
+        clear_pending_confirmations()
         paths = self._create_files(vault_config, 10)
-        result = json.loads(
-            batch_update_frontmatter(
-                paths=paths,
-                field="status",
-                value="archived",
-                operation="set",
-                confirm=True,
-            )
-        )
+        kwargs = dict(paths=paths, field="status", value="archived", operation="set")
+        # Step 1: preview
+        batch_update_frontmatter(**kwargs)
+        # Step 2: confirm
+        result = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
         assert result["success"] is True
         assert "confirmation_required" not in result
         assert "10 succeeded" in result["message"]
@@ -526,6 +529,7 @@ class TestBatchConfirmationGate:
 
     def test_confirmation_preview_includes_operation_details(self, vault_config):
         """Preview message should describe the operation."""
+        clear_pending_confirmations()
         paths = self._create_files(vault_config, 8)
         result = json.loads(
             batch_update_frontmatter(
@@ -541,6 +545,7 @@ class TestBatchConfirmationGate:
 
     def test_confirmation_not_required_for_remove(self, vault_config):
         """Remove operations over threshold should also require confirmation."""
+        clear_pending_confirmations()
         paths = self._create_files(vault_config, 10)
         result = json.loads(
             batch_update_frontmatter(
@@ -552,25 +557,86 @@ class TestBatchConfirmationGate:
         assert result["confirmation_required"] is True
         assert "remove" in result["message"]
 
+    def test_confirm_true_without_preview_returns_preview(self, vault_config):
+        """confirm=True on first call should still return preview (no pending hash)."""
+        clear_pending_confirmations()
+        paths = self._create_files(vault_config, 10)
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths, field="status", value="archived",
+                operation="set", confirm=True,
+            )
+        )
+        assert result["confirmation_required"] is True
+        for path in paths:
+            assert "status" not in (vault_config / path).read_text()
+
+    def test_two_step_confirmation_flow(self, vault_config):
+        """Preview then confirm with same params should execute."""
+        clear_pending_confirmations()
+        paths = self._create_files(vault_config, 10)
+        kwargs = dict(paths=paths, field="status", value="archived", operation="set")
+        r1 = json.loads(batch_update_frontmatter(**kwargs))
+        assert r1["confirmation_required"] is True
+        r2 = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
+        assert r2["success"] is True
+        assert "confirmation_required" not in r2
+        assert "10 succeeded" in r2["message"]
+
+    def test_changed_params_between_preview_and_confirm(self, vault_config):
+        """Changing params between preview and confirm returns new preview."""
+        clear_pending_confirmations()
+        paths = self._create_files(vault_config, 10)
+        batch_update_frontmatter(paths=paths, field="status", value="archived", operation="set")
+        result = json.loads(
+            batch_update_frontmatter(
+                paths=paths, field="status", value="draft", operation="set", confirm=True,
+            )
+        )
+        assert result["confirmation_required"] is True
+
+    def test_confirmation_is_single_use(self, vault_config):
+        """After executing, same confirm call starts a new preview cycle."""
+        clear_pending_confirmations()
+        paths = self._create_files(vault_config, 10)
+        kwargs = dict(paths=paths, field="status", value="archived", operation="set")
+        batch_update_frontmatter(**kwargs)
+        batch_update_frontmatter(**kwargs, confirm=True)
+        result = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
+        assert result["confirmation_required"] is True
+
+    def test_expired_confirmation(self, vault_config):
+        """Expired confirmation returns fresh preview."""
+        clear_pending_confirmations()
+        paths = self._create_files(vault_config, 10)
+        kwargs = dict(paths=paths, field="status", value="archived", operation="set")
+        batch_update_frontmatter(**kwargs)
+        for v in _pending_confirmations.values():
+            v["created"] = time.time() - CONFIRM_EXPIRY_SECONDS - 1
+        result = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
+        assert result["confirmation_required"] is True
+
 
 class TestQueryBasedBatchUpdate:
     """Tests for batch_update_frontmatter with query-based targeting."""
 
     def test_query_target_finds_and_updates(self, vault_config):
         """Should find files by target criteria and update them."""
+        clear_pending_confirmations()
         (vault_config / "t1.md").write_text(
             "---\nproject: '[[Proj]]'\ncategory: task\n---\n"
         )
         (vault_config / "t2.md").write_text(
             "---\nproject: '[[Proj]]'\ncategory: task\n---\n"
         )
-        result = json.loads(
-            batch_update_frontmatter(
-                field="context", value="work", operation="set",
-                target_field="project", target_value="Proj",
-                confirm=True,
-            )
+        kwargs = dict(
+            field="context", value="work", operation="set",
+            target_field="project", target_value="Proj",
         )
+        # Step 1: preview
+        batch_update_frontmatter(**kwargs)
+        # Step 2: confirm
+        result = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
         assert result["success"] is True
         assert "2 succeeded" in result["message"]
 
@@ -585,6 +651,7 @@ class TestQueryBasedBatchUpdate:
 
     def test_query_target_requires_confirmation(self, vault_config):
         """Without confirm, should return preview with matched paths."""
+        clear_pending_confirmations()
         (vault_config / "qt1.md").write_text(
             "---\nproject: '[[QP]]'\n---\n"
         )
@@ -600,40 +667,44 @@ class TestQueryBasedBatchUpdate:
 
     def test_query_target_with_filters(self, vault_config):
         """Compound targeting should narrow results."""
+        clear_pending_confirmations()
         (vault_config / "open.md").write_text(
             "---\nproject: '[[FP]]'\nstatus: open\n---\n"
         )
         (vault_config / "done.md").write_text(
             "---\nproject: '[[FP]]'\nstatus: done\n---\n"
         )
-        result = json.loads(
-            batch_update_frontmatter(
-                field="context", value="work", operation="set",
-                target_field="project", target_value="FP",
-                target_filters=[FilterCondition(field="status", value="open")],
-                confirm=True,
-            )
+        kwargs = dict(
+            field="context", value="work", operation="set",
+            target_field="project", target_value="FP",
+            target_filters=[FilterCondition(field="status", value="open")],
         )
+        # Step 1: preview
+        batch_update_frontmatter(**kwargs)
+        # Step 2: confirm
+        result = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
         assert result["success"] is True
         assert "1 succeeded" in result["message"]
 
 
     def test_query_target_with_filter_condition_list(self, vault_config):
         """Query targeting should accept FilterCondition list for target_filters."""
+        clear_pending_confirmations()
         (vault_config / "open_native.md").write_text(
             "---\nproject: '[[NP]]'\nstatus: open\n---\n"
         )
         (vault_config / "done_native.md").write_text(
             "---\nproject: '[[NP]]'\nstatus: done\n---\n"
         )
-        result = json.loads(
-            batch_update_frontmatter(
-                field="context", value="work", operation="set",
-                target_field="project", target_value="NP",
-                target_filters=[FilterCondition(field="status", value="open", match_type="equals")],
-                confirm=True,
-            )
+        kwargs = dict(
+            field="context", value="work", operation="set",
+            target_field="project", target_value="NP",
+            target_filters=[FilterCondition(field="status", value="open", match_type="equals")],
         )
+        # Step 1: preview
+        batch_update_frontmatter(**kwargs)
+        # Step 2: confirm
+        result = json.loads(batch_update_frontmatter(**kwargs, confirm=True))
         assert result["success"] is True
         assert "1 succeeded" in result["message"]
 
@@ -1166,6 +1237,7 @@ class TestFolderFiltering:
 
     def test_batch_folder_only(self, vault_config):
         """batch_update_frontmatter with folder-only returns confirmation preview."""
+        clear_pending_confirmations()
         result = json.loads(
             batch_update_frontmatter(
                 field="category",
@@ -1180,6 +1252,7 @@ class TestFolderFiltering:
 
     def test_batch_folder_with_query(self, vault_config):
         """folder + target_field narrows to files in folder matching the query."""
+        clear_pending_confirmations()
         (vault_config / "projects" / "active.md").write_text(
             "---\nstatus: active\n---\n"
         )
@@ -1216,6 +1289,7 @@ class TestFolderFiltering:
 
     def test_batch_folder_not_contains_end_to_end(self, vault_config):
         """End-to-end: folder + not_contains finds and updates only missing files."""
+        clear_pending_confirmations()
         # Create person files, some with and some without category
         persons = vault_config / "persons"
         persons.mkdir()
@@ -1247,6 +1321,7 @@ class TestFolderFiltering:
 
     def test_batch_folder_missing_match_type(self, vault_config):
         """batch with folder + target_match_type='missing' works without target_value."""
+        clear_pending_confirmations()
         persons = vault_config / "persons2"
         persons.mkdir()
         (persons / "has_cat.md").write_text(

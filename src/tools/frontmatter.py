@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
+    check_confirmation,
+    compute_op_hash,
     do_update_frontmatter,
     err,
     extract_frontmatter,
@@ -19,6 +21,7 @@ from services.vault import (
     ok,
     parse_frontmatter_date,
     resolve_dir,
+    store_confirmation,
 )
 from tools._validation import validate_pagination
 
@@ -384,7 +387,14 @@ def _resolve_batch_targets(
         if not paths:
             return None, ok("No files matched the targeting criteria", results=[], total=0)
 
-        if not confirm:
+        op_hash = compute_op_hash({
+            "tool": "batch_update_frontmatter", "field": field,
+            "value": value, "operation": operation, "paths": paths,
+        })
+        if confirm and check_confirmation(op_hash):
+            pass  # Fall through to execution
+        else:
+            store_confirmation(op_hash)
             folder_note = f" in folder '{folder}'" if folder else ""
             context = (
                 f" matched by target_field='{target_field}', "
@@ -397,7 +407,14 @@ def _resolve_batch_targets(
         if not paths:
             return None, ok(f"No files found in folder '{folder}'", results=[], total=0)
 
-        if not confirm:
+        op_hash = compute_op_hash({
+            "tool": "batch_update_frontmatter", "field": field,
+            "value": value, "operation": operation, "paths": paths,
+        })
+        if confirm and check_confirmation(op_hash):
+            pass
+        else:
+            store_confirmation(op_hash)
             return None, _confirmation_preview(
                 operation, field, value, paths, f" in folder '{folder}'"
             )
@@ -406,8 +423,16 @@ def _resolve_batch_targets(
         if not paths:
             return None, err("paths list is empty")
 
-        if len(paths) > BATCH_CONFIRM_THRESHOLD and not confirm:
-            return None, _confirmation_preview(operation, field, value, paths, "")
+        if len(paths) > BATCH_CONFIRM_THRESHOLD:
+            op_hash = compute_op_hash({
+                "tool": "batch_update_frontmatter", "field": field,
+                "value": value, "operation": operation, "paths": paths,
+            })
+            if confirm and check_confirmation(op_hash):
+                pass
+            else:
+                store_confirmation(op_hash)
+                return None, _confirmation_preview(operation, field, value, paths, "")
 
     else:
         return None, err("Provide paths, target_field/target_value, or folder")
