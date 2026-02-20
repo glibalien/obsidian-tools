@@ -113,7 +113,7 @@ def format_context_prefix(active_file: str | None) -> str:
     """Format context prefix for the user message."""
     if not active_file:
         return ""
-    return f"[Context: Currently viewing '{active_file}']\n\n"
+    return f"[The user has a file open. Its exact path is: \"{active_file}\"]\n\n"
 
 
 def _prepare_turn(request: ChatRequest) -> tuple[Session, set[int]]:
