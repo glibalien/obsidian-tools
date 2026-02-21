@@ -140,9 +140,10 @@ def insert_entry(content: str, entry: str) -> str:
     if pos != -1:
         insert_pos = pos + len(marker)
         # Skip existing newlines after header
-        while insert_pos < len(content) and content[insert_pos] == '\n':
-            insert_pos += 1
-        content = content[:insert_pos] + "\n" + entry + content[insert_pos:]
+        rest_start = insert_pos
+        while rest_start < len(content) and content[rest_start] == '\n':
+            rest_start += 1
+        content = content[:insert_pos] + "\n" + entry + content[rest_start:]
     else:
         content += entry
     
