@@ -288,7 +288,7 @@ def list_files_by_frontmatter(
 def update_frontmatter(
     path: str,
     field: str,
-    value: str | None = None,
+    value: str | list | None = None,
     operation: str = "set",
 ) -> str:
     """Update frontmatter on a vault file.
@@ -297,11 +297,11 @@ def update_frontmatter(
         path: Path to the note (relative to vault or absolute).
         field: Frontmatter field name to update.
         value: Value to set. Required for 'set'/'append'.
-            IMPORTANT — list-type fields (category, tags, aliases, cssclasses):
-            To set multiple values, pass a JSON array: '["person", "actor"]'.
-            A plain comma-separated string like "person, actor" becomes a SINGLE
-            value, not a list — Obsidian will treat it as one item.
-            To add one value to an existing list, use operation="append" instead.
+            For list-type fields (category, tags, aliases, cssclasses),
+            ALWAYS pass an array — even for a single value: ["project"].
+            For scalar fields (status, project, date), pass a plain string.
+            Never pass comma-separated strings like "person, actor" — that
+            becomes a single value, not a list.
         operation: 'set' to replace the field value, 'remove' to delete the field,
             'append' to add a single value to a list field (creates the list if
             missing, skips duplicates). Prefer 'append' over 'set' when adding
@@ -432,7 +432,7 @@ def _resolve_batch_targets(
 
 def batch_update_frontmatter(
     field: str,
-    value: str | None = None,
+    value: str | list | None = None,
     operation: str = "set",
     paths: list[str] | None = None,
     target_field: str | None = None,
@@ -452,10 +452,11 @@ def batch_update_frontmatter(
     Args:
         field: Frontmatter field name to update.
         value: Value to set. Required for 'set'/'append'.
-            For list fields (category, tags, aliases): pass a JSON array like
-            '["person", "actor"]'. A comma-separated string like "person, actor"
-            becomes ONE value, not a list. Prefer operation="append" to add
-            a single value to an existing list without replacing it.
+            For list-type fields (category, tags, aliases, cssclasses),
+            ALWAYS pass an array — even for a single value: ["project"].
+            For scalar fields, pass a plain string.
+            Prefer operation="append" to add a single value to an existing
+            list without replacing it.
         operation: 'set' to replace the field value, 'remove' to delete the field,
             'append' to add a single value to a list field (creates the list if
             missing, skips duplicates). Prefer 'append' when adding to existing lists.
