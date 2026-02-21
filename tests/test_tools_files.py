@@ -6,7 +6,9 @@ import pytest
 
 from services.vault import clear_pending_previews
 from tools.files import (
+    _merge_bodies,
     _merge_frontmatter,
+    _split_blocks,
     _split_frontmatter_body,
     append_to_file,
     batch_move_files,
@@ -391,3 +393,90 @@ class TestMergeFrontmatter:
         fm = {"title": "Same", "tags": ["a", "b"]}
         merged = _merge_frontmatter(fm.copy(), fm.copy())
         assert merged == fm
+
+
+class TestSplitBlocks:
+    """Tests for _split_blocks helper."""
+
+    def test_split_by_headings(self):
+        body = "# Intro\n\nParagraph.\n\n## Tasks\n\n- Item 1\n- Item 2\n"
+        blocks = _split_blocks(body)
+        assert len(blocks) == 2
+        assert blocks[0] == ("# Intro", "# Intro\n\nParagraph.\n\n")
+        assert blocks[1] == ("## Tasks", "## Tasks\n\n- Item 1\n- Item 2\n")
+
+    def test_content_before_first_heading(self):
+        body = "Some intro text.\n\n# Heading\n\nContent.\n"
+        blocks = _split_blocks(body)
+        assert len(blocks) == 2
+        assert blocks[0] == (None, "Some intro text.\n\n")
+        assert blocks[1] == ("# Heading", "# Heading\n\nContent.\n")
+
+    def test_no_headings(self):
+        body = "Just a paragraph.\n\nAnother paragraph.\n"
+        blocks = _split_blocks(body)
+        assert len(blocks) == 1
+        assert blocks[0] == (None, body)
+
+    def test_empty_body(self):
+        blocks = _split_blocks("")
+        assert blocks == []
+
+    def test_whitespace_only(self):
+        blocks = _split_blocks("  \n\n  \n")
+        assert blocks == []
+
+
+class TestMergeBodies:
+    """Tests for _merge_bodies helper."""
+
+    def test_identical_bodies_no_change(self):
+        body = "# Tasks\n\n- Item 1\n- Item 2\n"
+        merged, stats = _merge_bodies(body, body)
+        assert merged == body
+        assert stats["blocks_added"] == 0
+
+    def test_source_has_unique_block_under_existing_heading(self):
+        source = "# Tasks\n\n- Item 1\n\n# Notes\n\nSource note.\n"
+        dest = "# Tasks\n\n- Item 1\n"
+        merged, stats = _merge_bodies(source, dest)
+        assert "Source note." in merged
+        assert "# Notes" in merged
+        assert stats["blocks_added"] == 1
+
+    def test_source_unique_block_appended_when_no_heading_match(self):
+        source = "# Unrelated\n\nNew stuff.\n"
+        dest = "# Tasks\n\n- Item 1\n"
+        merged, stats = _merge_bodies(source, dest)
+        assert "New stuff." in merged
+        assert "# Unrelated" in merged
+        assert merged.startswith("# Tasks\n")
+        assert stats["blocks_added"] == 1
+
+    def test_duplicate_blocks_not_added(self):
+        source = "# Tasks\n\n- Item 1\n\n# Notes\n\nShared note.\n"
+        dest = "# Tasks\n\n- Item 1\n\n# Notes\n\nShared note.\n"
+        merged, stats = _merge_bodies(source, dest)
+        assert merged == dest
+        assert stats["blocks_added"] == 0
+
+    def test_partial_overlap(self):
+        source = "# Tasks\n\n- Item 1\n\n# Log\n\nEntry A.\n"
+        dest = "# Tasks\n\n- Item 1\n\n# Log\n\nEntry B.\n"
+        merged, stats = _merge_bodies(source, dest)
+        assert "Entry A." in merged
+        assert "Entry B." in merged
+        assert stats["blocks_added"] == 1
+
+    def test_empty_source_body(self):
+        dest = "# Tasks\n\n- Item 1\n"
+        merged, stats = _merge_bodies("", dest)
+        assert merged == dest
+        assert stats["blocks_added"] == 0
+
+    def test_empty_dest_body(self):
+        source = "# Tasks\n\n- Item 1\n"
+        merged, stats = _merge_bodies(source, "")
+        assert "# Tasks" in merged
+        assert "- Item 1" in merged
+        assert stats["blocks_added"] == 1
