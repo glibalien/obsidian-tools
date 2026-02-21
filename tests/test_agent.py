@@ -771,6 +771,75 @@ async def test_agent_turn_retries_when_stripped_response_has_no_content():
     )
 
 
+@pytest.mark.anyio
+async def test_agent_turn_dedup_consecutive_tool_calls():
+    """Identical consecutive tool calls are intercepted without executing."""
+    # LLM call 1: calls update_frontmatter
+    mock_tool_call_1 = MagicMock()
+    mock_tool_call_1.id = "call_1"
+    mock_tool_call_1.function.name = "update_frontmatter"
+    mock_tool_call_1.function.arguments = '{"path": "note.md", "field": "category", "value": "person", "operation": "set"}'
+
+    mock_msg_1 = MagicMock()
+    mock_msg_1.tool_calls = [mock_tool_call_1]
+    mock_msg_1.content = None
+    mock_msg_1.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_1", "function": {"name": "update_frontmatter", "arguments": mock_tool_call_1.function.arguments}, "type": "function"}],
+    }
+
+    # LLM call 2: retries exact same call
+    mock_tool_call_2 = MagicMock()
+    mock_tool_call_2.id = "call_2"
+    mock_tool_call_2.function.name = "update_frontmatter"
+    mock_tool_call_2.function.arguments = '{"path": "note.md", "field": "category", "value": "person", "operation": "set"}'
+
+    mock_msg_2 = MagicMock()
+    mock_msg_2.tool_calls = [mock_tool_call_2]
+    mock_msg_2.content = None
+    mock_msg_2.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_2", "function": {"name": "update_frontmatter", "arguments": mock_tool_call_2.function.arguments}, "type": "function"}],
+    }
+
+    # LLM call 3: final text response
+    mock_msg_final = MagicMock()
+    mock_msg_final.tool_calls = None
+    mock_msg_final.content = "Done"
+    mock_msg_final.model_dump.return_value = {"role": "assistant", "content": "Done"}
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_1)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_2)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_final)], usage=mock_usage),
+    ]
+
+    tool_result = json.dumps({"success": True, "message": "Set 'category' to 'person' in note.md"})
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=tool_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "set category"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+
+    assert result == "Done"
+    # Tool only executed once — second call was deduped
+    assert mock_session.call_tool.call_count == 1
+    # The dedup message was injected into the second tool result
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    assert "Duplicate call" in tool_msgs[1]["content"]
+    assert "different approach" in tool_msgs[1]["content"]
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 
