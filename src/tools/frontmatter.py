@@ -338,19 +338,20 @@ def _confirmation_preview(
     """Return a confirmation preview for a batch operation."""
     desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
     return ok(
-        f"This will {desc} on {len(paths)} files{context}. "
         "Show the file list to the user and call again with confirm=true to proceed.",
         confirmation_required=True,
+        preview_message=f"This will {desc} on {len(paths)} files{context}.",
         files=paths,
     )
 
 
 def _needs_confirmation(
-    field: str, value: str | None, operation: str,
+    field: str, value: str | list | None, operation: str,
     paths: list[str], confirm: bool,
 ) -> bool:
     """Check confirmation gate. Returns True if preview is needed."""
-    key = ("batch_update_frontmatter", field, value, operation, tuple(sorted(paths)))
+    hashable_value = tuple(value) if isinstance(value, list) else value
+    key = ("batch_update_frontmatter", field, hashable_value, operation, tuple(sorted(paths)))
     if confirm and consume_preview(key):
         return False
     store_preview(key)

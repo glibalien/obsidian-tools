@@ -202,6 +202,25 @@ class TestFrontmatter:
         result = extract_frontmatter(sample_frontmatter_file)
         assert result["tags"].count("test") == 1
 
+    def test_update_file_frontmatter_append_list_value(self, sample_frontmatter_file):
+        """Should flatten list values when appending (not nest lists)."""
+        update_file_frontmatter(
+            sample_frontmatter_file, "tags", ["new-tag", "another"], append=True,
+        )
+        result = extract_frontmatter(sample_frontmatter_file)
+        assert "new-tag" in result["tags"]
+        assert "another" in result["tags"]
+        assert all(not isinstance(t, list) for t in result["tags"])
+
+    def test_update_file_frontmatter_append_list_no_duplicates(self, sample_frontmatter_file):
+        """Should skip duplicates when appending list values."""
+        update_file_frontmatter(
+            sample_frontmatter_file, "tags", ["test", "new-tag"], append=True,
+        )
+        result = extract_frontmatter(sample_frontmatter_file)
+        assert result["tags"].count("test") == 1
+        assert "new-tag" in result["tags"]
+
 
 class TestSectionFinding:
     """Tests for find_section function."""
