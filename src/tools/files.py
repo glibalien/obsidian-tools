@@ -293,6 +293,126 @@ def _merge_bodies(source_body: str, dest_body: str) -> tuple[str, dict]:
     return merged, {"blocks_added": len(unique_blocks)}
 
 
+def merge_files(
+    source: str,
+    destination: str,
+    strategy: str = "smart",
+    delete_source: bool | None = None,
+) -> str:
+    """Merge a source file into a destination file.
+
+    Args:
+        source: Path to the source ("from") file.
+        destination: Path to the destination ("to") file. Must exist.
+        strategy: "smart" (content-aware dedup) or "concat" (simple concatenation).
+        delete_source: Delete source after merge. Defaults to True for smart, False for concat.
+
+    Returns:
+        JSON response describing what happened.
+    """
+    if strategy not in ("smart", "concat"):
+        return err(f"Invalid strategy: {strategy!r}. Must be 'smart' or 'concat'.")
+
+    if delete_source is None:
+        delete_source = strategy == "smart"
+
+    source_path, src_err = resolve_file(source)
+    if src_err:
+        return err(src_err)
+
+    dest_path, dst_err = resolve_file(destination)
+    if dst_err:
+        return err(dst_err)
+
+    try:
+        src_content = source_path.read_text(encoding="utf-8", errors="ignore")
+        dst_content = dest_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        return err(f"Error reading files: {e}")
+
+    if strategy == "concat":
+        return _merge_concat(
+            source_path, dest_path, src_content, dst_content, delete_source, source,
+        )
+
+    return _merge_smart(
+        source_path, dest_path, src_content, dst_content, delete_source, source,
+    )
+
+
+def _merge_concat(
+    source_path, dest_path, src_content, dst_content, delete_source, source_rel,
+) -> str:
+    """Simple concatenation merge with filename separator."""
+    separator = f"\n\n---\n\n*Merged from {source_rel}:*\n\n"
+    merged = dst_content.rstrip() + separator + src_content.lstrip()
+
+    try:
+        dest_path.write_text(merged, encoding="utf-8")
+    except Exception as e:
+        return err(f"Error writing merged file: {e}")
+
+    if delete_source:
+        source_path.unlink()
+
+    dest_rel = str(get_relative_path(dest_path))
+    return ok(
+        f"Concatenated {source_rel} into {dest_rel}",
+        action="concatenated",
+        path=dest_rel,
+    )
+
+
+def _merge_smart(
+    source_path, dest_path, src_content, dst_content, delete_source, source_rel,
+) -> str:
+    """Content-aware smart merge with dedup."""
+    src_fm, src_body = _split_frontmatter_body(src_content)
+    dst_fm, dst_body = _split_frontmatter_body(dst_content)
+
+    bodies_identical = _normalize_block(src_body) == _normalize_block(dst_body)
+
+    merged_fm = _merge_frontmatter(src_fm, dst_fm)
+    fm_changed = merged_fm != dst_fm
+
+    if bodies_identical:
+        merged_body = dst_body
+        blocks_added = 0
+    else:
+        merged_body, stats = _merge_bodies(src_body, dst_body)
+        blocks_added = stats["blocks_added"]
+
+    if not fm_changed and blocks_added == 0:
+        action = "identical"
+    elif fm_changed and blocks_added == 0:
+        action = "frontmatter_merged"
+    else:
+        action = "content_merged"
+
+    if merged_fm:
+        fm_yaml = yaml.dump(merged_fm, default_flow_style=False, allow_unicode=True)
+        new_content = f"---\n{fm_yaml}---\n{merged_body}"
+    else:
+        new_content = merged_body
+
+    try:
+        dest_path.write_text(new_content, encoding="utf-8")
+    except Exception as e:
+        return err(f"Error writing merged file: {e}")
+
+    if delete_source:
+        source_path.unlink()
+
+    dest_rel = str(get_relative_path(dest_path))
+    return ok(
+        f"Merged {source_rel} into {dest_rel} ({action})",
+        action=action,
+        path=dest_rel,
+        blocks_added=blocks_added,
+        frontmatter_changed=fm_changed,
+    )
+
+
 def move_file(
     source: str,
     destination: str,
