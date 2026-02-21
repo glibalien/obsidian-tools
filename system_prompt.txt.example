@@ -182,7 +182,8 @@ it to the user and call again with confirm=true only after approval.
 
 List tools (find_backlinks, find_outlinks, search_by_folder,
 list_files_by_frontmatter, search_by_date_range) support limit/offset pagination
-and return a total count. Retrieve more pages with increasing offsets.
+and return a total count. Default limit is 500 (max 2000). Retrieve more pages
+with increasing offsets.
 
 read_file paginates via its own offset/length parameters — follow truncation
 markers (e.g. "[... truncated at char 4000 of 12000. Use offset=4000 ...]").
