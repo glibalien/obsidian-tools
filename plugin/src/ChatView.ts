@@ -14,6 +14,7 @@ export class ChatView extends ItemView {
 	private inputField: HTMLTextAreaElement;
 	private sendButton: HTMLButtonElement;
 	private isLoading = false;
+	private pendingConfirmationEl: HTMLElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -120,19 +121,78 @@ export class ChatView extends ItemView {
 		return labels[toolName] ?? `Running ${toolName}...`;
 	}
 
-	private async sendMessage(): Promise<void> {
-		const message = this.inputField.value.trim();
-		if (!message || this.isLoading) return;
+	private disablePendingConfirmation(): void {
+		if (!this.pendingConfirmationEl) return;
+		this.pendingConfirmationEl.querySelectorAll("button").forEach(btn => {
+			(btn as HTMLButtonElement).disabled = true;
+		});
+		this.pendingConfirmationEl = null;
+	}
+
+	private addConfirmationPreview(message: string, files: string[]): void {
+		const previewEl = this.messagesContainer.createDiv({ cls: "chat-confirmation-preview" });
+
+		// Action description
+		previewEl.createDiv({ cls: "preview-message", text: message });
+
+		// File list
+		const filesEl = previewEl.createDiv({ cls: "preview-files" });
+		const visibleCount = 10;
+		const visibleFiles = files.slice(0, visibleCount);
+		for (const file of visibleFiles) {
+			filesEl.createDiv({ text: file });
+		}
+
+		if (files.length > visibleCount) {
+			const expandEl = previewEl.createDiv({
+				cls: "preview-expand",
+				text: `and ${files.length - visibleCount} more...`,
+			});
+			expandEl.addEventListener("click", () => {
+				for (const file of files.slice(visibleCount)) {
+					filesEl.createDiv({ text: file });
+				}
+				expandEl.remove();
+			});
+		}
+
+		// Buttons
+		const buttonsEl = previewEl.createDiv({ cls: "preview-buttons" });
+
+		const confirmBtn = buttonsEl.createEl("button", {
+			cls: "preview-confirm",
+			text: "Confirm",
+		});
+		confirmBtn.addEventListener("click", () => {
+			this.sendMessageText("Yes, proceed with the batch operation");
+		});
+
+		const cancelBtn = buttonsEl.createEl("button", {
+			cls: "preview-cancel",
+			text: "Cancel",
+		});
+		cancelBtn.addEventListener("click", () => {
+			this.sendMessageText("Cancel, do not proceed");
+		});
+
+		this.pendingConfirmationEl = previewEl;
+		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+	}
+
+	private async sendMessageText(text: string): Promise<void> {
+		if (this.isLoading) return;
+
+		// Disable any pending confirmation buttons
+		this.disablePendingConfirmation();
 
 		// Capture active file once at request time for consistent context
 		const activeFile = this.getActiveFilePath();
 
-		this.inputField.value = "";
 		this.isLoading = true;
 		this.sendButton.disabled = true;
 
 		// Add user message
-		await this.addMessage("user", message);
+		await this.addMessage("user", text);
 
 		// Show loading
 		const { container: loadingEl, textEl: loadingText } = this.showLoading();
@@ -142,7 +202,7 @@ export class ChatView extends ItemView {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					message: message,
+					message: text,
 					session_id: this.sessionId,
 					active_file: activeFile
 				})
@@ -174,6 +234,9 @@ export class ChatView extends ItemView {
 								this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 								break;
 							case "tool_result":
+								break;
+							case "confirmation_preview":
+								this.addConfirmationPreview(event.message, event.files);
 								break;
 							case "response":
 								loadingEl.remove();
@@ -210,5 +273,12 @@ export class ChatView extends ItemView {
 			this.sendButton.disabled = false;
 			this.inputField.focus();
 		}
+	}
+
+	private async sendMessage(): Promise<void> {
+		const message = this.inputField.value.trim();
+		if (!message) return;
+		this.inputField.value = "";
+		await this.sendMessageText(message);
 	}
 }
