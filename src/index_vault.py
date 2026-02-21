@@ -386,8 +386,15 @@ def index_vault(full: bool = False) -> None:
     # Index new/modified files
     indexed = 0
     for md_file in all_files:
-        if md_file.stat().st_mtime > last_run:
-            index_file(md_file)
+        try:
+            modified = md_file.stat().st_mtime > last_run
+        except FileNotFoundError:
+            continue
+        if modified:
+            try:
+                index_file(md_file)
+            except FileNotFoundError:
+                continue
             indexed += 1
             if indexed % 100 == 0:
                 print(f"Indexed {indexed} files...")
