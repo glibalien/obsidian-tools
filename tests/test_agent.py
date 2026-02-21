@@ -840,6 +840,67 @@ async def test_agent_turn_dedup_consecutive_tool_calls():
     assert "different approach" in tool_msgs[1]["content"]
 
 
+@pytest.mark.anyio
+async def test_agent_turn_allows_retry_after_failed_tool_call():
+    """Identical consecutive tool call is allowed if the previous one failed."""
+    args_json = '{"path": "note.md", "field": "category", "value": "person", "operation": "set"}'
+
+    def make_tool_call(call_id):
+        tc = MagicMock()
+        tc.id = call_id
+        tc.function.name = "update_frontmatter"
+        tc.function.arguments = args_json
+        return tc
+
+    def make_assistant_msg(call_id):
+        tc = make_tool_call(call_id)
+        msg = MagicMock()
+        msg.tool_calls = [tc]
+        msg.content = None
+        msg.model_dump.return_value = {
+            "role": "assistant",
+            "tool_calls": [{"id": call_id, "function": {"name": "update_frontmatter", "arguments": args_json}, "type": "function"}],
+        }
+        return msg
+
+    mock_msg_final = MagicMock()
+    mock_msg_final.tool_calls = None
+    mock_msg_final.content = "Done"
+    mock_msg_final.model_dump.return_value = {"role": "assistant", "content": "Done"}
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=make_assistant_msg("call_1"))], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=make_assistant_msg("call_2"))], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_final)], usage=mock_usage),
+    ]
+
+    # First call fails, second call succeeds
+    error_result = "Tool error: connection timeout"
+    success_result = json.dumps({"success": True, "message": "Set 'category' to 'person' in note.md"})
+    mock_session = AsyncMock()
+    mock_session.call_tool.side_effect = [
+        MagicMock(isError=False, content=[MagicMock(text=error_result)]),
+        MagicMock(isError=False, content=[MagicMock(text=success_result)]),
+    ]
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "set category"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+
+    assert result == "Done"
+    # Tool executed twice — retry was allowed because first call failed
+    assert mock_session.call_tool.call_count == 2
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    assert "Duplicate call" not in tool_msgs[1]["content"]
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 
