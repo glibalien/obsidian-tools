@@ -1283,8 +1283,8 @@ class TestFolderFiltering:
         # note2.md has tags: [meeting] but is in root, not projects/
         assert not any("note2.md" in p for p in result["results"])
 
-    def test_list_folder_recursive_default(self, temp_vault, vault_config):
-        """folder with recursive=True (default) includes subfolders."""
+    def test_list_folder_non_recursive_default(self, temp_vault, vault_config):
+        """folder with recursive=False (default) excludes subfolders."""
         # Create a subfolder with a matching file
         sub = temp_vault / "projects" / "sub"
         sub.mkdir()
@@ -1296,7 +1296,7 @@ class TestFolderFiltering:
             )
         )
         assert result["success"] is True
-        assert any("sub/deep.md" in p for p in result["results"])
+        assert not any("sub/deep.md" in p for p in result["results"])
         assert any("project1.md" in p for p in result["results"])
 
     def test_list_folder_non_recursive(self, temp_vault, vault_config):

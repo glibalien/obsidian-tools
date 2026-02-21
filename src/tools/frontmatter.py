@@ -172,7 +172,7 @@ def _find_matching_files(
     parsed_filters: list[dict],
     include_fields: list[str] | None = None,
     folder: Path | None = None,
-    recursive: bool = True,
+    recursive: bool = False,
 ) -> list[str | dict]:
     """Scan vault and return files matching all frontmatter conditions.
 
@@ -183,7 +183,7 @@ def _find_matching_files(
         parsed_filters: Additional filter conditions (already validated).
         include_fields: If provided, return dicts with path + these field values.
         folder: If provided, restrict scan to files within this directory.
-        recursive: If True (default), include subfolders. If False, only direct children.
+        recursive: If False (default), only direct children. If True, include subfolders.
 
     Returns:
         Sorted list of path strings or dicts (when include_fields is set).
@@ -232,7 +232,7 @@ def list_files_by_frontmatter(
     filters: list[FilterCondition] | None = None,
     include_fields: list[str] | None = None,
     folder: str = "",
-    recursive: bool = True,
+    recursive: bool = False,
     limit: int = LIST_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> str:
@@ -252,7 +252,7 @@ def list_files_by_frontmatter(
         filters: Additional AND conditions. Each needs 'field', optional 'value', and optional 'match_type'.
         include_fields: Field names whose values to return with each result, e.g. ["status", "scheduled"].
         folder: Restrict search to files within this folder (relative to vault root).
-        recursive: Include subfolders when folder is set (default true). Set false for direct children only.
+        recursive: Include subfolders when folder is set (default false). Set true to include subfolders.
 
     Returns:
         JSON with results (file paths or objects when include_fields is set) and total count.
@@ -449,7 +449,7 @@ def batch_update_frontmatter(
     target_match_type: str = "contains",
     target_filters: list[FilterCondition] | None = None,
     folder: str = "",
-    recursive: bool = True,
+    recursive: bool = False,
     confirm: bool = False,
 ) -> str:
     """Apply a frontmatter update to multiple vault files.
@@ -478,7 +478,7 @@ def batch_update_frontmatter(
         target_filters: Additional targeting conditions (AND logic). Same format as list_files_by_frontmatter filters.
         folder: Restrict targeting to files within this folder (relative to vault root).
             Can be used alone (all files in folder) or with target_field (scoped query).
-        recursive: Include subfolders when folder is set (default true). Set false for direct children only.
+        recursive: Include subfolders when folder is set (default false). Set true to include subfolders.
         confirm: Must be true to execute when modifying more than 5 files (or any query/folder-based update).
 
     Returns:
