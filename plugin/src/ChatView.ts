@@ -277,7 +277,7 @@ export class ChatView extends ItemView {
 
 	private async sendMessage(): Promise<void> {
 		const message = this.inputField.value.trim();
-		if (!message) return;
+		if (!message || this.isLoading) return;
 		this.inputField.value = "";
 		await this.sendMessageText(message);
 	}
