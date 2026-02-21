@@ -28,6 +28,7 @@ from tools.frontmatter import (
     update_frontmatter,
 )
 from tools.links import (
+    compare_folders,
     find_backlinks,
     find_outlinks,
     search_by_folder,
@@ -76,6 +77,7 @@ mcp.tool()(batch_update_frontmatter)
 mcp.tool()(search_by_date_range)
 
 # Link tools
+mcp.tool()(compare_folders)
 mcp.tool()(find_backlinks)
 mcp.tool()(find_outlinks)
 mcp.tool()(search_by_folder)
