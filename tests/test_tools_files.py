@@ -11,6 +11,7 @@ from tools.files import (
     _split_blocks,
     _split_frontmatter_body,
     append_to_file,
+    batch_merge_files,
     batch_move_files,
     create_file,
     merge_files,
@@ -591,3 +592,134 @@ class TestMergeFiles:
         result = json.loads(merge_files("src.md", "dst.md", strategy="invalid"))
         assert result["success"] is False
         assert "strategy" in result["error"].lower()
+
+
+class TestBatchMergeFiles:
+    """Tests for batch_merge_files tool."""
+
+    def _setup_folders(self, vault_config, pairs):
+        """Create source/target folders with file pairs.
+
+        pairs: list of (filename, source_content, target_content)
+        """
+        src_dir = vault_config / "import"
+        dst_dir = vault_config / "Daily Notes"
+        src_dir.mkdir(exist_ok=True)
+        dst_dir.mkdir(exist_ok=True)
+        for name, src_content, dst_content in pairs:
+            (src_dir / name).write_text(src_content)
+            (dst_dir / name).write_text(dst_content)
+        return "import", "Daily Notes"
+
+    def test_batch_merge_identical_files(self, vault_config):
+        """All identical pairs: sources deleted, dests unchanged."""
+        clear_pending_previews()
+        src_folder, dst_folder = self._setup_folders(vault_config, [
+            ("2022-01-01.md", "# Jan 1\n\nContent.\n", "# Jan 1\n\nContent.\n"),
+            ("2022-01-02.md", "# Jan 2\n\nContent.\n", "# Jan 2\n\nContent.\n"),
+        ])
+        result = json.loads(batch_merge_files(src_folder, dst_folder))
+        assert result["success"] is True
+        assert result["merged"] == 2
+        assert not (vault_config / "import" / "2022-01-01.md").exists()
+        assert not (vault_config / "import" / "2022-01-02.md").exists()
+
+    def test_batch_merge_with_diffs(self, vault_config):
+        """Mixed: one identical, one with unique content."""
+        clear_pending_previews()
+        src_folder, dst_folder = self._setup_folders(vault_config, [
+            ("same.md", "# Same\n", "# Same\n"),
+            ("diff.md", "# Diff\n\nExtra.\n", "# Diff\n"),
+        ])
+        result = json.loads(batch_merge_files(src_folder, dst_folder))
+        assert result["success"] is True
+        assert result["merged"] == 2
+        merged = (vault_config / "Daily Notes" / "diff.md").read_text()
+        assert "Extra." in merged
+
+    def test_batch_confirmation_gate(self, vault_config):
+        """Should require confirmation when >5 pairs."""
+        clear_pending_previews()
+        src_dir = vault_config / "bulk_src"
+        dst_dir = vault_config / "bulk_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        for i in range(8):
+            (src_dir / f"note{i}.md").write_text(f"# Note {i}\n")
+            (dst_dir / f"note{i}.md").write_text(f"# Note {i}\n")
+
+        result = json.loads(batch_merge_files("bulk_src", "bulk_dst"))
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert "8" in result["preview_message"]
+        # No files should be merged yet
+        for i in range(8):
+            assert (src_dir / f"note{i}.md").exists()
+
+    def test_batch_confirm_executes(self, vault_config):
+        """Preview then confirm should execute the batch."""
+        clear_pending_previews()
+        src_dir = vault_config / "conf_src"
+        dst_dir = vault_config / "conf_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        for i in range(8):
+            (src_dir / f"n{i}.md").write_text(f"# N {i}\n")
+            (dst_dir / f"n{i}.md").write_text(f"# N {i}\n")
+
+        # Preview
+        batch_merge_files("conf_src", "conf_dst")
+        # Confirm
+        result = json.loads(batch_merge_files("conf_src", "conf_dst", confirm=True))
+        assert result["success"] is True
+        assert result["merged"] == 8
+
+    def test_batch_reports_only_in_source(self, vault_config):
+        """Files only in source should be reported but not touched."""
+        clear_pending_previews()
+        src_dir = vault_config / "report_src"
+        dst_dir = vault_config / "report_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "shared.md").write_text("# Shared\n")
+        (dst_dir / "shared.md").write_text("# Shared\n")
+        (src_dir / "orphan.md").write_text("# Orphan\n")
+
+        result = json.loads(batch_merge_files("report_src", "report_dst"))
+        assert result["success"] is True
+        assert result["merged"] == 1
+        assert result["skipped_source_only"] == 1
+        assert (src_dir / "orphan.md").exists()  # untouched
+
+    def test_batch_no_overlap(self, vault_config):
+        """No overlapping files: nothing to merge."""
+        clear_pending_previews()
+        src_dir = vault_config / "no_overlap_src"
+        dst_dir = vault_config / "no_overlap_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "a.md").write_text("# A\n")
+        (dst_dir / "b.md").write_text("# B\n")
+
+        result = json.loads(batch_merge_files("no_overlap_src", "no_overlap_dst"))
+        assert result["success"] is True
+        assert result["merged"] == 0
+
+    def test_batch_recursive(self, vault_config):
+        """Recursive mode merges files in subfolders."""
+        clear_pending_previews()
+        src_dir = vault_config / "rec_src"
+        dst_dir = vault_config / "rec_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "sub").mkdir()
+        (src_dir / "sub" / "deep.md").write_text("# Deep\n")
+        (dst_dir / "deep.md").write_text("# Deep\n")
+
+        # Non-recursive: no match
+        result = json.loads(batch_merge_files("rec_src", "rec_dst"))
+        assert result["merged"] == 0
+
+        # Recursive: matches
+        result = json.loads(batch_merge_files("rec_src", "rec_dst", recursive=True))
+        assert result["merged"] == 1
