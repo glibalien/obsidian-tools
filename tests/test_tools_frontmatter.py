@@ -291,6 +291,27 @@ class TestUpdateFrontmatterValueNormalization:
         assert result["success"] is True
         assert captured["value"] == ["a", "b"]
 
+    def test_update_frontmatter_accepts_native_list(self, monkeypatch):
+        """Native list values should pass through unchanged (no JSON string required)."""
+        captured = {}
+
+        def fake_update(path, field, value, operation):
+            captured["value"] = value
+            return True, "ok"
+
+        monkeypatch.setattr("tools.frontmatter.do_update_frontmatter", fake_update)
+
+        result = json.loads(
+            update_frontmatter(
+                path="note1.md",
+                field="category",
+                value=["project"],
+                operation="set",
+            )
+        )
+        assert result["success"] is True
+        assert captured["value"] == ["project"]
+
     def test_update_frontmatter_plain_string_remains_string(self, monkeypatch):
         """Plain strings should not be treated as JSON."""
         captured = {}
