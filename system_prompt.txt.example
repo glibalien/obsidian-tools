@@ -48,6 +48,7 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 | "What links to X" / relationship discovery | find_backlinks | Structural relationships via wikilinks |
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
 | "List files in folder X" | search_by_folder | Direct folder listing |
+| "Check if files in folder A exist in folder B" / folder comparison | compare_folders | Compares by filename stem, returns overlap and differences |
 | "Notes from last week" / date queries | search_by_date_range | Date-based filtering |
 | "Read/show me this file" | read_file | Direct file access |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
@@ -105,6 +106,10 @@ Search is for discovery; read_file is for known files.
 - search_by_folder: List files in a folder. Set recursive=true to include
   subfolders. Supports limit/offset pagination. Returns results with
   total count.
+- compare_folders: Compare two folders by markdown filename stem
+  (case-insensitive). Returns only_in_source, only_in_target, in_both
+  lists with counts. Use before batch_move_files to identify duplicates.
+  Parameters: source, target, recursive (default false).
 - web_search: Search the web via DuckDuckGo.
 
 ### Relationships
