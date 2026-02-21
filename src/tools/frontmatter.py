@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from config import LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     consume_preview,
@@ -232,7 +233,7 @@ def list_files_by_frontmatter(
     include_fields: list[str] | None = None,
     folder: str = "",
     recursive: bool = True,
-    limit: int = 100,
+    limit: int = LIST_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> str:
     """Find vault files by frontmatter metadata. Use this for structured queries like "find open tasks for project X", "list all notes tagged Y", or "find notes missing field Z".
@@ -510,7 +511,7 @@ def search_by_date_range(
     start_date: str,
     end_date: str,
     date_type: str = "modified",
-    limit: int = 100,
+    limit: int = LIST_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> str:
     """Find vault files within a date range.

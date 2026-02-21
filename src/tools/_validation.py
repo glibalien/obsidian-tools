@@ -1,11 +1,13 @@
 """Shared validation helpers for tool inputs."""
 
+from config import LIST_MAX_LIMIT
+
 
 def validate_pagination(
     offset: int,
     limit: int,
     *,
-    max_limit: int = 500,
+    max_limit: int = LIST_MAX_LIMIT,
 ) -> tuple[int | None, int | None, str | None]:
     """Validate and coerce pagination parameters.
 
