@@ -413,6 +413,99 @@ def _merge_smart(
     )
 
 
+def batch_merge_files(
+    source_folder: str,
+    destination_folder: str,
+    recursive: bool = False,
+    strategy: str = "smart",
+    delete_source: bool | None = None,
+    confirm: bool = False,
+) -> str:
+    """Merge duplicate files between two folders.
+
+    Uses compare_folders to find files with matching names in both folders,
+    then merges each source file into the corresponding destination file.
+    Files only in source or only in destination are reported but not touched.
+
+    Args:
+        source_folder: Folder containing "from" files.
+        destination_folder: Folder containing "to" files.
+        recursive: Include subfolders. Default False.
+        strategy: "smart" (content-aware dedup) or "concat".
+        delete_source: Delete source after merge. Defaults to True for smart, False for concat.
+        confirm: Must be true to execute when merging more than 5 file pairs.
+    """
+    from tools.links import compare_folders as _compare_folders
+
+    if strategy not in ("smart", "concat"):
+        return err(f"Invalid strategy: {strategy!r}. Must be 'smart' or 'concat'.")
+
+    if delete_source is None:
+        delete_source = strategy == "smart"
+
+    comparison = json.loads(_compare_folders(source_folder, destination_folder, recursive=recursive))
+    if not comparison.get("success"):
+        return err(comparison.get("error", "Folder comparison failed"))
+
+    in_both = comparison.get("in_both", [])
+    only_in_source = comparison.get("only_in_source", [])
+    only_in_target = comparison.get("only_in_target", [])
+
+    if not in_both:
+        return ok(
+            f"No overlapping files between '{source_folder}' and '{destination_folder}'",
+            merged=0,
+            skipped_source_only=len(only_in_source),
+            skipped_target_only=len(only_in_target),
+        )
+
+    # Build merge pairs: [(source_path, dest_path), ...]
+    pairs = []
+    for entry in in_both:
+        source_paths = entry["source_paths"]
+        target_paths = entry["target_paths"]
+        target = target_paths[0]
+        for src in source_paths:
+            pairs.append((src, target))
+
+    # Confirmation gate for large batches
+    if len(pairs) > BATCH_CONFIRM_THRESHOLD:
+        pair_keys = tuple((s, d) for s, d in pairs)
+        key = ("batch_merge_files", pair_keys)
+        if not (confirm and consume_preview(key)):
+            store_preview(key)
+            files = [f"{s} → {d}" for s, d in pairs]
+            return ok(
+                "Show the file list to the user and call again with confirm=true to proceed.",
+                confirmation_required=True,
+                preview_message=f"This will merge {len(pairs)} file pairs from '{source_folder}' into '{destination_folder}'.",
+                files=files,
+            )
+
+    # Execute merges
+    results = []
+    for src_path, dst_path in pairs:
+        result_json = merge_files(src_path, dst_path, strategy=strategy, delete_source=delete_source)
+        result = json.loads(result_json)
+        results.append(result)
+
+    succeeded = [r for r in results if r.get("success")]
+    failed = [r for r in results if not r.get("success")]
+
+    return ok(
+        f"Batch merge: {len(succeeded)} merged, {len(failed)} failed",
+        merged=len(succeeded),
+        failed=len(failed),
+        skipped_source_only=len(only_in_source),
+        skipped_target_only=len(only_in_target),
+        details=[
+            {"action": r.get("action"), "path": r.get("path")}
+            for r in succeeded
+        ],
+        errors=[r.get("error") for r in failed],
+    )
+
+
 def move_file(
     source: str,
     destination: str,
