@@ -1,11 +1,11 @@
-"""Tests for log_chat.py - wikilink insertion and protected zones."""
+"""Tests for log_chat.py - wikilink insertion, protected zones, and entry insertion."""
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from log_chat import add_wikilinks
+from log_chat import add_wikilinks, insert_entry
 
 
 class TestAddWikilinks:
@@ -82,3 +82,43 @@ class TestAddWikilinks:
         text = "```python\nProjectAlpha = 1\n```\nProjectAlpha outside"
         result = add_wikilinks(text, {"ProjectAlpha"})
         assert result.count("[[ProjectAlpha]]") == 1
+
+
+class TestInsertEntry:
+    """Tests for insert_entry — correct spacing after header."""
+
+    ENTRY = "### 14:30 - Test task\n\n**Query:** hello\n\n---\n\n"
+
+    def test_single_blank_line_after_header(self):
+        """First entry should have exactly one blank line after the header."""
+        content = "# 2026-02-21\n\n## Vault Agent Interactions\n\n"
+        result = insert_entry(content, self.ENTRY)
+        # Header followed by \n (blank line) then entry
+        assert "## Vault Agent Interactions\n\n### 14:30" in result
+
+    def test_no_accumulating_blank_lines(self):
+        """Repeated insertions should not add extra blank lines."""
+        content = "# 2026-02-21\n\n## Vault Agent Interactions\n\n"
+        for _ in range(5):
+            content = insert_entry(content, self.ENTRY)
+        # Still exactly one blank line between header and newest entry
+        assert "## Vault Agent Interactions\n\n### 14:30" in content
+        # No triple-newline anywhere after the header
+        header_pos = content.find("## Vault Agent Interactions\n")
+        after_header = content[header_pos + len("## Vault Agent Interactions\n"):]
+        assert "\n\n\n" not in after_header
+
+    def test_insert_before_existing_entries(self):
+        """New entry should appear before existing entries."""
+        content = "# 2026-02-21\n\n## Vault Agent Interactions\n\n### 10:00 - Old\n\n---\n\n"
+        new_entry = "### 14:30 - New\n\n---\n\n"
+        result = insert_entry(content, new_entry)
+        new_pos = result.find("### 14:30 - New")
+        old_pos = result.find("### 10:00 - Old")
+        assert new_pos < old_pos
+
+    def test_fallback_appends_without_header(self):
+        """Entry is appended if the header marker is missing."""
+        content = "# 2026-02-21\n\nSome other content\n"
+        result = insert_entry(content, self.ENTRY)
+        assert result.endswith(self.ENTRY)
