@@ -1,6 +1,7 @@
 """File operation tools - read, create, move, append."""
 
 import json
+import re
 
 import yaml
 
@@ -146,6 +147,49 @@ def _parse_frontmatter(frontmatter: dict | str | None) -> tuple[dict, str | None
         )
 
     return parsed, None
+
+
+def _split_frontmatter_body(content: str) -> tuple[dict, str]:
+    """Split a markdown file's content into frontmatter dict and body string.
+
+    Returns:
+        Tuple of (frontmatter_dict, body_string). Frontmatter is empty dict
+        if the file has no valid YAML frontmatter block.
+    """
+    match = re.match(r"^---\n(.*?)---\n", content, re.DOTALL)
+    if not match:
+        return {}, content
+
+    fm = yaml.safe_load(match.group(1)) or {}
+    body = content[match.end():]
+    return fm, body
+
+
+def _merge_frontmatter(source_fm: dict, dest_fm: dict) -> dict:
+    """Merge source frontmatter into destination frontmatter.
+
+    Rules:
+    - Fields only in source are added to result.
+    - Fields only in destination are kept as-is.
+    - Both are lists: union (destination order first, then unique source items).
+    - Both exist but destination is scalar: destination wins.
+    - Identical values: kept as-is.
+    """
+    merged = dict(dest_fm)
+    for key, src_val in source_fm.items():
+        if key not in merged:
+            merged[key] = src_val
+        elif isinstance(merged[key], list) and isinstance(src_val, list):
+            existing = set()
+            for item in merged[key]:
+                existing.add(item if not isinstance(item, list) else tuple(item))
+            for item in src_val:
+                hashable = item if not isinstance(item, list) else tuple(item)
+                if hashable not in existing:
+                    merged[key].append(item)
+                    existing.add(hashable)
+        # else: dest wins (scalar conflict, or type mismatch)
+    return merged
 
 
 def move_file(

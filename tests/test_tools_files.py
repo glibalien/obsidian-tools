@@ -6,6 +6,8 @@ import pytest
 
 from services.vault import clear_pending_previews
 from tools.files import (
+    _merge_frontmatter,
+    _split_frontmatter_body,
     append_to_file,
     batch_move_files,
     create_file,
@@ -316,3 +318,76 @@ class TestBatchMoveConfirmationGate:
             (vault_config / move["source"]).write_text("# Recreated\n")
         result = json.loads(batch_move_files(moves=moves, confirm=True))
         assert result["confirmation_required"] is True
+
+
+class TestSplitFrontmatterBody:
+    """Tests for _split_frontmatter_body helper."""
+
+    def test_file_with_frontmatter(self):
+        content = "---\ntitle: Test\ntags:\n  - a\n---\n\n# Body\n\nParagraph."
+        fm, body = _split_frontmatter_body(content)
+        assert fm == {"title": "Test", "tags": ["a"]}
+        assert body.strip() == "# Body\n\nParagraph."
+
+    def test_file_without_frontmatter(self):
+        content = "# Just a heading\n\nSome text."
+        fm, body = _split_frontmatter_body(content)
+        assert fm == {}
+        assert body == content
+
+    def test_empty_frontmatter(self):
+        content = "---\n---\n\nBody text."
+        fm, body = _split_frontmatter_body(content)
+        assert fm == {}
+        assert body.strip() == "Body text."
+
+    def test_frontmatter_with_empty_body(self):
+        content = "---\ntitle: Note\n---\n"
+        fm, body = _split_frontmatter_body(content)
+        assert fm == {"title": "Note"}
+        assert body.strip() == ""
+
+
+class TestMergeFrontmatter:
+    """Tests for _merge_frontmatter helper."""
+
+    def test_source_adds_new_fields(self):
+        source = {"author": "Alice", "tags": ["draft"]}
+        dest = {"title": "Note"}
+        merged = _merge_frontmatter(source, dest)
+        assert merged == {"title": "Note", "author": "Alice", "tags": ["draft"]}
+
+    def test_destination_wins_scalar_conflict(self):
+        source = {"title": "Old Title", "author": "Alice"}
+        dest = {"title": "New Title"}
+        merged = _merge_frontmatter(source, dest)
+        assert merged["title"] == "New Title"
+        assert merged["author"] == "Alice"
+
+    def test_list_fields_union_deduped(self):
+        source = {"tags": ["a", "b", "c"]}
+        dest = {"tags": ["b", "c", "d"]}
+        merged = _merge_frontmatter(source, dest)
+        assert merged["tags"] == ["b", "c", "d", "a"]
+
+    def test_source_list_dest_scalar_dest_wins(self):
+        source = {"status": ["draft", "review"]}
+        dest = {"status": "published"}
+        merged = _merge_frontmatter(source, dest)
+        assert merged["status"] == "published"
+
+    def test_both_empty(self):
+        assert _merge_frontmatter({}, {}) == {}
+
+    def test_source_empty(self):
+        dest = {"title": "Keep"}
+        assert _merge_frontmatter({}, dest) == {"title": "Keep"}
+
+    def test_dest_empty(self):
+        source = {"title": "Bring"}
+        assert _merge_frontmatter(source, {}) == {"title": "Bring"}
+
+    def test_identical_frontmatter_unchanged(self):
+        fm = {"title": "Same", "tags": ["a", "b"]}
+        merged = _merge_frontmatter(fm.copy(), fm.copy())
+        assert merged == fm
