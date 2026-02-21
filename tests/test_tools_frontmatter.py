@@ -509,7 +509,7 @@ class TestBatchConfirmationGate:
         )
         assert result["success"] is True
         assert result["confirmation_required"] is True
-        assert "10 files" in result["message"]
+        assert "10 files" in result["preview_message"]
         assert result["files"] == paths
         # Verify no files were actually modified
         for path in paths:
@@ -569,8 +569,8 @@ class TestBatchConfirmationGate:
             )
         )
         assert result["confirmation_required"] is True
-        assert "context" in result["message"]
-        assert "work" in result["message"]
+        assert "context" in result["preview_message"]
+        assert "work" in result["preview_message"]
 
     def test_confirmation_not_required_for_remove(self, vault_config):
         """Remove operations over threshold should also require confirmation."""
@@ -584,7 +584,7 @@ class TestBatchConfirmationGate:
             )
         )
         assert result["confirmation_required"] is True
-        assert "remove" in result["message"]
+        assert "remove" in result["preview_message"]
 
     def test_confirm_true_without_preview_returns_preview(self, vault_config):
         """Passing confirm=True on first call should still return preview."""
@@ -655,6 +655,45 @@ class TestBatchConfirmationGate:
             )
         )
         assert result["confirmation_required"] is True
+
+    def test_confirmation_works_with_list_value(self, vault_config):
+        """Confirmation gate should handle list values (not crash on unhashable type)."""
+        clear_pending_previews()
+        paths = self._create_files(vault_config, 10)
+        # Preview step
+        preview = json.loads(
+            batch_update_frontmatter(
+                field="category", value=["test"], operation="append", paths=paths,
+            )
+        )
+        assert preview["success"] is True
+        assert preview["confirmation_required"] is True
+        assert "10 files" in preview["preview_message"]
+        # Confirm step — key must match despite list value
+        result = json.loads(
+            batch_update_frontmatter(
+                field="category", value=["test"], operation="append",
+                paths=paths, confirm=True,
+            )
+        )
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+
+    def test_confirmation_preview_has_preview_message(self, vault_config):
+        """Preview should include separate preview_message for UI display."""
+        clear_pending_previews()
+        paths = self._create_files(vault_config, 10)
+        result = json.loads(
+            batch_update_frontmatter(
+                field="status", value="done", operation="set", paths=paths,
+            )
+        )
+        assert "preview_message" in result
+        assert "This will" in result["preview_message"]
+        assert "10 files" in result["preview_message"]
+        # preview_message should NOT contain LLM instructions
+        assert "confirm=true" not in result["preview_message"]
+        assert "Show the file list" not in result["preview_message"]
 
 
 class TestQueryBasedBatchUpdate:

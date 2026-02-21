@@ -290,8 +290,10 @@ def update_file_frontmatter(
         existing = frontmatter.get(field, [])
         if not isinstance(existing, list):
             raise ValueError(f"Cannot append to non-list field '{field}'")
-        if value not in existing:
-            existing.append(value)
+        items = value if isinstance(value, list) else [value]
+        for item in items:
+            if item not in existing:
+                existing.append(item)
         frontmatter[field] = existing
     else:
         frontmatter[field] = value

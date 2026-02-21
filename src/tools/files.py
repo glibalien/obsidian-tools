@@ -200,9 +200,9 @@ def batch_move_files(
                 if isinstance(m, dict) and m.get("source"):
                     files.append(f"{m['source']} → {m.get('destination', '?')}")
             return ok(
-                f"This will move {len(moves)} files. "
                 "Show the file list to the user and call again with confirm=true to proceed.",
                 confirmation_required=True,
+                preview_message=f"This will move {len(moves)} files.",
                 files=files,
             )
 
