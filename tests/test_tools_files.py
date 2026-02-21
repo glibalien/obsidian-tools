@@ -236,7 +236,7 @@ class TestBatchMoveConfirmationGate:
         result = json.loads(batch_move_files(moves=moves))
         assert result["success"] is True
         assert result["confirmation_required"] is True
-        assert "10 files" in result["message"]
+        assert "10 files" in result["preview_message"]
         assert len(result["files"]) == 10
         # Verify no files were actually moved
         for move in moves:
@@ -287,6 +287,20 @@ class TestBatchMoveConfirmationGate:
         assert result["success"] is True
         assert "confirmation_required" not in result
         assert "8 succeeded" in result["message"]
+
+    def test_batch_move_preview_has_preview_message(self, vault_config):
+        """Preview should include separate preview_message for UI display."""
+        clear_pending_previews()
+        moves = []
+        for i in range(10):
+            path = f"move_preview_{i}.md"
+            (vault_config / path).write_text(f"---\ntitle: test{i}\n---\n")
+            moves.append({"source": path, "destination": f"dest/move_preview_{i}.md"})
+        (vault_config / "dest").mkdir(exist_ok=True)
+        result = json.loads(batch_move_files(moves=moves))
+        assert "preview_message" in result
+        assert "This will move 10 files" in result["preview_message"]
+        assert "confirm=true" not in result["preview_message"]
 
     def test_confirmation_is_single_use(self, vault_config):
         """After execution, same confirm=True requires a new preview."""
