@@ -358,7 +358,8 @@ async def _process_tool_calls(
         except (TypeError, ValueError):
             args_key = repr(sorted(arguments.items()))
         call_key = (tool_name, args_key)
-        if last_tool_call is not None and call_key == last_tool_call.get("key"):
+        prev_succeeded = last_tool_call and not last_tool_call.get("failed", False)
+        if prev_succeeded and call_key == last_tool_call.get("key"):
             prev_result = last_tool_call["result"]
             result = (
                 f"Duplicate call: you just called {tool_name} with the same "
@@ -384,10 +385,6 @@ async def _process_tool_calls(
                 "Tool result: %s chars=%d truncated=%s",
                 tool_name, raw_len, raw_len > MAX_TOOL_RESULT_CHARS,
             )
-
-        if last_tool_call is not None:
-            last_tool_call["key"] = call_key
-            last_tool_call["result"] = result
 
         messages.append(
             {
@@ -418,6 +415,11 @@ async def _process_tool_calls(
         except (json.JSONDecodeError, AttributeError):
             success = not result.startswith(("Tool error:", "Failed to execute tool"))
         await _emit("tool_result", {"tool": tool_name, "success": success})
+
+        if last_tool_call is not None:
+            last_tool_call["key"] = call_key
+            last_tool_call["result"] = result
+            last_tool_call["failed"] = not success
 
     return next_result_id, confirmation_required
 
