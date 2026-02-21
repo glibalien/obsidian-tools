@@ -1106,7 +1106,7 @@ class TestSearchByDateRange:
     [
         ({"offset": -1}, "offset must be >= 0"),
         ({"limit": 0}, "limit must be >= 1"),
-        ({"limit": 501}, "limit must be <= 500"),
+        ({"limit": 2001}, "limit must be <= 2000"),
     ],
 )
 def test_frontmatter_paginated_tools_reject_invalid_pagination(vault_config, kwargs, expected_error):

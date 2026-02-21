@@ -3,14 +3,14 @@
 import logging
 import re
 
-from config import EXCLUDED_DIRS
+from config import EXCLUDED_DIRS, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT
 
 logger = logging.getLogger(__name__)
 from services.vault import err, get_relative_path, get_vault_files, ok, resolve_dir, resolve_file
 from tools._validation import validate_pagination
 
 
-def find_backlinks(note_name: str, limit: int = 100, offset: int = 0) -> str:
+def find_backlinks(note_name: str, limit: int = LIST_DEFAULT_LIMIT, offset: int = 0) -> str:
     """Find all vault files that contain wikilinks to a given note.
 
     Args:
@@ -59,7 +59,7 @@ def _scan_backlinks(note_name: str) -> list[str]:
     return sorted(backlinks)
 
 
-def find_outlinks(path: str, limit: int = 100, offset: int = 0) -> str:
+def find_outlinks(path: str, limit: int = LIST_DEFAULT_LIMIT, offset: int = 0) -> str:
     """Extract all wikilinks from a vault file with resolved paths.
 
     Args:
@@ -151,7 +151,7 @@ def _resolve_link(
 def search_by_folder(
     folder: str,
     recursive: bool = False,
-    limit: int = 100,
+    limit: int = LIST_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> str:
     """List all markdown files in a vault folder.
