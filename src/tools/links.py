@@ -2,6 +2,8 @@
 
 import logging
 import re
+from collections import defaultdict
+from pathlib import Path
 
 from config import EXCLUDED_DIRS, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT
 
@@ -192,3 +194,89 @@ def search_by_folder(
     total = len(all_results)
     page = all_results[validated_offset:validated_offset + validated_limit]
     return ok(results=page, total=total)
+
+
+def compare_folders(
+    source: str,
+    target: str,
+    recursive: bool = False,
+) -> str:
+    """Compare two vault folders by markdown filename stem (case-insensitive).
+
+    Args:
+        source: Path to the source folder (relative to vault or absolute).
+        target: Path to the target folder (relative to vault or absolute).
+        recursive: If True, include files in subfolders. Default: False.
+
+    Returns:
+        JSON response with only_in_source, only_in_target, in_both lists and counts.
+    """
+    source_path, source_err = resolve_dir(source)
+    if source_err:
+        return err(source_err)
+
+    target_path, target_err = resolve_dir(target)
+    if target_err:
+        return err(target_err)
+
+    if source_path == target_path:
+        return err("Source and target folders are the same")
+
+    source_files = _scan_folder(source_path, recursive)
+    target_files = _scan_folder(target_path, recursive)
+
+    source_stems: dict[str, list[str]] = defaultdict(list)
+    for stem, path in source_files:
+        source_stems[stem].append(path)
+    target_stems: dict[str, list[str]] = defaultdict(list)
+    for stem, path in target_files:
+        target_stems[stem].append(path)
+
+    source_only_keys = sorted(source_stems.keys() - target_stems.keys())
+    target_only_keys = sorted(target_stems.keys() - source_stems.keys())
+    both_keys = sorted(source_stems.keys() & target_stems.keys())
+
+    only_in_source = sorted(
+        path for k in source_only_keys for path in source_stems[k]
+    )
+    only_in_target = sorted(
+        path for k in target_only_keys for path in target_stems[k]
+    )
+    in_both = [
+        {
+            "name": sorted(source_stems[k])[0].rsplit("/", 1)[-1],
+            "source_paths": sorted(source_stems[k]),
+            "target_paths": sorted(target_stems[k]),
+        }
+        for k in both_keys
+    ]
+
+    counts = {
+        "only_in_source": len(only_in_source),
+        "only_in_target": len(only_in_target),
+        "in_both": len(in_both),
+    }
+
+    return ok(
+        f"Compared '{source}' with '{target}': "
+        f"{counts['only_in_source']} only in source, "
+        f"{counts['only_in_target']} only in target, "
+        f"{counts['in_both']} in both",
+        only_in_source=only_in_source,
+        only_in_target=only_in_target,
+        in_both=in_both,
+        counts=counts,
+    )
+
+
+def _scan_folder(folder_path: Path, recursive: bool) -> list[tuple[str, str]]:
+    """Scan a folder for .md files and return (lowercased_stem, relative_path) pairs."""
+    pattern_func = folder_path.rglob if recursive else folder_path.glob
+    results = []
+    for md_file in pattern_func("*.md"):
+        if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
+            continue
+        rel_path = get_relative_path(md_file)
+        stem = md_file.stem.lower()
+        results.append((stem, rel_path))
+    return results

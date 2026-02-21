@@ -5,6 +5,7 @@ import json
 import pytest
 
 from tools.links import (
+    compare_folders,
     find_backlinks,
     find_outlinks,
     search_by_folder,
@@ -195,6 +196,205 @@ class TestSearchByFolder:
         assert result["success"] is True
         assert result["results"] == []
         assert "No markdown files found" in result["message"]
+
+
+class TestCompareFolders:
+    """Tests for compare_folders tool."""
+
+    def test_basic_comparison(self, vault_config):
+        """Should categorize files into only_in_source, only_in_target, in_both."""
+        source = vault_config / "folder_a"
+        target = vault_config / "folder_b"
+        source.mkdir()
+        target.mkdir()
+        (source / "shared.md").write_text("# Shared")
+        (source / "only_a.md").write_text("# Only A")
+        (target / "shared.md").write_text("# Shared copy")
+        (target / "only_b.md").write_text("# Only B")
+
+        result = json.loads(compare_folders("folder_a", "folder_b"))
+        assert result["success"] is True
+        assert result["counts"]["only_in_source"] == 1
+        assert result["counts"]["only_in_target"] == 1
+        assert result["counts"]["in_both"] == 1
+        assert "folder_a/only_a.md" in result["only_in_source"]
+        assert "folder_b/only_b.md" in result["only_in_target"]
+        both_names = [m["name"] for m in result["in_both"]]
+        assert "shared.md" in both_names
+
+    def test_no_overlap(self, vault_config):
+        """Should return empty in_both when folders are disjoint."""
+        source = vault_config / "disjoint_a"
+        target = vault_config / "disjoint_b"
+        source.mkdir()
+        target.mkdir()
+        (source / "alpha.md").write_text("# A")
+        (target / "beta.md").write_text("# B")
+
+        result = json.loads(compare_folders("disjoint_a", "disjoint_b"))
+        assert result["success"] is True
+        assert result["counts"]["in_both"] == 0
+        assert result["counts"]["only_in_source"] == 1
+        assert result["counts"]["only_in_target"] == 1
+
+    def test_complete_overlap(self, vault_config):
+        """Should return empty only_in lists when folders have same filenames."""
+        source = vault_config / "same_a"
+        target = vault_config / "same_b"
+        source.mkdir()
+        target.mkdir()
+        (source / "file1.md").write_text("# V1")
+        (source / "file2.md").write_text("# V1")
+        (target / "file1.md").write_text("# V2")
+        (target / "file2.md").write_text("# V2")
+
+        result = json.loads(compare_folders("same_a", "same_b"))
+        assert result["success"] is True
+        assert result["counts"]["only_in_source"] == 0
+        assert result["counts"]["only_in_target"] == 0
+        assert result["counts"]["in_both"] == 2
+
+    def test_empty_source(self, vault_config):
+        """Should handle empty source folder."""
+        source = vault_config / "empty_src"
+        target = vault_config / "nonempty"
+        source.mkdir()
+        target.mkdir()
+        (target / "file.md").write_text("# File")
+
+        result = json.loads(compare_folders("empty_src", "nonempty"))
+        assert result["success"] is True
+        assert result["counts"]["only_in_source"] == 0
+        assert result["counts"]["only_in_target"] == 1
+        assert result["counts"]["in_both"] == 0
+
+    def test_empty_target(self, vault_config):
+        """Should handle empty target folder."""
+        source = vault_config / "nonempty_src"
+        target = vault_config / "empty_tgt"
+        source.mkdir()
+        target.mkdir()
+        (source / "file.md").write_text("# File")
+
+        result = json.loads(compare_folders("nonempty_src", "empty_tgt"))
+        assert result["success"] is True
+        assert result["counts"]["only_in_source"] == 1
+        assert result["counts"]["only_in_target"] == 0
+        assert result["counts"]["in_both"] == 0
+
+    def test_empty_both(self, vault_config):
+        """Should handle both folders empty."""
+        (vault_config / "empty1").mkdir()
+        (vault_config / "empty2").mkdir()
+
+        result = json.loads(compare_folders("empty1", "empty2"))
+        assert result["success"] is True
+        assert result["counts"] == {"only_in_source": 0, "only_in_target": 0, "in_both": 0}
+
+    def test_case_insensitive_matching(self, vault_config):
+        """Should match stems case-insensitively."""
+        source = vault_config / "case_a"
+        target = vault_config / "case_b"
+        source.mkdir()
+        target.mkdir()
+        (source / "John Smith.md").write_text("# John")
+        (target / "john smith.md").write_text("# John")
+
+        result = json.loads(compare_folders("case_a", "case_b"))
+        assert result["success"] is True
+        assert result["counts"]["in_both"] == 1
+        assert result["counts"]["only_in_source"] == 0
+
+    def test_recursive(self, vault_config):
+        """Should include subfolder files when recursive=True."""
+        source = vault_config / "rec_a"
+        target = vault_config / "rec_b"
+        source.mkdir()
+        target.mkdir()
+        sub = source / "sub"
+        sub.mkdir()
+        (source / "top.md").write_text("# Top")
+        (sub / "deep.md").write_text("# Deep")
+        (target / "deep.md").write_text("# Deep copy")
+
+        # Non-recursive: deep.md not scanned in source
+        result = json.loads(compare_folders("rec_a", "rec_b"))
+        assert result["counts"]["in_both"] == 0
+        assert result["counts"]["only_in_source"] == 1  # top.md only
+
+        # Recursive: deep.md found in both
+        result = json.loads(compare_folders("rec_a", "rec_b", recursive=True))
+        assert result["counts"]["in_both"] == 1
+        both_names = [m["name"] for m in result["in_both"]]
+        assert "deep.md" in both_names
+
+    def test_same_folder_error(self, vault_config):
+        """Should error when source and target are the same folder."""
+        (vault_config / "same").mkdir()
+        result = json.loads(compare_folders("same", "same"))
+        assert result["success"] is False
+        assert "same" in result["error"].lower()
+
+    def test_invalid_folder_error(self, vault_config):
+        """Should error when folder doesn't exist."""
+        (vault_config / "exists").mkdir()
+        result = json.loads(compare_folders("nonexistent", "exists"))
+        assert result["success"] is False
+
+        result = json.loads(compare_folders("exists", "nonexistent"))
+        assert result["success"] is False
+
+    def test_in_both_has_both_paths(self, vault_config):
+        """in_both entries should include source_paths and target_paths."""
+        source = vault_config / "paths_a"
+        target = vault_config / "paths_b"
+        source.mkdir()
+        target.mkdir()
+        (source / "shared.md").write_text("# A")
+        (target / "shared.md").write_text("# B")
+
+        result = json.loads(compare_folders("paths_a", "paths_b"))
+        match = result["in_both"][0]
+        assert match["name"] == "shared.md"
+        assert match["source_paths"] == ["paths_a/shared.md"]
+        assert match["target_paths"] == ["paths_b/shared.md"]
+
+    def test_recursive_duplicate_stems(self, vault_config):
+        """Should keep all files when multiple share a stem in recursive mode."""
+        source = vault_config / "dup_src"
+        target = vault_config / "dup_tgt"
+        source.mkdir()
+        target.mkdir()
+        sub1 = source / "sub1"
+        sub2 = source / "sub2"
+        sub1.mkdir()
+        sub2.mkdir()
+        (sub1 / "report.md").write_text("# Report v1")
+        (sub2 / "report.md").write_text("# Report v2")
+        (target / "report.md").write_text("# Report target")
+
+        result = json.loads(compare_folders("dup_src", "dup_tgt", recursive=True))
+        assert result["counts"]["in_both"] == 1
+        match = result["in_both"][0]
+        assert match["name"] == "report.md"
+        assert sorted(match["source_paths"]) == [
+            "dup_src/sub1/report.md", "dup_src/sub2/report.md"
+        ]
+        assert match["target_paths"] == ["dup_tgt/report.md"]
+
+    def test_results_sorted(self, vault_config):
+        """Results should be sorted alphabetically."""
+        source = vault_config / "sort_a"
+        target = vault_config / "sort_b"
+        source.mkdir()
+        target.mkdir()
+        for name in ["charlie.md", "alpha.md", "bravo.md"]:
+            (source / name).write_text(f"# {name}")
+
+        result = json.loads(compare_folders("sort_a", "sort_b"))
+        assert result["only_in_source"] == [
+            "sort_a/alpha.md", "sort_a/bravo.md", "sort_a/charlie.md"
+        ]
 
 
 class TestListToolPagination:
