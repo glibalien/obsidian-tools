@@ -321,10 +321,12 @@ async def _process_tool_calls(
     truncated_results: dict[str, str],
     next_result_id: int,
     emit: EventCallback | None,
+    last_tool_call: dict | None = None,
 ) -> tuple[int, bool]:
     """Execute tool calls from an assistant message and append results to messages.
 
     Returns (updated next_result_id, confirmation_required).
+    ``last_tool_call`` is a mutable dict tracking the previous call for dedup.
     """
 
     async def _emit(event_type: str, data: dict) -> None:
@@ -350,7 +352,26 @@ async def _process_tool_calls(
         }
         await _emit("tool_call", {"tool": tool_name, "args": brief_args})
 
-        if tool_name == "get_continuation":
+        # Detect duplicate consecutive tool calls
+        try:
+            args_key = json.dumps(arguments, sort_keys=True)
+        except (TypeError, ValueError):
+            try:
+                args_key = repr(sorted(arguments.items()))
+            except TypeError:
+                args_key = repr(arguments)
+        call_key = (tool_name, args_key)
+        prev_succeeded = last_tool_call and not last_tool_call.get("failed", False)
+        if prev_succeeded and call_key == last_tool_call.get("key"):
+            prev_result = last_tool_call["result"]
+            result = (
+                f"Duplicate call: you just called {tool_name} with the same "
+                f"arguments and it returned: {prev_result[:500]}"
+                "\nIf the operation isn't working as expected, try a "
+                "different approach."
+            )
+            logger.info("Duplicate tool call detected: %s — skipping", tool_name)
+        elif tool_name == "get_continuation":
             result = _handle_get_continuation(truncated_results, arguments)
             logger.info("Tool result: %s chars=%d", tool_name, len(result))
         else:
@@ -398,6 +419,11 @@ async def _process_tool_calls(
             success = not result.startswith(("Tool error:", "Failed to execute tool"))
         await _emit("tool_result", {"tool": tool_name, "success": success})
 
+        if last_tool_call is not None:
+            last_tool_call["key"] = call_key
+            last_tool_call["result"] = result
+            last_tool_call["failed"] = not success
+
     return next_result_id, confirmation_required
 
 
@@ -420,6 +446,7 @@ async def agent_turn(
     UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
     all_tools = tools + [GET_CONTINUATION_TOOL]
     force_text_only = False
+    last_tool_call: dict = {}
 
     async def _emit(event_type: str, data: dict) -> None:
         if on_event is not None:
@@ -495,7 +522,7 @@ async def agent_turn(
 
         next_result_id, confirmation_required = await _process_tool_calls(
             assistant_message.tool_calls, session, messages,
-            truncated_results, next_result_id, on_event,
+            truncated_results, next_result_id, on_event, last_tool_call,
         )
 
         if confirmation_required:
