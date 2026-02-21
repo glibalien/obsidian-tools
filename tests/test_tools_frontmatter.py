@@ -656,6 +656,29 @@ class TestBatchConfirmationGate:
         )
         assert result["confirmation_required"] is True
 
+    def test_confirmation_works_with_list_value(self, vault_config):
+        """Confirmation gate should handle list values (not crash on unhashable type)."""
+        clear_pending_previews()
+        paths = self._create_files(vault_config, 10)
+        # Preview step
+        preview = json.loads(
+            batch_update_frontmatter(
+                field="category", value=["test"], operation="append", paths=paths,
+            )
+        )
+        assert preview["success"] is True
+        assert preview["confirmation_required"] is True
+        assert "10 files" in preview["preview_message"]
+        # Confirm step — key must match despite list value
+        result = json.loads(
+            batch_update_frontmatter(
+                field="category", value=["test"], operation="append",
+                paths=paths, confirm=True,
+            )
+        )
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+
     def test_confirmation_preview_has_preview_message(self, vault_config):
         """Preview should include separate preview_message for UI display."""
         clear_pending_previews()
