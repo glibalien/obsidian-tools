@@ -89,6 +89,7 @@ Search is for discovery; read_file is for known files.
   value ignored), "not_contains" (field absent or doesn't contain value),
   "not_equals" (field absent or doesn't equal value).
   **Folder filtering**: `folder` param restricts search to a specific folder.
+  Includes subfolders by default; set `recursive=false` for direct children only.
   Example: field="category", match_type="missing", folder="Persons"
   **Compound filters**: `filters` param adds AND conditions. Pass as an
   array of objects, each with "field", optional "value", and optional "match_type".
