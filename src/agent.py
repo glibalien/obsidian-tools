@@ -356,7 +356,10 @@ async def _process_tool_calls(
         try:
             args_key = json.dumps(arguments, sort_keys=True)
         except (TypeError, ValueError):
-            args_key = repr(sorted(arguments.items()))
+            try:
+                args_key = repr(sorted(arguments.items()))
+            except TypeError:
+                args_key = repr(arguments)
         call_key = (tool_name, args_key)
         prev_succeeded = last_tool_call and not last_tool_call.get("failed", False)
         if prev_succeeded and call_key == last_tool_call.get("key"):
