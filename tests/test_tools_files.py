@@ -13,6 +13,7 @@ from tools.files import (
     append_to_file,
     batch_move_files,
     create_file,
+    merge_files,
     move_file,
     read_file,
 )
@@ -480,3 +481,113 @@ class TestMergeBodies:
         assert "# Tasks" in merged
         assert "- Item 1" in merged
         assert stats["blocks_added"] == 1
+
+
+class TestMergeFiles:
+    """Tests for merge_files tool."""
+
+    def test_identical_files_deletes_source(self, vault_config):
+        """Identical files: source deleted, dest unchanged."""
+        content = "---\ntitle: Note\n---\n\n# Body\n\nSame content.\n"
+        (vault_config / "src.md").write_text(content)
+        (vault_config / "dst.md").write_text(content)
+        result = json.loads(merge_files("src.md", "dst.md"))
+        assert result["success"] is True
+        assert not (vault_config / "src.md").exists()
+        assert (vault_config / "dst.md").read_text() == content
+        assert result["action"] == "identical"
+
+    def test_frontmatter_only_diff(self, vault_config):
+        """Source has extra frontmatter fields, bodies identical."""
+        src = "---\ntitle: Note\nauthor: Alice\n---\n\n# Body\n\nText.\n"
+        dst = "---\ntitle: Note\n---\n\n# Body\n\nText.\n"
+        (vault_config / "src.md").write_text(src)
+        (vault_config / "dst.md").write_text(dst)
+        result = json.loads(merge_files("src.md", "dst.md"))
+        assert result["success"] is True
+        assert not (vault_config / "src.md").exists()
+        merged = (vault_config / "dst.md").read_text()
+        assert "author: Alice" in merged
+        assert "title: Note" in merged
+        assert result["action"] == "frontmatter_merged"
+
+    def test_body_diff_appended(self, vault_config):
+        """Source has unique section, merged into dest."""
+        src = "# Tasks\n\n- Item 1\n\n# Extra\n\nNew content.\n"
+        dst = "# Tasks\n\n- Item 1\n"
+        (vault_config / "src.md").write_text(src)
+        (vault_config / "dst.md").write_text(dst)
+        result = json.loads(merge_files("src.md", "dst.md"))
+        assert result["success"] is True
+        merged = (vault_config / "dst.md").read_text()
+        assert "New content." in merged
+        assert "# Extra" in merged
+        assert result["action"] == "content_merged"
+        assert result["blocks_added"] == 1
+
+    def test_delete_source_false(self, vault_config):
+        """delete_source=False preserves source file."""
+        content = "# Same\n"
+        (vault_config / "src.md").write_text(content)
+        (vault_config / "dst.md").write_text(content)
+        result = json.loads(merge_files("src.md", "dst.md", delete_source=False))
+        assert result["success"] is True
+        assert (vault_config / "src.md").exists()
+
+    def test_source_not_found(self, vault_config):
+        (vault_config / "dst.md").write_text("# Dest\n")
+        result = json.loads(merge_files("nonexistent.md", "dst.md"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_destination_not_found(self, vault_config):
+        (vault_config / "src.md").write_text("# Source\n")
+        result = json.loads(merge_files("src.md", "nonexistent.md"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_concat_strategy(self, vault_config):
+        """Concat strategy concatenates without dedup."""
+        (vault_config / "src.md").write_text("# Source\n\nSource body.\n")
+        (vault_config / "dst.md").write_text("# Dest\n\nDest body.\n")
+        result = json.loads(merge_files("src.md", "dst.md", strategy="concat"))
+        assert result["success"] is True
+        merged = (vault_config / "dst.md").read_text()
+        assert "Dest body." in merged
+        assert "Source body." in merged
+        # Source kept by default for concat
+        assert (vault_config / "src.md").exists()
+
+    def test_frontmatter_list_merge(self, vault_config):
+        """List fields in frontmatter are unioned."""
+        src = "---\ntags:\n  - a\n  - b\n---\n\n# Body\n"
+        dst = "---\ntags:\n  - b\n  - c\n---\n\n# Body\n"
+        (vault_config / "src.md").write_text(src)
+        (vault_config / "dst.md").write_text(dst)
+        merge_files("src.md", "dst.md")
+        merged = (vault_config / "dst.md").read_text()
+        assert "- b" in merged
+        assert "- c" in merged
+        assert "- a" in merged
+
+    def test_merge_with_heading_positioning(self, vault_config):
+        """Unique source block placed after matching heading section in dest."""
+        src = "# Log\n\nEntry from source.\n\n# Tasks\n\n- Source task\n"
+        dst = "# Tasks\n\n- Dest task\n\n# Log\n\nEntry from dest.\n"
+        (vault_config / "src.md").write_text(src)
+        (vault_config / "dst.md").write_text(dst)
+        result = json.loads(merge_files("src.md", "dst.md"))
+        merged = (vault_config / "dst.md").read_text()
+        log_pos = merged.index("Entry from dest.")
+        source_log_pos = merged.index("Entry from source.")
+        tasks_pos = merged.index("- Dest task")
+        source_tasks_pos = merged.index("- Source task")
+        assert source_log_pos > log_pos
+        assert source_tasks_pos > tasks_pos
+
+    def test_invalid_strategy(self, vault_config):
+        (vault_config / "src.md").write_text("# A\n")
+        (vault_config / "dst.md").write_text("# B\n")
+        result = json.loads(merge_files("src.md", "dst.md", strategy="invalid"))
+        assert result["success"] is False
+        assert "strategy" in result["error"].lower()
