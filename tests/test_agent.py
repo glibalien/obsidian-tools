@@ -628,6 +628,149 @@ async def test_agent_turn_breaks_on_confirmation_required():
     assert second_call.kwargs.get("tool_choice") == "none"
 
 
+@pytest.mark.anyio
+async def test_agent_turn_strips_tool_calls_with_content():
+    """If model ignores tool_choice='none' but includes text, strip calls and return text."""
+    # First LLM call: agent calls batch_move_files → confirmation_required
+    mock_tool_call_preview = MagicMock()
+    mock_tool_call_preview.id = "call_preview"
+    mock_tool_call_preview.function.name = "batch_move_files"
+    mock_tool_call_preview.function.arguments = '{"moves": [], "confirm": false}'
+
+    mock_msg_preview = MagicMock()
+    mock_msg_preview.tool_calls = [mock_tool_call_preview]
+    mock_msg_preview.content = None
+    mock_msg_preview.model_dump.return_value = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "call_preview", "function": {"name": "batch_move_files", "arguments": "{}"}, "type": "function"}],
+    }
+
+    # Second LLM call: model ignores tool_choice="none" but includes text content
+    mock_tool_call_confirm = MagicMock()
+    mock_tool_call_confirm.id = "call_confirm"
+    mock_tool_call_confirm.function.name = "batch_move_files"
+    mock_tool_call_confirm.function.arguments = '{"moves": [], "confirm": true}'
+
+    mock_msg_confirm = MagicMock()
+    mock_msg_confirm.tool_calls = [mock_tool_call_confirm]
+    mock_msg_confirm.content = "Here are the files to move:"
+    mock_msg_confirm.model_dump.return_value = {
+        "role": "assistant",
+        "content": "Here are the files to move:",
+    }
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_preview)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_confirm)], usage=mock_usage),
+    ]
+
+    confirmation_result = json.dumps({
+        "success": True,
+        "confirmation_required": True,
+        "message": "This will move 10 files.",
+        "files": [f"file{i}.md" for i in range(10)],
+    })
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=confirmation_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "move files"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+
+    # Tool calls were stripped — turn ends with the text content, NOT executing the confirm
+    assert result == "Here are the files to move:"
+    # LLM called exactly twice (preview + stripped response)
+    assert mock_client.chat.completions.create.call_count == 2
+    # Tool was only called once (the preview), NOT twice (confirm was stripped)
+    assert mock_session.call_tool.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_agent_turn_retries_when_stripped_response_has_no_content():
+    """If stripped response has no content, retry instead of returning empty string."""
+    # First LLM call: agent calls batch_move_files → confirmation_required
+    mock_tool_call_preview = MagicMock()
+    mock_tool_call_preview.id = "call_preview"
+    mock_tool_call_preview.function.name = "batch_move_files"
+    mock_tool_call_preview.function.arguments = '{"moves": [], "confirm": false}'
+
+    mock_msg_preview = MagicMock()
+    mock_msg_preview.tool_calls = [mock_tool_call_preview]
+    mock_msg_preview.content = None
+    mock_msg_preview.model_dump.return_value = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "call_preview", "function": {"name": "batch_move_files", "arguments": "{}"}, "type": "function"}],
+    }
+
+    # Second LLM call: model ignores tool_choice="none", tool-only, NO content
+    mock_tool_call_confirm = MagicMock()
+    mock_tool_call_confirm.id = "call_confirm"
+    mock_tool_call_confirm.function.name = "batch_move_files"
+    mock_tool_call_confirm.function.arguments = '{"moves": [], "confirm": true}'
+
+    mock_msg_no_content = MagicMock()
+    mock_msg_no_content.tool_calls = [mock_tool_call_confirm]
+    mock_msg_no_content.content = None
+
+    # Third LLM call: model finally returns text-only
+    mock_msg_text = MagicMock()
+    mock_msg_text.tool_calls = None
+    mock_msg_text.content = "This will move 10 files. Shall I proceed?"
+    mock_msg_text.model_dump.return_value = {
+        "role": "assistant",
+        "content": "This will move 10 files. Shall I proceed?",
+    }
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_preview)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_no_content)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_text)], usage=mock_usage),
+    ]
+
+    confirmation_result = json.dumps({
+        "success": True,
+        "confirmation_required": True,
+        "message": "This will move 10 files.",
+        "files": [f"file{i}.md" for i in range(10)],
+    })
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=confirmation_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "move files"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+
+    # Retried and got the text response
+    assert result == "This will move 10 files. Shall I proceed?"
+    # LLM called 3 times: tool call + stripped-no-content retry + text response
+    assert mock_client.chat.completions.create.call_count == 3
+    # Tool was only called once (the preview)
+    assert mock_session.call_tool.call_count == 1
+    # The empty stripped message was NOT appended to history
+    assert not any(
+        msg.get("role") == "assistant" and msg.get("content") is None and "tool_calls" not in msg
+        for msg in messages
+    )
+
+
 class TestAgentCompaction:
     """Tests for tool message compaction in agent context."""
 

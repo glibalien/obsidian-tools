@@ -456,6 +456,19 @@ async def agent_turn(
             )
 
         assistant_message = response.choices[0].message
+
+        # Enforce text-only: strip tool calls if model ignores tool_choice="none"
+        if force_text_only and assistant_message.tool_calls:
+            logger.warning(
+                "Model returned %d tool call(s) despite tool_choice='none' — stripping",
+                len(assistant_message.tool_calls),
+            )
+            assistant_message.tool_calls = None
+            if not assistant_message.content:
+                # No text either — retry so the user gets a real response
+                logger.warning("Stripped response has no content — retrying")
+                continue
+
         messages.append(assistant_message.model_dump(exclude_none=True))
         last_content = assistant_message.content or ""
 
