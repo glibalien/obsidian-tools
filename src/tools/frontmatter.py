@@ -346,11 +346,12 @@ def _confirmation_preview(
 
 
 def _needs_confirmation(
-    field: str, value: str | None, operation: str,
+    field: str, value: str | list | None, operation: str,
     paths: list[str], confirm: bool,
 ) -> bool:
     """Check confirmation gate. Returns True if preview is needed."""
-    key = ("batch_update_frontmatter", field, value, operation, tuple(sorted(paths)))
+    hashable_value = tuple(value) if isinstance(value, list) else value
+    key = ("batch_update_frontmatter", field, hashable_value, operation, tuple(sorted(paths)))
     if confirm and consume_preview(key):
         return False
     store_preview(key)
