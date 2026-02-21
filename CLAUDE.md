@@ -59,7 +59,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `search_vault` | Hybrid search (semantic + keyword) | `query`, `n_results` (5), `mode` ("hybrid"/"semantic"/"keyword"), `chunk_type` ("frontmatter"/"section"/"paragraph"/"sentence"/"fragment") |
 | `read_file` | Read vault note with pagination | `path`, `offset` (0), `length` (3500) |
 | `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"/"missing"/"exists"/"not_contains"/"not_equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings), `folder` |
-| `update_frontmatter` | Modify note metadata | `path`, `field`, `value`, `operation` ("set"/"remove"/"append") |
+| `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation`, `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
 | `move_file` | Relocate vault file | `source`, `destination` |
 | `batch_move_files` | Move multiple files | `moves` (list of {source, destination}) |
@@ -77,6 +77,12 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `append_to_section` | Append to end of section | `path`, `heading` (with `#`), `content` |
 | `web_search` | DuckDuckGo search | `query` |
 | `transcribe_audio` | Whisper transcription of audio embeds | `path` (note with `![[audio.m4a]]` embeds) |
+
+### Tool Parameter Types and LLM Efficiency
+
+MCP tool parameter types must match what the LLM naturally produces. If a parameter is typed `str` but the LLM sends a native JSON array, MCP validation rejects it, causing corrective retries and wasted LLM calls. For frontmatter `value` params, `str | list` allows the model to send arrays directly for list-type fields (category, tags, aliases) without stringifying.
+
+The system prompt includes efficiency guidance (batch independent calls, trust successful results) to reduce unnecessary LLM round-trips. The `_simplify_schema` function in agent.py inlines `$ref` and simplifies `anyOf[T, null]` patterns for weaker models; multi-type unions like `str | list | None` are left as full `anyOf`.
 
 ### System Prompt
 
