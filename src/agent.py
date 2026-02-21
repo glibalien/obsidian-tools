@@ -380,6 +380,11 @@ async def _process_tool_calls(
             success = parsed.get("success", True)
             if parsed.get("confirmation_required"):
                 confirmation_required = True
+                await _emit("confirmation_preview", {
+                    "tool": tool_name,
+                    "message": parsed.get("preview_message", ""),
+                    "files": parsed.get("files", []),
+                })
                 await _emit("tool_result", {"tool": tool_name, "success": success})
                 # Stub remaining tool calls so the API doesn't reject missing results
                 for remaining in tool_calls[i + 1:]:

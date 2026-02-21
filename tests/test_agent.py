@@ -972,3 +972,42 @@ class TestEnsureInteractionLogged:
         )
         call_args = mock_session.call_tool.call_args[0][1]
         assert len(call_args["summary"]) == 2000
+
+
+@pytest.mark.anyio
+async def test_confirmation_preview_event_emitted():
+    """_process_tool_calls emits confirmation_preview event with preview data."""
+    events = []
+
+    async def on_event(event_type, data):
+        events.append((event_type, data))
+
+    mock_tool_call = MagicMock()
+    mock_tool_call.id = "call_batch"
+    mock_tool_call.function.name = "batch_update_frontmatter"
+    mock_tool_call.function.arguments = '{"field": "status", "value": "done"}'
+
+    confirmation_result = json.dumps({
+        "success": True,
+        "confirmation_required": True,
+        "message": "Show the file list to the user and call again with confirm=true to proceed.",
+        "preview_message": "This will set 'status' = 'done' on 7 files.",
+        "files": ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md"],
+    })
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=confirmation_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}]
+
+    from src.agent import _process_tool_calls
+    await _process_tool_calls(
+        [mock_tool_call], mock_session, messages, {}, 0, on_event,
+    )
+
+    preview_events = [e for e in events if e[0] == "confirmation_preview"]
+    assert len(preview_events) == 1
+    assert preview_events[0][1]["tool"] == "batch_update_frontmatter"
+    assert preview_events[0][1]["message"] == "This will set 'status' = 'done' on 7 files."
+    assert preview_events[0][1]["files"] == ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md"]
