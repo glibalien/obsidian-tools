@@ -192,6 +192,107 @@ def _merge_frontmatter(source_fm: dict, dest_fm: dict) -> dict:
     return merged
 
 
+_HEADING_RE = re.compile(r"^(#+\s+.*)$", re.MULTILINE)
+
+
+def _split_blocks(body: str) -> list[tuple[str | None, str]]:
+    """Split a markdown body into blocks by headings.
+
+    Each block is a (heading, content) tuple where heading is the full heading
+    line (e.g. "## Tasks") or None for content before the first heading.
+    Content includes the heading line itself and all text until the next heading.
+
+    Returns:
+        List of (heading_context, block_content) tuples. Empty list for empty/whitespace body.
+    """
+    if not body or not body.strip():
+        return []
+
+    headings = list(_HEADING_RE.finditer(body))
+
+    if not headings:
+        return [(None, body)]
+
+    blocks = []
+    first_pos = headings[0].start()
+    if first_pos > 0:
+        pre_content = body[:first_pos]
+        if pre_content.strip():
+            blocks.append((None, pre_content))
+
+    for i, match in enumerate(headings):
+        pos = match.start()
+        end = headings[i + 1].start() if i + 1 < len(headings) else len(body)
+        block_text = body[pos:end]
+        heading_line = match.group(1).strip()
+        blocks.append((heading_line, block_text))
+
+    return blocks
+
+
+def _normalize_block(text: str) -> str:
+    """Normalize a block for comparison: strip, collapse whitespace."""
+    return " ".join(text.split())
+
+
+def _merge_bodies(source_body: str, dest_body: str) -> tuple[str, dict]:
+    """Merge unique blocks from source into destination body.
+
+    Blocks from source that already exist in destination (after normalization)
+    are skipped. Unique source blocks are placed under matching headings in
+    destination if possible, otherwise appended at the end.
+
+    Returns:
+        Tuple of (merged_body, stats_dict) where stats_dict has "blocks_added" count.
+    """
+    source_blocks = _split_blocks(source_body)
+    dest_blocks = _split_blocks(dest_body)
+
+    if not source_blocks:
+        return dest_body, {"blocks_added": 0}
+
+    dest_normalized = {_normalize_block(content) for _, content in dest_blocks}
+
+    unique_blocks: list[tuple[str | None, str]] = []
+    for heading, content in source_blocks:
+        if _normalize_block(content) not in dest_normalized:
+            unique_blocks.append((heading, content))
+
+    if not unique_blocks:
+        return dest_body, {"blocks_added": 0}
+
+    # Build a map of dest heading -> index for insertion
+    dest_heading_indices: dict[str, int] = {}
+    for i, (heading, _) in enumerate(dest_blocks):
+        if heading is not None:
+            dest_heading_indices[heading.lower()] = i
+
+    # Insert unique blocks: after matching heading section, or append
+    appended: list[tuple[str | None, str]] = []
+    insertions: dict[int, list[tuple[str | None, str]]] = {}
+
+    for heading, content in unique_blocks:
+        if heading is not None and heading.lower() in dest_heading_indices:
+            idx = dest_heading_indices[heading.lower()]
+            insertions.setdefault(idx, []).append((heading, content))
+        else:
+            appended.append((heading, content))
+
+    # Rebuild: interleave dest blocks with insertions
+    result_blocks: list[str] = []
+    for i, (_, content) in enumerate(dest_blocks):
+        result_blocks.append(content)
+        if i in insertions:
+            for _, ins_content in insertions[i]:
+                result_blocks.append(ins_content)
+
+    for _, content in appended:
+        result_blocks.append(content)
+
+    merged = "".join(result_blocks)
+    return merged, {"blocks_added": len(unique_blocks)}
+
+
 def move_file(
     source: str,
     destination: str,
