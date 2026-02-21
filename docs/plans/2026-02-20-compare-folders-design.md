@@ -27,7 +27,7 @@ async def compare_folders(
   "only_in_source": ["source/Alice.md", "source/Bob.md"],
   "only_in_target": ["target/Charlie.md"],
   "in_both": [
-    {"name": "Dave.md", "source_path": "source/Dave.md", "target_path": "target/Dave.md"}
+    {"name": "Dave.md", "source_paths": ["source/Dave.md"], "target_paths": ["target/Dave.md"]}
   ],
   "counts": {"only_in_source": 12, "only_in_target": 3, "in_both": 8}
 }
@@ -38,7 +38,7 @@ async def compare_folders(
 - **Matching**: Filename stem only, case-insensitive (Obsidian treats case variants as the same note)
 - **No pagination**: Returns three categorized lists of paths (lightweight). Bounded by vault size.
 - **Full comparison**: All three categories returned so the agent has everything for follow-up decisions (batch move, delete, etc.)
-- **`in_both` uses objects**: Includes both paths so the agent can decide which to keep
+- **`in_both` uses objects**: Includes `source_paths`/`target_paths` lists so all files are surfaced when multiple share a stem (recursive mode)
 - **`only_in_source`/`only_in_target` are flat path lists**: Feeds directly into batch_move input
 - **Recursive off by default**: Matches `search_by_folder` convention. Uncommon but supported.
 
@@ -47,7 +47,7 @@ async def compare_folders(
 - Lives in `src/tools/links.py` alongside `search_by_folder`
 - Uses `resolve_dir()` for both paths
 - Scans with `glob("*.md")` / `rglob("*.md")` depending on `recursive`
-- Builds `{stem_lower: relative_path}` dict per folder, set operations on keys
+- Builds `{stem_lower: [paths]}` defaultdict per folder, set operations on keys
 - Results sorted alphabetically within each category
 - Registered in `mcp_server.py`
 
@@ -66,3 +66,4 @@ async def compare_folders(
 - Case-insensitive stem matching
 - Same folder error
 - Invalid folder error
+- Duplicate stems in recursive mode

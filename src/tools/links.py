@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections import defaultdict
 from pathlib import Path
 
 from config import EXCLUDED_DIRS, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT
@@ -224,20 +225,28 @@ def compare_folders(
     source_files = _scan_folder(source_path, recursive)
     target_files = _scan_folder(target_path, recursive)
 
-    source_stems = {stem: path for stem, path in source_files}
-    target_stems = {stem: path for stem, path in target_files}
+    source_stems: dict[str, list[str]] = defaultdict(list)
+    for stem, path in source_files:
+        source_stems[stem].append(path)
+    target_stems: dict[str, list[str]] = defaultdict(list)
+    for stem, path in target_files:
+        target_stems[stem].append(path)
 
     source_only_keys = sorted(source_stems.keys() - target_stems.keys())
     target_only_keys = sorted(target_stems.keys() - source_stems.keys())
     both_keys = sorted(source_stems.keys() & target_stems.keys())
 
-    only_in_source = [source_stems[k] for k in source_only_keys]
-    only_in_target = [target_stems[k] for k in target_only_keys]
+    only_in_source = sorted(
+        path for k in source_only_keys for path in source_stems[k]
+    )
+    only_in_target = sorted(
+        path for k in target_only_keys for path in target_stems[k]
+    )
     in_both = [
         {
-            "name": source_stems[k].rsplit("/", 1)[-1],
-            "source_path": source_stems[k],
-            "target_path": target_stems[k],
+            "name": sorted(source_stems[k])[0].rsplit("/", 1)[-1],
+            "source_paths": sorted(source_stems[k]),
+            "target_paths": sorted(target_stems[k]),
         }
         for k in both_keys
     ]

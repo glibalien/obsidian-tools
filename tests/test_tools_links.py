@@ -345,7 +345,7 @@ class TestCompareFolders:
         assert result["success"] is False
 
     def test_in_both_has_both_paths(self, vault_config):
-        """in_both entries should include source_path and target_path."""
+        """in_both entries should include source_paths and target_paths."""
         source = vault_config / "paths_a"
         target = vault_config / "paths_b"
         source.mkdir()
@@ -356,8 +356,31 @@ class TestCompareFolders:
         result = json.loads(compare_folders("paths_a", "paths_b"))
         match = result["in_both"][0]
         assert match["name"] == "shared.md"
-        assert match["source_path"] == "paths_a/shared.md"
-        assert match["target_path"] == "paths_b/shared.md"
+        assert match["source_paths"] == ["paths_a/shared.md"]
+        assert match["target_paths"] == ["paths_b/shared.md"]
+
+    def test_recursive_duplicate_stems(self, vault_config):
+        """Should keep all files when multiple share a stem in recursive mode."""
+        source = vault_config / "dup_src"
+        target = vault_config / "dup_tgt"
+        source.mkdir()
+        target.mkdir()
+        sub1 = source / "sub1"
+        sub2 = source / "sub2"
+        sub1.mkdir()
+        sub2.mkdir()
+        (sub1 / "report.md").write_text("# Report v1")
+        (sub2 / "report.md").write_text("# Report v2")
+        (target / "report.md").write_text("# Report target")
+
+        result = json.loads(compare_folders("dup_src", "dup_tgt", recursive=True))
+        assert result["counts"]["in_both"] == 1
+        match = result["in_both"][0]
+        assert match["name"] == "report.md"
+        assert sorted(match["source_paths"]) == [
+            "dup_src/sub1/report.md", "dup_src/sub2/report.md"
+        ]
+        assert match["target_paths"] == ["dup_tgt/report.md"]
 
     def test_results_sorted(self, vault_config):
         """Results should be sorted alphabetically."""
