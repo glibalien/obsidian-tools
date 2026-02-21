@@ -21,6 +21,9 @@ system_prompt.txt
 # Worktrees
 .worktrees/
 
+# Local testing
+local-tests/
+
 # OS
 .DS_Store
 Thumbs.db
