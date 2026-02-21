@@ -353,7 +353,11 @@ async def _process_tool_calls(
         await _emit("tool_call", {"tool": tool_name, "args": brief_args})
 
         # Detect duplicate consecutive tool calls
-        call_key = (tool_name, json.dumps(arguments, sort_keys=True))
+        try:
+            args_key = json.dumps(arguments, sort_keys=True)
+        except (TypeError, ValueError):
+            args_key = repr(sorted(arguments.items()))
+        call_key = (tool_name, args_key)
         if last_tool_call is not None and call_key == last_tool_call.get("key"):
             prev_result = last_tool_call["result"]
             result = (
