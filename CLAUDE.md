@@ -21,7 +21,7 @@ src/
 ├── tools/
 │   ├── files.py         # read_file, create_file, move_file, append_to_file
 │   ├── frontmatter.py   # list_files_by_frontmatter, update_frontmatter, batch ops
-│   ├── links.py         # find_backlinks, find_outlinks, search_by_folder
+│   ├── links.py         # find_backlinks, find_outlinks, search_by_folder, compare_folders
 │   ├── preferences.py   # save_preference, list_preferences, remove_preference
 │   ├── search.py        # search_vault, web_search
 │   ├── sections.py      # prepend_to_file, replace_section, append_to_section
@@ -67,6 +67,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `find_backlinks` | Find files linking to a note | `note_name` (no brackets/extension) |
 | `find_outlinks` | Extract wikilinks from file | `path` |
 | `search_by_folder` | List folder contents | `folder`, `recursive` (false) |
+| `compare_folders` | Compare two folders by filename stem | `source`, `target`, `recursive` (false) |
 | `search_by_date_range` | Find files by date | `start_date`, `end_date`, `date_type` ("modified"/"created") |
 | `log_interaction` | Log to daily note | `task_description`, `query`, `summary`, `files`, `full_response` |
 | `save_preference` / `list_preferences` / `remove_preference` | Manage Preferences.md | `preference` / (none) / `line_number` |
