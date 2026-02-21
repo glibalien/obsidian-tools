@@ -353,9 +353,9 @@ def do_update_frontmatter(
     if operation == "remove":
         return True, f"Removed '{field}' from {path}"
     elif operation == "append":
-        return True, f"Appended to '{field}' in {path}"
+        return True, f"Appended {parsed_value!r} to '{field}' in {path}"
     else:
-        return True, f"Set '{field}' in {path}"
+        return True, f"Set '{field}' to {parsed_value!r} in {path}"
 
 
 # =============================================================================
