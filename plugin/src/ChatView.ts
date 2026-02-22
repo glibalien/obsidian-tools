@@ -215,8 +215,6 @@ export class ChatView extends ItemView {
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
-			let pendingPreview: { message: string; files: string[] } | null = null;
-
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
@@ -237,15 +235,11 @@ export class ChatView extends ItemView {
 							case "tool_result":
 								break;
 							case "confirmation_preview":
-								pendingPreview = { message: event.message, files: event.files };
+								this.addConfirmationPreview(event.message, event.files);
 								break;
 							case "response":
 								loadingEl.remove();
 								await this.addMessage("assistant", event.content, activeFile ?? "");
-								if (pendingPreview) {
-									this.addConfirmationPreview(pendingPreview.message, pendingPreview.files);
-									pendingPreview = null;
-								}
 								break;
 							case "error":
 								loadingEl.remove();
@@ -253,12 +247,6 @@ export class ChatView extends ItemView {
 								break;
 							case "done":
 								this.sessionId = event.session_id ?? this.sessionId;
-								// Render any preview that arrived without a response
-								if (pendingPreview) {
-									if (loadingEl.parentElement) loadingEl.remove();
-									this.addConfirmationPreview(pendingPreview.message, pendingPreview.files);
-									pendingPreview = null;
-								}
 								break;
 						}
 					} catch {
