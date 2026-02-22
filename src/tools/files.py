@@ -156,7 +156,7 @@ def _split_frontmatter_body(content: str) -> tuple[dict, str]:
         Tuple of (frontmatter_dict, body_string). Frontmatter is empty dict
         if the file has no valid YAML frontmatter block.
     """
-    match = re.match(r"^---\n(.*?)---(?:\n|$)", content, re.DOTALL)
+    match = re.match(r"^---\n(.*?)^---(?:\n|$)", content, re.DOTALL | re.MULTILINE)
     if not match:
         return {}, content
 
@@ -371,7 +371,11 @@ def _merge_concat(
         return err(f"Error writing merged file: {e}")
 
     if delete_source:
-        source_path.unlink()
+        try:
+            source_path.unlink()
+        except OSError as e:
+            dest_rel = str(get_relative_path(dest_path))
+            return err(f"Merged into {dest_rel} but failed to delete source: {e}")
 
     dest_rel = str(get_relative_path(dest_path))
     return ok(
@@ -419,7 +423,11 @@ def _merge_smart(
         return err(f"Error writing merged file: {e}")
 
     if delete_source:
-        source_path.unlink()
+        try:
+            source_path.unlink()
+        except OSError as e:
+            dest_rel = str(get_relative_path(dest_path))
+            return err(f"Merged into {dest_rel} but failed to delete source: {e}")
 
     dest_rel = str(get_relative_path(dest_path))
     return ok(
