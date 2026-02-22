@@ -416,6 +416,16 @@ class TestMergeFrontmatter:
         merged = _merge_frontmatter(fm.copy(), fm.copy())
         assert merged == fm
 
+    def test_does_not_mutate_inputs(self):
+        """Merging should not modify the original dest_fm dict."""
+        source = {"tags": ["a"]}
+        dest = {"tags": ["b"]}
+        dest_copy = {"tags": ["b"]}
+        merged = _merge_frontmatter(source, dest)
+        assert dest == dest_copy  # dest unchanged
+        assert merged != dest  # merged is different
+        assert merged["tags"] == ["b", "a"]
+
     def test_dict_items_in_list_field(self):
         """List items that are dicts (unhashable) should not crash."""
         source = {"tags": [{"name": "x"}, {"name": "y"}]}
@@ -782,3 +792,24 @@ class TestBatchMergeFiles:
         # Recursive: matches
         result = json.loads(batch_merge_files("rec_src", "rec_dst", recursive=True))
         assert result["merged"] == 1
+
+    def test_batch_skips_ambiguous_targets(self, vault_config):
+        """Stems with multiple targets should be skipped, not silently picked."""
+        clear_pending_previews()
+        src_dir = vault_config / "amb_src"
+        dst_dir = vault_config / "amb_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "note.md").write_text("# Source\n")
+        # Two targets with same stem in different subfolders
+        (dst_dir / "sub1").mkdir()
+        (dst_dir / "sub2").mkdir()
+        (dst_dir / "sub1" / "note.md").write_text("# Target 1\n")
+        (dst_dir / "sub2" / "note.md").write_text("# Target 2\n")
+
+        result = json.loads(batch_merge_files("amb_src", "amb_dst", recursive=True))
+        assert result["success"] is True
+        assert result["merged"] == 0
+        assert "note.md" in result["skipped_ambiguous"]
+        # Source untouched
+        assert (src_dir / "note.md").exists()

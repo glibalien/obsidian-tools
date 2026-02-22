@@ -184,7 +184,7 @@ def _merge_frontmatter(source_fm: dict, dest_fm: dict) -> dict:
     - Both exist but destination is scalar: destination wins.
     - Identical values: kept as-is.
     """
-    merged = dict(dest_fm)
+    merged = {k: list(v) if isinstance(v, list) else v for k, v in dest_fm.items()}
     for key, src_val in source_fm.items():
         if key not in merged:
             merged[key] = src_val
@@ -478,10 +478,15 @@ def batch_merge_files(
         )
 
     # Build merge pairs: [(source_path, dest_path), ...]
+    # Skip stems with multiple targets — ambiguous merge destination
     pairs = []
+    skipped_ambiguous = []
     for entry in in_both:
         source_paths = entry["source_paths"]
         target_paths = entry["target_paths"]
+        if len(target_paths) > 1:
+            skipped_ambiguous.append(entry["name"])
+            continue
         target = target_paths[0]
         for src in source_paths:
             pairs.append((src, target))
@@ -516,6 +521,7 @@ def batch_merge_files(
         failed=len(failed),
         skipped_source_only=len(only_in_source),
         skipped_target_only=len(only_in_target),
+        skipped_ambiguous=skipped_ambiguous,
         details=[
             {"action": r.get("action"), "path": r.get("path")}
             for r in succeeded
