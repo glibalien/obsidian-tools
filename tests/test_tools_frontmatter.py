@@ -1532,3 +1532,70 @@ class TestFolderFiltering:
         assert result["confirmation_required"] is True
         assert any("no_cat.md" in f for f in result["files"])
         assert not any("has_cat.md" in f for f in result["files"])
+
+
+class TestBatchRenameFrontmatter:
+    """Tests for batch_update_frontmatter with rename operation."""
+
+    def test_batch_rename_explicit_paths(self, vault_config):
+        """Should rename a key on multiple files."""
+        result = json.loads(batch_update_frontmatter(
+            paths=["note1.md", "note2.md"],
+            field="tags",
+            value="labels",
+            operation="rename",
+        ))
+        assert result["success"] is True
+        assert "2 succeeded" in result["message"]
+
+        import yaml, re as _re
+        for filename in ("note1.md", "note2.md"):
+            content = (vault_config / filename).read_text()
+            match = _re.match(r"^---\n(.*?)\n---\n", content, _re.DOTALL)
+            fm = yaml.safe_load(match.group(1))
+            assert "tags" not in fm
+            assert "labels" in fm
+
+    def test_batch_rename_partial_failure(self, vault_config):
+        """Should report failures for files where target key exists."""
+        # note2.md has 'company' field — renaming tags→company should fail for it
+        result = json.loads(batch_update_frontmatter(
+            paths=["note1.md", "note2.md"],
+            field="tags",
+            value="company",
+            operation="rename",
+        ))
+        assert result["success"] is True
+        assert "1 succeeded" in result["message"]
+        assert "1 failed" in result["message"]
+
+    def test_batch_rename_confirmation_gate(self, vault_config):
+        """Should require confirmation for query-based rename."""
+        clear_pending_previews()
+        result = json.loads(batch_update_frontmatter(
+            field="tags",
+            value="labels",
+            operation="rename",
+            target_field="tags",
+            target_match_type="exists",
+        ))
+        assert result["confirmation_required"] is True
+
+    def test_batch_rename_invalid_value(self, vault_config):
+        """Should reject non-string value for rename."""
+        result = json.loads(batch_update_frontmatter(
+            paths=["note1.md"],
+            field="tags",
+            value=["a", "b"],
+            operation="rename",
+        ))
+        assert result["success"] is False
+
+    def test_batch_rename_missing_value(self, vault_config):
+        """Should require value for rename."""
+        result = json.loads(batch_update_frontmatter(
+            paths=["note1.md"],
+            field="tags",
+            operation="rename",
+        ))
+        assert result["success"] is False

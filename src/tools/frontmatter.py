@@ -496,10 +496,15 @@ def batch_update_frontmatter(
     Returns:
         Summary of successes and failures, or confirmation preview for large batches.
     """
-    if operation not in ("set", "remove", "append"):
-        return err(f"operation must be 'set', 'remove', or 'append', got '{operation}'")
+    if operation not in ("set", "remove", "append", "rename"):
+        return err(f"operation must be 'set', 'remove', 'append', or 'rename', got '{operation}'")
 
-    if operation in ("set", "append") and value is None:
+    if operation == "rename":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return err("value (new key name) is required for 'rename' operation")
+        if not isinstance(value, str):
+            return err("value must be a string (new key name) for 'rename' operation")
+    elif operation in ("set", "append") and value is None:
         return err(f"value is required for '{operation}' operation")
 
     resolved_paths, early_return = _resolve_batch_targets(
@@ -509,7 +514,7 @@ def batch_update_frontmatter(
     if early_return is not None:
         return early_return
 
-    parsed_value = _normalize_frontmatter_value(value)
+    parsed_value = value if operation == "rename" else _normalize_frontmatter_value(value)
 
     results = []
     for path in resolved_paths:
