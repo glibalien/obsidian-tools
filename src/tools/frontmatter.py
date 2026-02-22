@@ -338,7 +338,7 @@ def _confirmation_preview(
     """Return a confirmation preview for a batch operation."""
     desc = f"{operation} '{field}'" + (f" = '{value}'" if value else "")
     return ok(
-        "Show the file list to the user and call again with confirm=true to proceed.",
+        "Describe this pending change to the user. They will confirm or cancel, then call again with confirm=true.",
         confirmation_required=True,
         preview_message=f"This will {desc} on {len(paths)} files{context}.",
         files=paths,

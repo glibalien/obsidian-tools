@@ -507,7 +507,7 @@ def batch_merge_files(
             store_preview(key)
             files = [f"{s} → {d}" for s, d in pairs]
             return ok(
-                "Show the file list to the user and call again with confirm=true to proceed.",
+                "Describe this pending change to the user. They will confirm or cancel, then call again with confirm=true.",
                 confirmation_required=True,
                 preview_message=f"This will merge {len(pairs)} file pairs from '{source_folder}' into '{destination_folder}'.",
                 files=files,
@@ -590,7 +590,7 @@ def batch_move_files(
                 if isinstance(m, dict) and m.get("source"):
                     files.append(f"{m['source']} → {m.get('destination', '?')}")
             return ok(
-                "Show the file list to the user and call again with confirm=true to proceed.",
+                "Describe this pending change to the user. They will confirm or cancel, then call again with confirm=true.",
                 confirmation_required=True,
                 preview_message=f"This will move {len(moves)} files.",
                 files=files,
