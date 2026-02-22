@@ -324,6 +324,9 @@ def merge_files(
     if dst_err:
         return err(dst_err)
 
+    if source_path == dest_path:
+        return err("Source and destination are the same file.")
+
     try:
         src_content = source_path.read_text(encoding="utf-8", errors="ignore")
         dst_content = dest_path.read_text(encoding="utf-8", errors="ignore")
