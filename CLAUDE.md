@@ -19,7 +19,7 @@ src/
 │   ├── compaction.py    # Tool message compaction (shared by API + CLI)
 │   └── vault.py         # Path resolution, ok()/err() helpers, find_section, file scanning
 ├── tools/
-│   ├── files.py         # read_file, create_file, move_file, append_to_file
+│   ├── files.py         # read_file, create_file, move_file, append_to_file, merge_files, batch_merge_files
 │   ├── frontmatter.py   # list_files_by_frontmatter, update_frontmatter, batch ops
 │   ├── links.py         # find_backlinks, find_outlinks, search_by_folder, compare_folders
 │   ├── preferences.py   # save_preference, list_preferences, remove_preference
@@ -52,7 +52,7 @@ services/                # systemd/launchd/taskscheduler templates
 
 ## MCP Tools
 
-All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pagination with `total` (default 500, max 2000 — constants `LIST_DEFAULT_LIMIT`/`LIST_MAX_LIMIT` in config.py). Batch tools (`batch_update_frontmatter`, `batch_move_files`) require a two-step confirmation flow when affecting >5 files (`BATCH_CONFIRM_THRESHOLD`): the first call always returns a preview (server-side gate via `store_preview`/`consume_preview` in `vault.py`), and `agent_turn` breaks after `confirmation_required` results so the user sees the preview before the agent can confirm (`force_text_only` / `tool_choice="none"`). Note: `tool_choice="none"` is a hint that Fireworks may ignore — `agent_turn` enforces it in code by stripping tool calls when `force_text_only` is active (retries if the stripped response has no text content).
+All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pagination with `total` (default 500, max 2000 — constants `LIST_DEFAULT_LIMIT`/`LIST_MAX_LIMIT` in config.py). Batch tools (`batch_update_frontmatter`, `batch_move_files`, `batch_merge_files`) require a two-step confirmation flow when affecting >5 files (`BATCH_CONFIRM_THRESHOLD`): the first call always returns a preview (server-side gate via `store_preview`/`consume_preview` in `vault.py`), and `agent_turn` breaks after `confirmation_required` results so the user sees the preview before the agent can confirm (`force_text_only` / `tool_choice="none"`). Note: `tool_choice="none"` is a hint that Fireworks may ignore — `agent_turn` enforces it in code by stripping tool calls when `force_text_only` is active (retries if the stripped response has no text content).
 
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|
