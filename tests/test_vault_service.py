@@ -221,6 +221,28 @@ class TestFrontmatter:
         assert result["tags"].count("test") == 1
         assert "new-tag" in result["tags"]
 
+    def test_update_file_frontmatter_rename(self, sample_frontmatter_file):
+        """Should rename a frontmatter key, preserving its value."""
+        update_file_frontmatter(sample_frontmatter_file, "author", "writer", rename=True)
+        result = extract_frontmatter(sample_frontmatter_file)
+        assert "author" not in result
+        assert result["writer"] == "Test Author"
+
+    def test_update_file_frontmatter_rename_missing_key(self, sample_frontmatter_file):
+        """Should raise ValueError when source key doesn't exist."""
+        with pytest.raises(ValueError, match="not found"):
+            update_file_frontmatter(sample_frontmatter_file, "nonexistent", "new_key", rename=True)
+
+    def test_update_file_frontmatter_rename_target_exists(self, sample_frontmatter_file):
+        """Should raise ValueError when target key already exists."""
+        with pytest.raises(ValueError, match="already exists"):
+            update_file_frontmatter(sample_frontmatter_file, "author", "title", rename=True)
+
+    def test_update_file_frontmatter_rename_no_frontmatter(self, file_without_frontmatter):
+        """Should raise ValueError when file has no frontmatter."""
+        with pytest.raises(ValueError, match="no frontmatter"):
+            update_file_frontmatter(file_without_frontmatter, "field", "new_field", rename=True)
+
 
 class TestSectionFinding:
     """Tests for find_section function."""
