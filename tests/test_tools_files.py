@@ -357,6 +357,13 @@ class TestSplitFrontmatterBody:
         assert fm == {}
         assert body == content
 
+    def test_non_dict_yaml_treated_as_no_frontmatter(self):
+        """YAML that parses to a list or scalar is not valid frontmatter."""
+        content = "---\n- a\n- b\n---\n\nBody text."
+        fm, body = _split_frontmatter_body(content)
+        assert fm == {}
+        assert body == content
+
 
 class TestMergeFrontmatter:
     """Tests for _merge_frontmatter helper."""
