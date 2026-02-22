@@ -357,9 +357,9 @@ def do_update_frontmatter(
             rename=(operation == "rename"),
         )
     except ValueError as e:
-        return False, str(e)
+        return False, f"{e} ({path})"
     except Exception as e:
-        return False, f"Update failed: {e}"
+        return False, f"Update failed for {path}: {e}"
 
     if operation == "remove":
         return True, f"Removed '{field}' from {path}"
