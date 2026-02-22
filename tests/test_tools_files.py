@@ -593,6 +593,14 @@ class TestMergeFiles:
         assert result["success"] is False
         assert "strategy" in result["error"].lower()
 
+    def test_self_merge_rejected(self, vault_config):
+        """Merging a file into itself should return error, not delete it."""
+        (vault_config / "same.md").write_text("# Content\n")
+        result = json.loads(merge_files("same.md", "same.md"))
+        assert result["success"] is False
+        assert "same file" in result["error"].lower()
+        assert (vault_config / "same.md").exists()
+
 
 class TestBatchMergeFiles:
     """Tests for batch_merge_files tool."""
