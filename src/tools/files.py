@@ -189,14 +189,20 @@ def _merge_frontmatter(source_fm: dict, dest_fm: dict) -> dict:
         if key not in merged:
             merged[key] = src_val
         elif isinstance(merged[key], list) and isinstance(src_val, list):
-            existing = set()
-            for item in merged[key]:
-                existing.add(item if not isinstance(item, list) else tuple(item))
-            for item in src_val:
-                hashable = item if not isinstance(item, list) else tuple(item)
-                if hashable not in existing:
-                    merged[key].append(item)
-                    existing.add(hashable)
+            # Fall back to linear scan when items are unhashable (e.g. dicts)
+            try:
+                existing = set()
+                for item in merged[key]:
+                    existing.add(item if not isinstance(item, list) else tuple(item))
+                for item in src_val:
+                    hashable = item if not isinstance(item, list) else tuple(item)
+                    if hashable not in existing:
+                        merged[key].append(item)
+                        existing.add(hashable)
+            except TypeError:
+                for item in src_val:
+                    if item not in merged[key]:
+                        merged[key].append(item)
         # else: dest wins (scalar conflict, or type mismatch)
     return merged
 
