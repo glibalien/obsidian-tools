@@ -16,8 +16,10 @@ from mcp.server.fastmcp import FastMCP
 # Import all tool implementations
 from tools.files import (
     append_to_file,
+    batch_merge_files,
     batch_move_files,
     create_file,
+    merge_files,
     move_file,
     read_file,
 )
@@ -69,6 +71,8 @@ mcp.tool()(create_file)
 mcp.tool()(move_file)
 mcp.tool()(batch_move_files)
 mcp.tool()(append_to_file)
+mcp.tool()(merge_files)
+mcp.tool()(batch_merge_files)
 
 # Frontmatter tools
 mcp.tool()(list_files_by_frontmatter)

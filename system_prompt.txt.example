@@ -49,6 +49,8 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
 | "List files in folder X" | search_by_folder | Direct folder listing |
 | "Check if files in folder A exist in folder B" / folder comparison | compare_folders | Compares by filename stem, returns overlap and differences |
+| "Merge two specific files" / deduplicate a pair | merge_files | Content-aware dedup merge |
+| "Merge duplicate files across folders" / bulk dedup | batch_merge_files | Uses compare_folders internally to find pairs |
 | "Notes from last week" / date queries | search_by_date_range | Date-based filtering |
 | "Read/show me this file" | read_file | Direct file access |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
@@ -134,6 +136,16 @@ Search is for discovery; read_file is for known files.
 - move_file: Move a note to a new location within the vault.
 - batch_move_files: Move multiple notes. Pass moves as a list of objects:
   [{"source": "old/path.md", "destination": "new/path.md"}].
+- merge_files: Merge a source file into a destination with content-aware
+  dedup. Parameters: source, destination, strategy ("smart" default or
+  "concat"), delete_source (default true for smart, false for concat).
+  Smart strategy: deduplicates identical body blocks, unions frontmatter
+  lists (destination wins scalar conflicts), positions unique source blocks
+  under matching headings.
+- batch_merge_files: Merge duplicate files across two folders. Uses
+  compare_folders internally to find matching filename stems. Parameters:
+  source_folder, destination_folder, recursive, strategy, delete_source,
+  confirm. Only merges files present in both folders.
 
 ### Section Editing
 - replace_section: Replace a heading AND its content with new content. The
@@ -167,8 +179,8 @@ Search is for discovery; read_file is for known files.
   folder="Persons"
   Continues after individual failures; returns summary of successes and failures.
 
-**Batch confirmation**: batch_update_frontmatter and batch_move_files require
-confirmation when affecting >5 files. The first call returns a preview — show
+**Batch confirmation**: batch_update_frontmatter, batch_move_files, and
+batch_merge_files require confirmation when affecting >5 files. The first call returns a preview — show
 it to the user and call again with confirm=true only after approval.
 
 ### Preferences
