@@ -449,6 +449,8 @@ async def agent_turn(
     UNCOUNTED_TOOLS = {"log_interaction", "get_continuation"}
     all_tools = tools + [GET_CONTINUATION_TOOL]
     force_text_only = False
+    text_only_retries = 0
+    MAX_TEXT_ONLY_RETRIES = 3
     last_tool_call: dict = {}
     pending_preview: dict | None = None
 
@@ -501,9 +503,17 @@ async def agent_turn(
             )
             assistant_message.tool_calls = None
             if not assistant_message.content:
-                # No text either — retry so the user gets a real response
-                logger.warning("Stripped response has no content — retrying")
-                continue
+                text_only_retries += 1
+                if text_only_retries < MAX_TEXT_ONLY_RETRIES:
+                    logger.warning("Stripped response has no content — retrying (%d/%d)",
+                                   text_only_retries, MAX_TEXT_ONLY_RETRIES)
+                    continue
+                # Model refuses to produce text — use preview message as fallback
+                logger.warning("Model produced no text after %d retries — using fallback",
+                               MAX_TEXT_ONLY_RETRIES)
+                fallback = (pending_preview or {}).get("message", "")
+                content = fallback or "Please review the preview above and confirm or cancel."
+                assistant_message.content = content
 
         messages.append(assistant_message.model_dump(exclude_none=True))
         last_content = assistant_message.content or ""
