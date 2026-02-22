@@ -156,7 +156,7 @@ def _split_frontmatter_body(content: str) -> tuple[dict, str]:
         Tuple of (frontmatter_dict, body_string). Frontmatter is empty dict
         if the file has no valid YAML frontmatter block.
     """
-    match = re.match(r"^---\n(.*?)---\n", content, re.DOTALL)
+    match = re.match(r"^---\n(.*?)---(?:\n|$)", content, re.DOTALL)
     if not match:
         return {}, content
 
