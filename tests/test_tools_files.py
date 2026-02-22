@@ -409,6 +409,16 @@ class TestMergeFrontmatter:
         merged = _merge_frontmatter(fm.copy(), fm.copy())
         assert merged == fm
 
+    def test_dict_items_in_list_field(self):
+        """List items that are dicts (unhashable) should not crash."""
+        source = {"tags": [{"name": "x"}, {"name": "y"}]}
+        dest = {"tags": [{"name": "y"}, {"name": "z"}]}
+        merged = _merge_frontmatter(source, dest)
+        assert {"name": "y"} in merged["tags"]
+        assert {"name": "z"} in merged["tags"]
+        assert {"name": "x"} in merged["tags"]
+        assert len(merged["tags"]) == 3
+
 
 class TestSplitBlocks:
     """Tests for _split_blocks helper."""
