@@ -831,6 +831,69 @@ async def test_agent_turn_retries_when_stripped_response_has_no_content():
     assert mock_client.chat.completions.create.call_count == 3
     # Tool was only called once (the preview)
     assert mock_session.call_tool.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_agent_turn_fallback_after_max_text_only_retries():
+    """After MAX_TEXT_ONLY_RETRIES, use preview message as fallback instead of looping."""
+    # First LLM call: agent calls batch_move_files → confirmation_required
+    mock_tool_call_preview = MagicMock()
+    mock_tool_call_preview.id = "call_preview"
+    mock_tool_call_preview.function.name = "batch_move_files"
+    mock_tool_call_preview.function.arguments = '{"moves": [], "confirm": false}'
+
+    mock_msg_preview = MagicMock()
+    mock_msg_preview.tool_calls = [mock_tool_call_preview]
+    mock_msg_preview.content = None
+    mock_msg_preview.model_dump.return_value = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "call_preview", "function": {"name": "batch_move_files", "arguments": "{}"}, "type": "function"}],
+    }
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    def make_tool_only_msg():
+        tc = MagicMock()
+        tc.id = "call_confirm"
+        tc.function.name = "batch_move_files"
+        tc.function.arguments = '{"moves": [], "confirm": true}'
+        msg = MagicMock()
+        msg.tool_calls = [tc]
+        msg.content = None
+        return msg
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_preview)], usage=mock_usage),
+    ] + [
+        MagicMock(choices=[MagicMock(message=make_tool_only_msg())], usage=mock_usage)
+        for _ in range(3)  # MAX_TEXT_ONLY_RETRIES
+    ]
+
+    confirmation_result = json.dumps({
+        "success": True,
+        "confirmation_required": True,
+        "message": "Confirm to proceed.",
+        "preview_message": "This will move 10 files.",
+        "files": [f"file{i}.md" for i in range(10)],
+    })
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=confirmation_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "move files"}]
+
+    result = await agent_turn(mock_client, mock_session, messages, [])
+
+    # Falls back to preview message after retries exhausted
+    assert result == "This will move 10 files."
+    # 1 (tool call) + 3 (retries) + no more = 4 total LLM calls
+    assert mock_client.chat.completions.create.call_count == 4
     # The empty stripped message was NOT appended to history
     assert not any(
         msg.get("role") == "assistant" and msg.get("content") is None and "tool_calls" not in msg
