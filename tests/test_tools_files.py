@@ -364,6 +364,14 @@ class TestSplitFrontmatterBody:
         assert fm == {"title": "Note"}
         assert body == ""
 
+    def test_indented_dashes_in_block_scalar(self):
+        """Indented --- inside a YAML block scalar should not close frontmatter."""
+        content = "---\ntitle: Test\ndesc: |\n  text\n  ---\n  more\n---\n\nBody."
+        fm, body = _split_frontmatter_body(content)
+        assert fm["title"] == "Test"
+        assert "more" in fm["desc"]
+        assert body.strip() == "Body."
+
     def test_non_dict_yaml_treated_as_no_frontmatter(self):
         """YAML that parses to a list or scalar is not valid frontmatter."""
         content = "---\n- a\n- b\n---\n\nBody text."
