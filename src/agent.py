@@ -322,11 +322,13 @@ async def _process_tool_calls(
     next_result_id: int,
     emit: EventCallback | None,
     last_tool_call: dict | None = None,
-) -> tuple[int, bool]:
+) -> tuple[int, bool, dict | None]:
     """Execute tool calls from an assistant message and append results to messages.
 
-    Returns (updated next_result_id, confirmation_required).
+    Returns (updated next_result_id, confirmation_required, preview_data).
     ``last_tool_call`` is a mutable dict tracking the previous call for dedup.
+    ``preview_data`` is non-None when a confirmation preview should be emitted
+    by the caller after the response event (to ensure correct SSE ordering).
     """
 
     async def _emit(event_type: str, data: dict) -> None:
@@ -334,6 +336,7 @@ async def _process_tool_calls(
             await emit(event_type, data)
 
     confirmation_required = False
+    preview_data = None
 
     for i, tool_call in enumerate(tool_calls):
         tool_name = tool_call.function.name
@@ -401,11 +404,11 @@ async def _process_tool_calls(
             success = parsed.get("success", True)
             if parsed.get("confirmation_required"):
                 confirmation_required = True
-                await _emit("confirmation_preview", {
+                preview_data = {
                     "tool": tool_name,
                     "message": parsed.get("preview_message", ""),
                     "files": parsed.get("files", []),
-                })
+                }
                 await _emit("tool_result", {"tool": tool_name, "success": success})
                 # Stub remaining tool calls so the API doesn't reject missing results
                 for remaining in tool_calls[i + 1:]:
@@ -424,7 +427,7 @@ async def _process_tool_calls(
             last_tool_call["result"] = result
             last_tool_call["failed"] = not success
 
-    return next_result_id, confirmation_required
+    return next_result_id, confirmation_required, preview_data
 
 
 async def agent_turn(
@@ -447,6 +450,7 @@ async def agent_turn(
     all_tools = tools + [GET_CONTINUATION_TOOL]
     force_text_only = False
     last_tool_call: dict = {}
+    pending_preview: dict | None = None
 
     async def _emit(event_type: str, data: dict) -> None:
         if on_event is not None:
@@ -515,12 +519,14 @@ async def agent_turn(
             )
             content = assistant_message.content or ""
             await _emit("response", {"content": content})
+            if pending_preview:
+                await _emit("confirmation_preview", pending_preview)
             return content
 
         if last_content:
             logger.info("Assistant text: %s", last_content)
 
-        next_result_id, confirmation_required = await _process_tool_calls(
+        next_result_id, confirmation_required, preview_data = await _process_tool_calls(
             assistant_message.tool_calls, session, messages,
             truncated_results, next_result_id, on_event, last_tool_call,
         )
@@ -528,6 +534,7 @@ async def agent_turn(
         if confirmation_required:
             logger.info("Confirmation required — forcing text-only response")
             force_text_only = True
+            pending_preview = preview_data
 
 
 

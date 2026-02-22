@@ -629,6 +629,73 @@ async def test_agent_turn_breaks_on_confirmation_required():
 
 
 @pytest.mark.anyio
+async def test_confirmation_preview_emitted_after_response():
+    """confirmation_preview SSE event is emitted after response, not before."""
+    events = []
+
+    async def on_event(event_type, data):
+        events.append((event_type, data))
+
+    mock_tool_call = MagicMock()
+    mock_tool_call.id = "call_batch"
+    mock_tool_call.function.name = "batch_update_frontmatter"
+    mock_tool_call.function.arguments = '{"field": "status", "value": "done", "folder": "projects"}'
+
+    mock_msg_with_tool = MagicMock()
+    mock_msg_with_tool.tool_calls = [mock_tool_call]
+    mock_msg_with_tool.content = None
+    mock_msg_with_tool.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_batch", "function": {"name": "batch_update_frontmatter", "arguments": "{}"}, "type": "function"}],
+    }
+
+    mock_msg_present = MagicMock()
+    mock_msg_present.tool_calls = None
+    mock_msg_present.content = "This will update 7 files. Shall I proceed?"
+    mock_msg_present.model_dump.return_value = {
+        "role": "assistant",
+        "content": "This will update 7 files. Shall I proceed?",
+    }
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=mock_msg_with_tool)], usage=mock_usage),
+        MagicMock(choices=[MagicMock(message=mock_msg_present)], usage=mock_usage),
+    ]
+
+    confirmation_result = json.dumps({
+        "success": True,
+        "confirmation_required": True,
+        "message": "Confirm to proceed.",
+        "preview_message": "This will set 'status' = 'done' on 7 files.",
+        "files": ["a.md", "b.md"],
+    })
+    mock_session = AsyncMock()
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[MagicMock(text=confirmation_result)]
+    )
+
+    messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "update all"}]
+
+    await agent_turn(mock_client, mock_session, messages, [], on_event=on_event)
+
+    event_types = [e[0] for e in events]
+    assert "response" in event_types
+    assert "confirmation_preview" in event_types
+    response_idx = event_types.index("response")
+    preview_idx = event_types.index("confirmation_preview")
+    assert response_idx < preview_idx, (
+        f"response (index {response_idx}) should come before "
+        f"confirmation_preview (index {preview_idx})"
+    )
+
+
+@pytest.mark.anyio
 async def test_agent_turn_strips_tool_calls_with_content():
     """If model ignores tool_choice='none' but includes text, strip calls and return text."""
     # First LLM call: agent calls batch_move_files → confirmation_required
@@ -1105,13 +1172,8 @@ class TestEnsureInteractionLogged:
 
 
 @pytest.mark.anyio
-async def test_confirmation_preview_event_emitted():
-    """_process_tool_calls emits confirmation_preview event with preview data."""
-    events = []
-
-    async def on_event(event_type, data):
-        events.append((event_type, data))
-
+async def test_confirmation_preview_data_returned():
+    """_process_tool_calls returns preview data for caller to emit after response."""
     mock_tool_call = MagicMock()
     mock_tool_call.id = "call_batch"
     mock_tool_call.function.name = "batch_update_frontmatter"
@@ -1132,12 +1194,12 @@ async def test_confirmation_preview_event_emitted():
     messages = [{"role": "system", "content": "test"}]
 
     from src.agent import _process_tool_calls
-    await _process_tool_calls(
-        [mock_tool_call], mock_session, messages, {}, 0, on_event,
+    _, confirmation_required, preview_data = await _process_tool_calls(
+        [mock_tool_call], mock_session, messages, {}, 0, None,
     )
 
-    preview_events = [e for e in events if e[0] == "confirmation_preview"]
-    assert len(preview_events) == 1
-    assert preview_events[0][1]["tool"] == "batch_update_frontmatter"
-    assert preview_events[0][1]["message"] == "This will set 'status' = 'done' on 7 files."
-    assert preview_events[0][1]["files"] == ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md"]
+    assert confirmation_required is True
+    assert preview_data is not None
+    assert preview_data["tool"] == "batch_update_frontmatter"
+    assert preview_data["message"] == "This will set 'status' = 'done' on 7 files."
+    assert preview_data["files"] == ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md"]
