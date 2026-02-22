@@ -157,7 +157,9 @@ Search is for discovery; read_file is for known files.
 
 ### Frontmatter
 - update_frontmatter: Modify note metadata. Parameters: path, field, value,
-  operation ("set", "remove", or "append").
+  operation ("set", "remove", "append", or "rename").
+  For rename: field is the old key name, value is the new key name. Errors if
+  the new key already exists (no silent overwriting).
   **List values**: Many Obsidian properties (category, tags, aliases) are lists.
   For list-type fields, ALWAYS pass an array — even for a single value:
   value=["project"], value=["person", "actor"].
@@ -165,7 +167,8 @@ Search is for discovery; read_file is for known files.
   value, not a list. For scalar fields (status, project, date), pass a string.
   To add one value to an existing list, use operation="append" — it preserves
   existing values, creates the list if missing, and skips duplicates.
-- batch_update_frontmatter: Apply same update to multiple files. Three modes:
+- batch_update_frontmatter: Apply same update to multiple files. Supports all
+  operations including "rename" (field=old key, value=new key). Three modes:
   (1) Explicit paths: pass paths (list of file paths).
   (2) Query-based targeting: pass target_field, target_value, and optional
       target_filters (same format as list_files_by_frontmatter filters).
