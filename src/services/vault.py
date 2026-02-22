@@ -254,19 +254,22 @@ def update_file_frontmatter(
     value,
     remove: bool = False,
     append: bool = False,
+    rename: bool = False,
 ) -> None:
     """Update frontmatter in a file, preserving body content.
 
     Args:
         file_path: Path to the markdown file.
         field: Frontmatter field to update.
-        value: Value to set (ignored if remove=True).
+        value: Value to set, or new key name if rename=True.
         remove: If True, remove the field instead of setting it.
         append: If True, append value to existing list field.
+        rename: If True, rename field to value (new key name).
 
     Raises:
-        ValueError: If file has no frontmatter and remove=True.
+        ValueError: If file has no frontmatter and remove/rename=True.
         ValueError: If append=True but field is not a list.
+        ValueError: If rename=True but field doesn't exist or target already exists.
     """
     content = file_path.read_text(encoding="utf-8")
 
@@ -276,7 +279,7 @@ def update_file_frontmatter(
         frontmatter = yaml.safe_load(match.group(1)) or {}
         body = content[match.end():]
     else:
-        if remove:
+        if remove or rename:
             raise ValueError("File has no frontmatter")
         frontmatter = {}
         body = content
@@ -295,6 +298,13 @@ def update_file_frontmatter(
             if item not in existing:
                 existing.append(item)
         frontmatter[field] = existing
+    elif rename:
+        if field not in frontmatter:
+            raise ValueError(f"Field '{field}' not found in frontmatter")
+        new_key = value
+        if new_key in frontmatter:
+            raise ValueError(f"Field '{new_key}' already exists in frontmatter")
+        frontmatter[new_key] = frontmatter.pop(field)
     else:
         frontmatter[field] = value
 
@@ -344,6 +354,7 @@ def do_update_frontmatter(
             parsed_value,
             remove=(operation == "remove"),
             append=(operation == "append"),
+            rename=(operation == "rename"),
         )
     except ValueError as e:
         return False, str(e)
@@ -354,6 +365,8 @@ def do_update_frontmatter(
         return True, f"Removed '{field}' from {path}"
     elif operation == "append":
         return True, f"Appended {parsed_value!r} to '{field}' in {path}"
+    elif operation == "rename":
+        return True, f"Renamed '{field}' to '{parsed_value}' in {path}"
     else:
         return True, f"Set '{field}' to {parsed_value!r} in {path}"
 
