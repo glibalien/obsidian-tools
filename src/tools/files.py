@@ -160,7 +160,11 @@ def _split_frontmatter_body(content: str) -> tuple[dict, str]:
     if not match:
         return {}, content
 
-    fm = yaml.safe_load(match.group(1)) or {}
+    try:
+        fm = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}, content
+
     body = content[match.end():]
     return fm, body
 

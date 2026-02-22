@@ -351,6 +351,12 @@ class TestSplitFrontmatterBody:
         assert fm == {"title": "Note"}
         assert body.strip() == ""
 
+    def test_malformed_yaml_treated_as_no_frontmatter(self):
+        content = "---\ntitle: [invalid yaml\n---\n\nBody text."
+        fm, body = _split_frontmatter_body(content)
+        assert fm == {}
+        assert body == content
+
 
 class TestMergeFrontmatter:
     """Tests for _merge_frontmatter helper."""
