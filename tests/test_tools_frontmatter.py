@@ -828,6 +828,68 @@ class TestQueryBasedBatchUpdate:
         assert "either" in result["error"].lower()
 
 
+class TestUpdateFrontmatterRename:
+    """Tests for update_frontmatter rename operation."""
+
+    def test_rename_key(self, vault_config):
+        """Should rename a frontmatter key."""
+        result = json.loads(update_frontmatter(
+            path="note1.md", field="tags", value="labels", operation="rename",
+        ))
+        assert result["success"] is True
+        assert "Renamed" in result["message"]
+
+        # Verify the actual file
+        import yaml, re as _re
+        content = (vault_config / "note1.md").read_text()
+        match = _re.match(r"^---\n(.*?)\n---\n", content, _re.DOTALL)
+        fm = yaml.safe_load(match.group(1))
+        assert "tags" not in fm
+        assert fm["labels"] == ["project", "work"]
+
+    def test_rename_missing_source(self, vault_config):
+        """Should error when source key doesn't exist."""
+        result = json.loads(update_frontmatter(
+            path="note1.md", field="nonexistent", value="new_key", operation="rename",
+        ))
+        assert result["success"] is False
+
+    def test_rename_target_exists(self, vault_config):
+        """Should error when target key already exists."""
+        result = json.loads(update_frontmatter(
+            path="note2.md", field="tags", value="company", operation="rename",
+        ))
+        assert result["success"] is False
+        assert "already exists" in result["error"]
+
+    def test_rename_value_required(self, vault_config):
+        """Should error when value is missing for rename."""
+        result = json.loads(update_frontmatter(
+            path="note1.md", field="tags", operation="rename",
+        ))
+        assert result["success"] is False
+
+    def test_rename_rejects_list_value(self, vault_config):
+        """Should error when value is a list (key names must be strings)."""
+        result = json.loads(update_frontmatter(
+            path="note1.md", field="tags", value=["a", "b"], operation="rename",
+        ))
+        assert result["success"] is False
+
+    def test_rename_skips_normalize(self, vault_config):
+        """Rename value should not be JSON-parsed (it's a key name, not a YAML value)."""
+        result = json.loads(update_frontmatter(
+            path="note1.md", field="tags", value="[new_key]", operation="rename",
+        ))
+        # "[new_key]" should be treated as literal key name, not parsed as JSON list
+        assert result["success"] is True
+        import yaml, re as _re
+        content = (vault_config / "note1.md").read_text()
+        match = _re.match(r"^---\n(.*?)\n---\n", content, _re.DOTALL)
+        fm = yaml.safe_load(match.group(1))
+        assert "[new_key]" in fm
+
+
 class TestCaseInsensitiveMatching:
     """Tests for case-insensitive frontmatter matching."""
 

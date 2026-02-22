@@ -318,8 +318,19 @@ def update_frontmatter(
     Returns:
         Confirmation message or error.
     """
-    if operation not in ("set", "remove", "append"):
-        return err(f"operation must be 'set', 'remove', or 'append', got '{operation}'")
+    if operation not in ("set", "remove", "append", "rename"):
+        return err(f"operation must be 'set', 'remove', 'append', or 'rename', got '{operation}'")
+
+    if operation == "rename":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return err("value (new key name) is required for 'rename' operation")
+        if not isinstance(value, str):
+            return err("value must be a string (new key name) for 'rename' operation")
+        # For rename, value is a key name — don't normalize as YAML value
+        success, message = do_update_frontmatter(path, field, value, operation)
+        if success:
+            return ok(message)
+        return err(message)
 
     if operation in ("set", "append") and value is None:
         return err(f"value is required for '{operation}' operation")
