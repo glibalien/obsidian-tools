@@ -60,7 +60,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `read_file` | Read vault note with pagination | `path`, `offset` (0), `length` (3500) |
 | `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"/"missing"/"exists"/"not_contains"/"not_equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings), `folder`, `recursive` (false) |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
-| `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation`, `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
+| `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
 | `move_file` | Relocate vault file | `source`, `destination` |
 | `batch_move_files` | Move multiple files | `moves` (list of {source, destination}) |
 | `merge_files` | Merge source into destination | `source`, `destination`, `strategy` ("smart"/"concat"), `delete_source` (bool) |
