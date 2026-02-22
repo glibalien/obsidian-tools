@@ -478,7 +478,7 @@ def batch_merge_files(
     # Confirmation gate for large batches
     if len(pairs) > BATCH_CONFIRM_THRESHOLD:
         pair_keys = tuple((s, d) for s, d in pairs)
-        key = ("batch_merge_files", pair_keys)
+        key = ("batch_merge_files", pair_keys, strategy, delete_source)
         if not (confirm and consume_preview(key)):
             store_preview(key)
             files = [f"{s} → {d}" for s, d in pairs]

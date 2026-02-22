@@ -688,6 +688,27 @@ class TestBatchMergeFiles:
         assert result["success"] is True
         assert result["merged"] == 8
 
+    def test_batch_confirm_rejected_with_different_options(self, vault_config):
+        """Changing strategy between preview and confirm requires new preview."""
+        clear_pending_previews()
+        src_dir = vault_config / "opt_src"
+        dst_dir = vault_config / "opt_dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        for i in range(8):
+            (src_dir / f"n{i}.md").write_text(f"# N {i}\n")
+            (dst_dir / f"n{i}.md").write_text(f"# N {i}\n")
+
+        # Preview with smart strategy
+        result = json.loads(batch_merge_files("opt_src", "opt_dst", strategy="smart"))
+        assert result["confirmation_required"] is True
+        # Confirm with concat strategy — should get a new preview, not execute
+        result = json.loads(batch_merge_files("opt_src", "opt_dst", strategy="concat", confirm=True))
+        assert result["confirmation_required"] is True
+        # All source files should still exist
+        for i in range(8):
+            assert (src_dir / f"n{i}.md").exists()
+
     def test_batch_reports_only_in_source(self, vault_config):
         """Files only in source should be reported but not touched."""
         clear_pending_previews()
