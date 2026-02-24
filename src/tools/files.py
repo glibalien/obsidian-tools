@@ -17,7 +17,7 @@ from tools.readers import (
 )
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
-    _HEADING_PATTERN,
+    HEADING_PATTERN,
     consume_preview,
     do_move_file,
     err,
@@ -80,6 +80,8 @@ def _extract_block(lines: list[str], block_id: str) -> str | None:
 _embed_cache: dict[tuple[str, float], str] = {}
 
 _EMBED_RE = re.compile(r"!\[\[([^\]]+)\]\]")
+_INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1")
+_EMBED_CACHE_MAX = 128
 
 
 def _expand_embeds(content: str, source_path: Path) -> str:
@@ -114,14 +116,34 @@ def _expand_embeds(content: str, source_path: Path) -> str:
             result_lines.append(line)
             continue
 
-        # Replace all embeds on the line
-        new_line = _EMBED_RE.sub(
-            lambda m: _resolve_and_format(m.group(1), source_path),
-            line,
-        )
+        # Protect inline code spans from expansion
+        new_line = _expand_line_embeds(line, source_path)
         result_lines.append(new_line)
 
     return "\n".join(result_lines)
+
+
+def _expand_line_embeds(line: str, source_path: Path) -> str:
+    """Expand embeds on a single line, protecting inline code spans."""
+    # Strip inline code spans, expand embeds in remaining segments, restore
+    code_spans: list[str] = []
+
+    def _save_code(m: re.Match) -> str:
+        code_spans.append(m.group(0))
+        return f"\x00CODE{len(code_spans) - 1}\x00"
+
+    protected = _INLINE_CODE_RE.sub(_save_code, line)
+
+    expanded = _EMBED_RE.sub(
+        lambda m: _resolve_and_format(m.group(1), source_path),
+        protected,
+    )
+
+    # Restore code spans
+    for i, span in enumerate(code_spans):
+        expanded = expanded.replace(f"\x00CODE{i}\x00", span)
+
+    return expanded
 
 
 def _resolve_and_format(reference: str, source_path: Path) -> str:
@@ -201,6 +223,10 @@ def _expand_binary(file_path: Path, reference: str) -> str:
             or result.get("content")
             or ""
         )
+        # Evict oldest entries if cache is full
+        if len(_embed_cache) >= _EMBED_CACHE_MAX:
+            oldest = next(iter(_embed_cache))
+            del _embed_cache[oldest]
         _embed_cache[cache_key] = expanded
 
     return _format_embed(reference, expanded)
@@ -256,7 +282,7 @@ def _find_section_by_text(
             continue
         if in_fence:
             continue
-        m = _HEADING_PATTERN.match(line)
+        m = HEADING_PATTERN.match(line)
         if m and m.group(2).strip().lower() == target:
             matches.append((i, len(m.group(1)), line))
 
@@ -278,7 +304,7 @@ def _find_section_by_text(
             continue
         if in_fence:
             continue
-        m = _HEADING_PATTERN.match(line)
+        m = HEADING_PATTERN.match(line)
         if m and len(m.group(1)) <= level:
             section_end = i
             break
