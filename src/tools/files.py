@@ -5,6 +5,7 @@ import re
 
 import yaml
 
+from tools.readers import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, OFFICE_EXTENSIONS, handle_audio
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     consume_preview,
@@ -33,6 +34,11 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
     file_path, error = resolve_file(path)
     if error:
         return err(error)
+
+    # Extension-based dispatch for non-text files
+    ext = file_path.suffix.lower()
+    if ext in AUDIO_EXTENSIONS:
+        return handle_audio(file_path)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")

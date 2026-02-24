@@ -1,6 +1,7 @@
 """Tests for tools/files.py - file operations."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -103,6 +104,61 @@ class TestReadFile:
         # Content before the truncation marker should be 100 chars
         before_marker = result["content"].split("\n\n[... truncated")[0]
         assert len(before_marker) == 100
+
+
+class TestReadFileAudio:
+    """Tests for read_file dispatching to audio handler."""
+
+    def test_audio_no_api_key(self, vault_config, monkeypatch):
+        """Audio files require FIREWORKS_API_KEY."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        audio = vault_config / "Attachments" / "test.m4a"
+        audio.write_bytes(b"fake audio")
+        result = json.loads(read_file("Attachments/test.m4a"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    @patch("tools.readers.OpenAI")
+    def test_audio_successful(self, mock_openai_class, vault_config, monkeypatch):
+        """Audio files are transcribed via Whisper."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "test.m4a"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.text = "Hello world"
+        mock_client.audio.transcriptions.create.return_value = mock_response
+
+        result = json.loads(read_file("Attachments/test.m4a"))
+        assert result["success"] is True
+        assert result["transcript"] == "Hello world"
+
+    @patch("tools.readers.OpenAI")
+    def test_audio_api_error(self, mock_openai_class, vault_config, monkeypatch):
+        """API errors are returned gracefully."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "test.wav"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.audio.transcriptions.create.side_effect = Exception("Rate limit")
+
+        result = json.loads(read_file("Attachments/test.wav"))
+        assert result["success"] is False
+        assert "Rate limit" in result["error"]
+
+    def test_audio_extensions_dispatched(self, vault_config, monkeypatch):
+        """All audio extensions route to the audio handler."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        for ext in [".m4a", ".mp3", ".wav", ".ogg", ".webm"]:
+            f = vault_config / "Attachments" / f"test{ext}"
+            f.write_bytes(b"audio")
+            result = json.loads(read_file(f"Attachments/test{ext}"))
+            assert result["success"] is False
+            assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched to audio handler"
 
 
 class TestCreateFile:
