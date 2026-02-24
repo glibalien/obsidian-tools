@@ -4,6 +4,9 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from docx import Document as DocxDocument
+from openpyxl import Workbook
+from pptx import Presentation
 
 from services.vault import clear_pending_previews
 from tools.files import (
@@ -930,3 +933,143 @@ class TestBatchMergeFiles:
         assert "note.md" in result["skipped_ambiguous"]
         # Source untouched
         assert (src_dir / "note.md").exists()
+
+
+class TestReadFileOffice:
+    """Tests for read_file Office document dispatch."""
+
+    # --- Word (.docx) ---
+
+    def test_docx_basic(self, vault_config):
+        """Should extract heading and paragraph text from a Word document."""
+        doc = DocxDocument()
+        doc.add_heading("My Title", level=1)
+        doc.add_paragraph("First paragraph.")
+        doc.add_paragraph("Second paragraph.")
+        doc.save(str(vault_config / "test.docx"))
+
+        result = json.loads(read_file("test.docx"))
+        assert result["success"] is True
+        assert "# My Title" in result["content"]
+        assert "First paragraph." in result["content"]
+        assert "Second paragraph." in result["content"]
+
+    def test_docx_empty(self, vault_config):
+        """Empty Word document should return ok with empty/minimal content."""
+        doc = DocxDocument()
+        doc.save(str(vault_config / "empty.docx"))
+
+        result = json.loads(read_file("empty.docx"))
+        assert result["success"] is True
+
+    def test_docx_with_table(self, vault_config):
+        """Should extract table content as markdown table."""
+        doc = DocxDocument()
+        doc.add_paragraph("Before table.")
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Header A"
+        table.cell(0, 1).text = "Header B"
+        table.cell(1, 0).text = "Cell 1"
+        table.cell(1, 1).text = "Cell 2"
+        doc.save(str(vault_config / "table.docx"))
+
+        result = json.loads(read_file("table.docx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "Header A" in content
+        assert "Header B" in content
+        assert "Cell 1" in content
+        assert "Cell 2" in content
+        assert "|" in content  # markdown table syntax
+        assert "---" in content  # header separator
+
+    # --- Excel (.xlsx) ---
+
+    def test_xlsx_basic(self, vault_config):
+        """Should extract sheet data as markdown table with sheet heading."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Data"
+        ws.append(["Name", "Value"])
+        ws.append(["Alice", 42])
+        wb.save(str(vault_config / "test.xlsx"))
+
+        result = json.loads(read_file("test.xlsx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Data" in content
+        assert "Alice" in content
+        assert "42" in content
+        assert "|" in content
+        assert "---" in content
+
+    def test_xlsx_multiple_sheets(self, vault_config):
+        """Each sheet should get its own heading."""
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "Sheet1"
+        ws1.append(["A", "B"])
+
+        ws2 = wb.create_sheet("Sheet2")
+        ws2.append(["C", "D"])
+        wb.save(str(vault_config / "multi.xlsx"))
+
+        result = json.loads(read_file("multi.xlsx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Sheet1" in content
+        assert "## Sheet2" in content
+
+    def test_xlsx_empty(self, vault_config):
+        """Empty workbook should return ok."""
+        wb = Workbook()
+        # Remove default sheet data (leave it empty)
+        ws = wb.active
+        # Don't add any data
+        wb.save(str(vault_config / "empty.xlsx"))
+
+        result = json.loads(read_file("empty.xlsx"))
+        assert result["success"] is True
+
+    # --- PowerPoint (.pptx) ---
+
+    def test_pptx_basic(self, vault_config):
+        """Should extract slide title and content."""
+        prs = Presentation()
+        slide_layout = prs.slide_layouts[1]  # title + content layout
+        slide = prs.slides.add_slide(slide_layout)
+        slide.shapes.title.text = "Slide Title"
+        slide.placeholders[1].text = "Slide body text."
+        prs.save(str(vault_config / "test.pptx"))
+
+        result = json.loads(read_file("test.pptx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Slide Title" in content
+        assert "Slide body text." in content
+
+    def test_pptx_multiple_slides(self, vault_config):
+        """Multiple slides each get their own heading."""
+        prs = Presentation()
+        for title_text in ["First", "Second"]:
+            slide_layout = prs.slide_layouts[1]
+            slide = prs.slides.add_slide(slide_layout)
+            slide.shapes.title.text = title_text
+            slide.placeholders[1].text = f"Content of {title_text}."
+        prs.save(str(vault_config / "multi.pptx"))
+
+        result = json.loads(read_file("multi.pptx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## First" in content
+        assert "## Second" in content
+        assert "Content of First." in content
+        assert "Content of Second." in content
+
+    def test_pptx_empty(self, vault_config):
+        """Empty presentation should return ok."""
+        prs = Presentation()
+        prs.save(str(vault_config / "empty.pptx"))
+
+        result = json.loads(read_file("empty.pptx"))
+        assert result["success"] is True
