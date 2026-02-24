@@ -161,6 +161,59 @@ class TestReadFileAudio:
             assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched to audio handler"
 
 
+class TestReadFileImage:
+    """Tests for read_file dispatching to image handler."""
+
+    def test_image_no_api_key(self, vault_config, monkeypatch):
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        img = vault_config / "Attachments" / "photo.png"
+        img.write_bytes(b"\x89PNG fake image")
+        result = json.loads(read_file("Attachments/photo.png"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    @patch("tools.readers.OpenAI")
+    def test_image_successful(self, mock_openai_class, vault_config, monkeypatch):
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        img = vault_config / "Attachments" / "photo.jpg"
+        img.write_bytes(b"fake image data")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_choice = MagicMock()
+        mock_choice.message.content = "A photo of a cat"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = json.loads(read_file("Attachments/photo.jpg"))
+        assert result["success"] is True
+        assert result["description"] == "A photo of a cat"
+
+    @patch("tools.readers.OpenAI")
+    def test_image_api_error(self, mock_openai_class, vault_config, monkeypatch):
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        img = vault_config / "Attachments" / "photo.webp"
+        img.write_bytes(b"fake image")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = Exception("Model unavailable")
+
+        result = json.loads(read_file("Attachments/photo.webp"))
+        assert result["success"] is False
+        assert "Model unavailable" in result["error"]
+
+    def test_image_extensions_dispatched(self, vault_config, monkeypatch):
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]:
+            f = vault_config / "Attachments" / f"test{ext}"
+            f.write_bytes(b"img")
+            result = json.loads(read_file(f"Attachments/test{ext}"))
+            assert result["success"] is False
+            assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched"
+
+
 class TestCreateFile:
     """Tests for create_file tool."""
 
