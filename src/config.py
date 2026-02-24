@@ -39,6 +39,9 @@ FIREWORKS_MODEL = os.getenv(
 )
 LLM_MODEL = FIREWORKS_MODEL  # backward compat alias
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
+VISION_MODEL = os.getenv(
+    "VISION_MODEL", "accounts/fireworks/models/qwen3-vl-30b-a3b-instruct"
+)
 
 # Server configuration
 API_PORT = int(os.getenv("API_PORT", "8000"))
