@@ -182,6 +182,23 @@ def test_llm_model_alias(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_vision_model_default(monkeypatch):
+    monkeypatch.delenv("VISION_MODEL", raising=False)
+    config = _reload(monkeypatch)
+    assert config.VISION_MODEL == "accounts/fireworks/models/qwen3-vl-30b-a3b-instruct"
+
+
+def test_vision_model_custom(monkeypatch):
+    monkeypatch.setenv("VISION_MODEL", "custom-vision-model")
+    config = _reload(monkeypatch)
+    assert config.VISION_MODEL == "custom-vision-model"
+
+
+# ---------------------------------------------------------------------------
+# INDEX_INTERVAL
+# ---------------------------------------------------------------------------
+
+
 def test_index_interval_default(monkeypatch):
     monkeypatch.delenv("INDEX_INTERVAL", raising=False)
     config = _reload(monkeypatch)

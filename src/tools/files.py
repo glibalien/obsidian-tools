@@ -5,6 +5,15 @@ import re
 
 import yaml
 
+import config
+from tools.readers import (
+    AUDIO_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    OFFICE_EXTENSIONS,
+    handle_audio,
+    handle_image,
+    handle_office,
+)
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     consume_preview,
@@ -17,6 +26,8 @@ from services.vault import (
     resolve_vault_path,
     store_preview,
 )
+
+_BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS
 
 
 def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
@@ -31,8 +42,29 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
         The text content of the note, with pagination markers if truncated.
     """
     file_path, error = resolve_file(path)
+
+    # For binary files (audio/image/office), fall back to Attachments directory
+    # when the path doesn't resolve from vault root. Obsidian stores embeds
+    # like ![[file.docx]] in the configured attachments folder.
     if error:
-        return err(error)
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if f".{ext}" in _BINARY_EXTENSIONS:
+            file_path, att_error = resolve_file(path, base_path=config.ATTACHMENTS_DIR)
+            if att_error:
+                return err(error)  # return original error
+        else:
+            return err(error)
+
+    # Extension-based dispatch for non-text files
+    ext = file_path.suffix.lower()
+    if ext in AUDIO_EXTENSIONS:
+        return handle_audio(file_path)
+
+    if ext in IMAGE_EXTENSIONS:
+        return handle_image(file_path)
+
+    if ext in OFFICE_EXTENSIONS:
+        return handle_office(file_path)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")

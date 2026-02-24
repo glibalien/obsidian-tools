@@ -1,8 +1,12 @@
 """Tests for tools/files.py - file operations."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
+from docx import Document as DocxDocument
+from openpyxl import Workbook
+from pptx import Presentation
 
 from services.vault import clear_pending_previews
 from tools.files import (
@@ -103,6 +107,169 @@ class TestReadFile:
         # Content before the truncation marker should be 100 chars
         before_marker = result["content"].split("\n\n[... truncated")[0]
         assert len(before_marker) == 100
+
+
+class TestReadFileAudio:
+    """Tests for read_file dispatching to audio handler."""
+
+    def test_audio_no_api_key(self, vault_config, monkeypatch):
+        """Audio files require FIREWORKS_API_KEY."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        audio = vault_config / "Attachments" / "test.m4a"
+        audio.write_bytes(b"fake audio")
+        result = json.loads(read_file("Attachments/test.m4a"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    @patch("tools.readers.OpenAI")
+    def test_audio_successful(self, mock_openai_class, vault_config, monkeypatch):
+        """Audio files are transcribed via Whisper."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "test.m4a"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.text = "Hello world"
+        mock_client.audio.transcriptions.create.return_value = mock_response
+
+        result = json.loads(read_file("Attachments/test.m4a"))
+        assert result["success"] is True
+        assert result["transcript"] == "Hello world"
+
+    @patch("tools.readers.OpenAI")
+    def test_audio_api_error(self, mock_openai_class, vault_config, monkeypatch):
+        """API errors are returned gracefully."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "test.wav"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.audio.transcriptions.create.side_effect = Exception("Rate limit")
+
+        result = json.loads(read_file("Attachments/test.wav"))
+        assert result["success"] is False
+        assert "Rate limit" in result["error"]
+
+    def test_audio_extensions_dispatched(self, vault_config, monkeypatch):
+        """All audio extensions route to the audio handler."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        for ext in [".m4a", ".mp3", ".wav", ".ogg", ".webm"]:
+            f = vault_config / "Attachments" / f"test{ext}"
+            f.write_bytes(b"audio")
+            result = json.loads(read_file(f"Attachments/test{ext}"))
+            assert result["success"] is False
+            assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched to audio handler"
+
+
+class TestReadFileAttachmentsFallback:
+    """Tests for binary files resolving via Attachments directory fallback."""
+
+    def test_bare_audio_name_resolves_to_attachments(self, vault_config, monkeypatch):
+        """Bare embed filename (no Attachments/ prefix) falls back to Attachments dir."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"audio data")
+        # Call with bare name, no "Attachments/" prefix
+        result = json.loads(read_file("meeting.m4a"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]  # reached handler, not "not found"
+
+    def test_bare_docx_name_resolves_to_attachments(self, vault_config):
+        """Bare .docx filename falls back to Attachments dir."""
+        from docx import Document as DocxDocument
+        doc = DocxDocument()
+        doc.add_paragraph("Test content")
+        path = vault_config / "Attachments" / "report.docx"
+        doc.save(str(path))
+        result = json.loads(read_file("report.docx"))
+        assert result["success"] is True
+        assert "Test content" in result["content"]
+
+    def test_bare_image_name_resolves_to_attachments(self, vault_config, monkeypatch):
+        """Bare image filename falls back to Attachments dir."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        img = vault_config / "Attachments" / "photo.png"
+        img.write_bytes(b"image data")
+        result = json.loads(read_file("photo.png"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_explicit_attachments_path_still_works(self, vault_config, monkeypatch):
+        """Explicit Attachments/ prefix still resolves directly."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        audio = vault_config / "Attachments" / "test.mp3"
+        audio.write_bytes(b"audio")
+        result = json.loads(read_file("Attachments/test.mp3"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_missing_binary_file_returns_error(self, vault_config):
+        """Binary file not found in vault root or Attachments returns error."""
+        result = json.loads(read_file("nonexistent.docx"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_text_file_no_fallback(self, vault_config):
+        """Text files do NOT fall back to Attachments — only binary extensions."""
+        result = json.loads(read_file("nonexistent.md"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+
+class TestReadFileImage:
+    """Tests for read_file dispatching to image handler."""
+
+    def test_image_no_api_key(self, vault_config, monkeypatch):
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        img = vault_config / "Attachments" / "photo.png"
+        img.write_bytes(b"\x89PNG fake image")
+        result = json.loads(read_file("Attachments/photo.png"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    @patch("tools.readers.OpenAI")
+    def test_image_successful(self, mock_openai_class, vault_config, monkeypatch):
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        img = vault_config / "Attachments" / "photo.jpg"
+        img.write_bytes(b"fake image data")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_choice = MagicMock()
+        mock_choice.message.content = "A photo of a cat"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = json.loads(read_file("Attachments/photo.jpg"))
+        assert result["success"] is True
+        assert result["description"] == "A photo of a cat"
+
+    @patch("tools.readers.OpenAI")
+    def test_image_api_error(self, mock_openai_class, vault_config, monkeypatch):
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        img = vault_config / "Attachments" / "photo.webp"
+        img.write_bytes(b"fake image")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = Exception("Model unavailable")
+
+        result = json.loads(read_file("Attachments/photo.webp"))
+        assert result["success"] is False
+        assert "Model unavailable" in result["error"]
+
+    def test_image_extensions_dispatched(self, vault_config, monkeypatch):
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]:
+            f = vault_config / "Attachments" / f"test{ext}"
+            f.write_bytes(b"img")
+            result = json.loads(read_file(f"Attachments/test{ext}"))
+            assert result["success"] is False
+            assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched"
 
 
 class TestCreateFile:
@@ -821,3 +988,143 @@ class TestBatchMergeFiles:
         assert "note.md" in result["skipped_ambiguous"]
         # Source untouched
         assert (src_dir / "note.md").exists()
+
+
+class TestReadFileOffice:
+    """Tests for read_file Office document dispatch."""
+
+    # --- Word (.docx) ---
+
+    def test_docx_basic(self, vault_config):
+        """Should extract heading and paragraph text from a Word document."""
+        doc = DocxDocument()
+        doc.add_heading("My Title", level=1)
+        doc.add_paragraph("First paragraph.")
+        doc.add_paragraph("Second paragraph.")
+        doc.save(str(vault_config / "test.docx"))
+
+        result = json.loads(read_file("test.docx"))
+        assert result["success"] is True
+        assert "# My Title" in result["content"]
+        assert "First paragraph." in result["content"]
+        assert "Second paragraph." in result["content"]
+
+    def test_docx_empty(self, vault_config):
+        """Empty Word document should return ok with empty/minimal content."""
+        doc = DocxDocument()
+        doc.save(str(vault_config / "empty.docx"))
+
+        result = json.loads(read_file("empty.docx"))
+        assert result["success"] is True
+
+    def test_docx_with_table(self, vault_config):
+        """Should extract table content as markdown table."""
+        doc = DocxDocument()
+        doc.add_paragraph("Before table.")
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Header A"
+        table.cell(0, 1).text = "Header B"
+        table.cell(1, 0).text = "Cell 1"
+        table.cell(1, 1).text = "Cell 2"
+        doc.save(str(vault_config / "table.docx"))
+
+        result = json.loads(read_file("table.docx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "Header A" in content
+        assert "Header B" in content
+        assert "Cell 1" in content
+        assert "Cell 2" in content
+        assert "|" in content  # markdown table syntax
+        assert "---" in content  # header separator
+
+    # --- Excel (.xlsx) ---
+
+    def test_xlsx_basic(self, vault_config):
+        """Should extract sheet data as markdown table with sheet heading."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Data"
+        ws.append(["Name", "Value"])
+        ws.append(["Alice", 42])
+        wb.save(str(vault_config / "test.xlsx"))
+
+        result = json.loads(read_file("test.xlsx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Data" in content
+        assert "Alice" in content
+        assert "42" in content
+        assert "|" in content
+        assert "---" in content
+
+    def test_xlsx_multiple_sheets(self, vault_config):
+        """Each sheet should get its own heading."""
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "Sheet1"
+        ws1.append(["A", "B"])
+
+        ws2 = wb.create_sheet("Sheet2")
+        ws2.append(["C", "D"])
+        wb.save(str(vault_config / "multi.xlsx"))
+
+        result = json.loads(read_file("multi.xlsx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Sheet1" in content
+        assert "## Sheet2" in content
+
+    def test_xlsx_empty(self, vault_config):
+        """Empty workbook should return ok."""
+        wb = Workbook()
+        # Remove default sheet data (leave it empty)
+        ws = wb.active
+        # Don't add any data
+        wb.save(str(vault_config / "empty.xlsx"))
+
+        result = json.loads(read_file("empty.xlsx"))
+        assert result["success"] is True
+
+    # --- PowerPoint (.pptx) ---
+
+    def test_pptx_basic(self, vault_config):
+        """Should extract slide title and content."""
+        prs = Presentation()
+        slide_layout = prs.slide_layouts[1]  # title + content layout
+        slide = prs.slides.add_slide(slide_layout)
+        slide.shapes.title.text = "Slide Title"
+        slide.placeholders[1].text = "Slide body text."
+        prs.save(str(vault_config / "test.pptx"))
+
+        result = json.loads(read_file("test.pptx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Slide Title" in content
+        assert "Slide body text." in content
+
+    def test_pptx_multiple_slides(self, vault_config):
+        """Multiple slides each get their own heading."""
+        prs = Presentation()
+        for title_text in ["First", "Second"]:
+            slide_layout = prs.slide_layouts[1]
+            slide = prs.slides.add_slide(slide_layout)
+            slide.shapes.title.text = title_text
+            slide.placeholders[1].text = f"Content of {title_text}."
+        prs.save(str(vault_config / "multi.pptx"))
+
+        result = json.loads(read_file("multi.pptx"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## First" in content
+        assert "## Second" in content
+        assert "Content of First." in content
+        assert "Content of Second." in content
+
+    def test_pptx_empty(self, vault_config):
+        """Empty presentation should return ok."""
+        prs = Presentation()
+        prs.save(str(vault_config / "empty.pptx"))
+
+        result = json.loads(read_file("empty.pptx"))
+        assert result["success"] is True
