@@ -57,7 +57,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query`, `n_results` (5), `mode` ("hybrid"/"semantic"/"keyword"), `chunk_type` ("frontmatter"/"section"/"paragraph"/"sentence"/"fragment") |
-| `read_file` | Read any vault file (text, audio, image, Office) | `path`, `offset` (0), `length` (3500). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction |
+| `read_file` | Read any vault file (text, audio, image, Office) | `path`, `offset` (0), `length` (3500). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction. Markdown files auto-expand `![[...]]` embeds inline (1 level deep, binary results cached by mtime). |
 | `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"/"missing"/"exists"/"not_contains"/"not_equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings), `folder`, `recursive` (false) |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
