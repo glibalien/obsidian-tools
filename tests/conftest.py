@@ -106,7 +106,6 @@ def vault_config(temp_vault, monkeypatch):
     import tools.files
     import tools.frontmatter
     import tools.links
-    import tools.audio
 
     # Create Attachments directory
     attachments_dir = temp_vault / "Attachments"
@@ -127,7 +126,6 @@ def vault_config(temp_vault, monkeypatch):
 
     # Patch in tools modules that import from config
     monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian"})
-    monkeypatch.setattr(tools.audio, "ATTACHMENTS_DIR", attachments_dir)
 
     return temp_vault
 

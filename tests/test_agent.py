@@ -306,18 +306,18 @@ async def test_agent_turn_get_continuation():
     # Must exceed MAX_TOOL_RESULT_CHARS (100K) to trigger truncation
     big_result = "A" * 60000 + "B" * 60000 + "C" * 30000  # 150K chars total
 
-    # LLM call 1: calls transcribe_audio, gets truncated result
+    # LLM call 1: calls read_file, gets truncated result
     mock_tool_call_1 = MagicMock()
     mock_tool_call_1.id = "call_transcribe"
-    mock_tool_call_1.function.name = "transcribe_audio"
-    mock_tool_call_1.function.arguments = '{"path": "note.md"}'
+    mock_tool_call_1.function.name = "read_file"
+    mock_tool_call_1.function.arguments = '{"path": "large_file.md"}'
 
     mock_msg_1 = MagicMock()
     mock_msg_1.tool_calls = [mock_tool_call_1]
     mock_msg_1.content = None
     mock_msg_1.model_dump.return_value = {
         "role": "assistant",
-        "tool_calls": [{"id": "call_transcribe", "function": {"name": "transcribe_audio", "arguments": '{"path": "note.md"}'}, "type": "function"}],
+        "tool_calls": [{"id": "call_transcribe", "function": {"name": "read_file", "arguments": '{"path": "large_file.md"}'}, "type": "function"}],
     }
 
     # LLM call 2: calls get_continuation with simple numeric id
@@ -362,8 +362,8 @@ async def test_agent_turn_get_continuation():
     result = await agent_turn(mock_client, mock_session, messages, [])
     assert result == "Here is the summary."
 
-    # MCP was called only once (transcribe_audio), NOT for get_continuation
-    mock_session.call_tool.assert_called_once_with("transcribe_audio", {"path": "note.md"})
+    # MCP was called only once (read_file), NOT for get_continuation
+    mock_session.call_tool.assert_called_once_with("read_file", {"path": "large_file.md"})
 
     # Verify tool messages
     tool_msgs = [m for m in messages if m.get("role") == "tool"]

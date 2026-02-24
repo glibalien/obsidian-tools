@@ -53,7 +53,6 @@ from tools.utility import (
     get_current_date,
     log_interaction,
 )
-from tools.audio import transcribe_audio
 
 # Create MCP server instance
 mcp = FastMCP("obsidian-tools")
@@ -99,9 +98,6 @@ mcp.tool()(remove_preference)
 # Utility tools
 mcp.tool()(log_interaction)
 mcp.tool()(get_current_date)
-
-# Audio tools
-mcp.tool()(transcribe_audio)
 
 
 if __name__ == "__main__":
