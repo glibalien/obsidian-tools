@@ -29,6 +29,49 @@ from services.vault import (
 
 _BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS
 
+_BLOCK_ID_RE = re.compile(r"\s\^(\S+)\s*$")
+
+
+def _extract_block(lines: list[str], block_id: str) -> str | None:
+    """Extract a block by its ^blockid suffix and all indented children.
+
+    Args:
+        lines: File content split into lines.
+        block_id: The block ID to find (without ^ prefix).
+
+    Returns:
+        The anchor line (suffix stripped) plus indented children, or None if not found.
+    """
+    anchor_idx = None
+    for i, line in enumerate(lines):
+        m = _BLOCK_ID_RE.search(line)
+        if m and m.group(1) == block_id:
+            anchor_idx = i
+            break
+
+    if anchor_idx is None:
+        return None
+
+    # Strip the ^blockid suffix from the anchor line
+    anchor_line = _BLOCK_ID_RE.sub("", lines[anchor_idx]).rstrip()
+
+    # Determine the indentation of the anchor line
+    anchor_indent = len(anchor_line) - len(anchor_line.lstrip())
+
+    # Collect indented children
+    result_lines = [anchor_line]
+    for i in range(anchor_idx + 1, len(lines)):
+        line = lines[i]
+        if not line.strip():
+            break
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent > anchor_indent:
+            result_lines.append(line)
+        else:
+            break
+
+    return "\n".join(result_lines)
+
 
 def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
     """Read content of a vault note with optional pagination.
