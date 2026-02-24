@@ -74,3 +74,131 @@ def handle_image(file_path: Path) -> str:
         return ok(description=description)
     except Exception as e:
         return err(f"Image description failed: {e}")
+
+
+def handle_office(file_path: Path) -> str:
+    """Extract text content from Office documents (.docx, .xlsx, .pptx)."""
+    ext = file_path.suffix.lower()
+    try:
+        if ext == ".docx":
+            return _read_docx(file_path)
+        elif ext == ".xlsx":
+            return _read_xlsx(file_path)
+        elif ext == ".pptx":
+            return _read_pptx(file_path)
+        else:
+            return err(f"Unsupported office format: {ext}")
+    except Exception as e:
+        return err(f"Failed to read {file_path.name}: {e}")
+
+
+def _read_docx(file_path: Path) -> str:
+    """Extract text from a Word document, preserving headings and tables."""
+    from docx import Document as DocxDocument
+    from docx.oxml.ns import qn
+    from docx.table import Table
+
+    doc = DocxDocument(str(file_path))
+    parts = []
+
+    for element in doc.element.body:
+        tag = element.tag.split("}")[-1]  # strip namespace
+        if tag == "p":
+            # Check if it's a heading
+            style = element.find(qn("w:pPr"))
+            if style is not None:
+                pstyle = style.find(qn("w:pStyle"))
+                if pstyle is not None:
+                    val = pstyle.get(qn("w:val"), "")
+                    if val.startswith("Heading"):
+                        level = val.replace("Heading", "").strip()
+                        try:
+                            level = int(level)
+                        except ValueError:
+                            level = 1
+                        text = element.text or ""
+                        if text.strip():
+                            parts.append(f"{'#' * level} {text.strip()}")
+                            continue
+            text = element.text or ""
+            if text.strip():
+                parts.append(text.strip())
+        elif tag == "tbl":
+            # Extract table as markdown
+            table = Table(element, doc)
+            rows = []
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                rows.append("| " + " | ".join(cells) + " |")
+            if rows:
+                header_sep = "| " + " | ".join("---" for _ in table.rows[0].cells) + " |"
+                rows.insert(1, header_sep)
+                parts.append("\n".join(rows))
+
+    content = "\n\n".join(parts)
+    return ok(content=content)
+
+
+def _read_xlsx(file_path: Path) -> str:
+    """Extract Excel data as markdown tables, one per sheet."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(str(file_path), read_only=True, data_only=True)
+    parts = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(cell) if cell is not None else "" for cell in row]
+            if any(c for c in cells):  # skip fully empty rows
+                rows.append(cells)
+
+        if not rows:
+            continue
+
+        parts.append(f"## {sheet_name}")
+        table_rows = ["| " + " | ".join(cells) + " |" for cells in rows]
+        header_sep = "| " + " | ".join("---" for _ in rows[0]) + " |"
+        table_rows.insert(1, header_sep)
+        parts.append("\n".join(table_rows))
+
+    wb.close()
+    content = "\n\n".join(parts)
+    return ok(content=content)
+
+
+def _read_pptx(file_path: Path) -> str:
+    """Extract text from PowerPoint slides."""
+    from pptx import Presentation
+
+    prs = Presentation(str(file_path))
+    parts = []
+
+    for i, slide in enumerate(prs.slides, 1):
+        slide_parts = []
+        title = None
+
+        # Extract title if present
+        if slide.shapes.title and slide.shapes.title.text.strip():
+            title = slide.shapes.title.text.strip()
+
+        heading = f"## {title}" if title else f"## Slide {i}"
+        slide_parts.append(heading)
+
+        # Extract text from all shapes (excluding title to avoid duplication)
+        for shape in slide.shapes:
+            if shape == slide.shapes.title:
+                continue
+            if shape.has_text_frame:
+                text = shape.text_frame.text.strip()
+                if text:
+                    slide_parts.append(text)
+
+        if len(slide_parts) > 1:  # has content beyond heading
+            parts.append("\n\n".join(slide_parts))
+        elif title:  # title-only slide still worth including
+            parts.append(heading)
+
+    content = "\n\n".join(parts)
+    return ok(content=content)

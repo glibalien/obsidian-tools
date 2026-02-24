@@ -5,7 +5,14 @@ import re
 
 import yaml
 
-from tools.readers import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, OFFICE_EXTENSIONS, handle_audio, handle_image
+from tools.readers import (
+    AUDIO_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    OFFICE_EXTENSIONS,
+    handle_audio,
+    handle_image,
+    handle_office,
+)
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     consume_preview,
@@ -42,6 +49,9 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
 
     if ext in IMAGE_EXTENSIONS:
         return handle_image(file_path)
+
+    if ext in OFFICE_EXTENSIONS:
+        return handle_office(file_path)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
