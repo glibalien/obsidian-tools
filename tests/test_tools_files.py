@@ -10,6 +10,8 @@ from pptx import Presentation
 
 from services.vault import clear_pending_previews
 from tools.files import (
+    _embed_cache,
+    _expand_embeds,
     _extract_block,
     _merge_bodies,
     _merge_frontmatter,
@@ -1183,3 +1185,121 @@ class TestExtractBlock:
         ]
         result = _extract_block(lines, "solo")
         assert result == "- Item A"
+
+
+class TestExpandEmbeds:
+    """Tests for _expand_embeds — inline embed expansion."""
+
+    def test_no_embeds_unchanged(self, vault_config):
+        """Content without embeds is returned unchanged."""
+        content = "# Hello\n\nNo embeds here."
+        source = vault_config / "source.md"
+        result = _expand_embeds(content, source)
+        assert result == content
+
+    def test_markdown_full_note_embed(self, vault_config):
+        """![[note3]] expands to full note body (no frontmatter)."""
+        content = "# Parent\n\n![[note3]]\n\nAfter."
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note3]" in result
+        assert "> # Note 3" in result
+        assert "![[note3]]" not in result
+        assert "After." in result
+
+    def test_markdown_embed_strips_frontmatter(self, vault_config):
+        """Embedded markdown notes have frontmatter stripped."""
+        content = "Before\n\n![[note1]]\n\nAfter"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note1]" in result
+        # Frontmatter delimiters should not appear in the embedded section
+        embedded_section = result.split("> [Embedded: note1]")[1].split("After")[0]
+        assert "---" not in embedded_section
+        assert "> # Note 1" in result
+
+    def test_heading_embed(self, vault_config):
+        """![[note2#Section A]] expands only that section."""
+        content = "See: ![[note2#Section A]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note2#Section A]" in result
+        assert "Content in section A" in result
+        assert "Content in section B" not in result
+
+    def test_block_id_embed(self, vault_config):
+        """![[note#^blockid]] expands the block and its children."""
+        (vault_config / "blocks.md").write_text(
+            "# Blocks\n\n- Item one ^myid\n  - Child\n- Other\n"
+        )
+        content = "Reference: ![[blocks#^myid]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: blocks#^myid]" in result
+        assert "Item one" in result
+        assert "Child" in result
+        assert "Other" not in result
+
+    def test_unresolved_embed_error_marker(self, vault_config):
+        """Unresolvable embeds produce an error marker."""
+        content = "![[nonexistent_file]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embed error: nonexistent_file" in result
+
+    def test_self_embed_skipped(self, vault_config):
+        """Self-referencing embeds produce an error marker."""
+        (vault_config / "self.md").write_text("# Self\n\n![[self]]\n")
+        result = _expand_embeds("# Self\n\n![[self]]\n", vault_config / "self.md")
+        assert "> [Embed error: self" in result
+        assert "self-reference" in result.lower()
+
+    def test_embed_in_code_block_not_expanded(self, vault_config):
+        """Embeds inside fenced code blocks are left as-is."""
+        content = "# Doc\n\n```\n![[note3]]\n```\n\n![[note3]]\n"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        # The one inside the code block should be literal
+        assert "```\n![[note3]]\n```" in result
+        # The one outside should be expanded
+        assert "> [Embedded: note3]" in result
+
+    def test_multiple_embeds(self, vault_config):
+        """Multiple embeds in one file are all expanded."""
+        content = "![[note1]]\n\n![[note3]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note1]" in result
+        assert "> [Embedded: note3]" in result
+
+    def test_binary_embed_audio(self, vault_config, monkeypatch):
+        """Audio embeds call handle_audio and format the result."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake audio")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Hello world"}'
+            content = "![[rec.m4a]]"
+            source = vault_config / "parent.md"
+            _embed_cache.clear()
+            result = _expand_embeds(content, source)
+            assert "> [Embedded: rec.m4a]" in result
+            assert "> Hello world" in result
+
+    def test_binary_embed_cache_hit(self, vault_config, monkeypatch):
+        """Second expansion of same binary embed uses cache."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake audio")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Cached"}'
+            content = "![[rec.m4a]]"
+            source = vault_config / "parent.md"
+            _embed_cache.clear()
+            _expand_embeds(content, source)
+            _expand_embeds(content, source)
+            assert mock_audio.call_count == 1

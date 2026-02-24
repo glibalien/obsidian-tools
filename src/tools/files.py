@@ -2,6 +2,7 @@
 
 import json
 import re
+from pathlib import Path
 
 import yaml
 
@@ -16,11 +17,13 @@ from tools.readers import (
 )
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
+    _HEADING_PATTERN,
     consume_preview,
     do_move_file,
     err,
     format_batch_result,
     get_relative_path,
+    is_fence_line,
     ok,
     resolve_file,
     resolve_vault_path,
@@ -71,6 +74,225 @@ def _extract_block(lines: list[str], block_id: str) -> str | None:
             break
 
     return "\n".join(result_lines)
+
+
+# In-memory cache for binary embed results: (path_str, mtime) -> content
+_embed_cache: dict[tuple[str, float], str] = {}
+
+_EMBED_RE = re.compile(r"!\[\[([^\]]+)\]\]")
+
+
+def _expand_embeds(content: str, source_path: Path) -> str:
+    """Expand ![[...]] embeds inline in markdown content.
+
+    Scans for embed patterns outside code fences, resolves each file,
+    and replaces the embed syntax with a labeled blockquote.
+
+    Args:
+        content: The raw markdown text.
+        source_path: Path of the file being read (to detect self-embeds).
+
+    Returns:
+        Content with embeds replaced by expanded blockquotes.
+    """
+    lines = content.split("\n")
+    result_lines: list[str] = []
+    in_fence = False
+
+    for line in lines:
+        if is_fence_line(line):
+            in_fence = not in_fence
+            result_lines.append(line)
+            continue
+
+        if in_fence:
+            result_lines.append(line)
+            continue
+
+        # Check for embeds on this line
+        if "![[" not in line:
+            result_lines.append(line)
+            continue
+
+        # Replace all embeds on the line
+        new_line = _EMBED_RE.sub(
+            lambda m: _resolve_and_format(m.group(1), source_path),
+            line,
+        )
+        result_lines.append(new_line)
+
+    return "\n".join(result_lines)
+
+
+def _resolve_and_format(reference: str, source_path: Path) -> str:
+    """Resolve an embed reference and return formatted blockquote."""
+    # Parse reference: split on first #
+    if "#" in reference:
+        filename, fragment = reference.split("#", 1)
+    else:
+        filename, fragment = reference, None
+
+    # Determine file extension
+    if "." not in filename:
+        lookup_name = filename + ".md"
+    else:
+        lookup_name = filename
+
+    ext = Path(lookup_name).suffix.lower()
+
+    # Resolve the file
+    file_path = _resolve_embed_file(lookup_name, ext)
+    if file_path is None:
+        return f"> [Embed error: {reference} — File not found]"
+
+    # Self-embed check
+    try:
+        if file_path.resolve() == source_path.resolve():
+            return f"> [Embed error: {reference} — Self-reference skipped]"
+    except (OSError, ValueError):
+        pass
+
+    # Expand based on type
+    if ext in _BINARY_EXTENSIONS:
+        return _expand_binary(file_path, reference)
+
+    return _expand_markdown(file_path, reference, fragment)
+
+
+def _resolve_embed_file(lookup_name: str, ext: str) -> Path | None:
+    """Resolve an embed filename to a Path, with Attachments fallback for binaries."""
+    file_path, error = resolve_file(lookup_name)
+    if error and ext in _BINARY_EXTENSIONS:
+        file_path, error = resolve_file(lookup_name, base_path=config.ATTACHMENTS_DIR)
+    if error:
+        return None
+    return file_path
+
+
+def _expand_binary(file_path: Path, reference: str) -> str:
+    """Expand a binary embed (audio/image/office) with caching."""
+    path_str = str(file_path)
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        return f"> [Embed error: {reference} — Cannot stat file]"
+
+    cache_key = (path_str, mtime)
+    if cache_key in _embed_cache:
+        expanded = _embed_cache[cache_key]
+    else:
+        ext = file_path.suffix.lower()
+        if ext in AUDIO_EXTENSIONS:
+            raw = handle_audio(file_path)
+        elif ext in IMAGE_EXTENSIONS:
+            raw = handle_image(file_path)
+        elif ext in OFFICE_EXTENSIONS:
+            raw = handle_office(file_path)
+        else:
+            return f"> [Embed error: {reference} — Unsupported binary type]"
+
+        result = json.loads(raw)
+        if not result.get("success"):
+            return f"> [Embed error: {reference} — {result.get('error', 'Unknown error')}]"
+
+        expanded = (
+            result.get("transcript")
+            or result.get("description")
+            or result.get("content")
+            or ""
+        )
+        _embed_cache[cache_key] = expanded
+
+    return _format_embed(reference, expanded)
+
+
+def _expand_markdown(file_path: Path, reference: str, fragment: str | None) -> str:
+    """Expand a markdown embed (full note, heading section, or block ID)."""
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+    except (OSError, UnicodeDecodeError):
+        return f"> [Embed error: {reference} — Cannot read file]"
+
+    # Strip frontmatter
+    fm_match = re.match(r"^---\n.*?^---(?:\n|$)", text, re.DOTALL | re.MULTILINE)
+    body = text[fm_match.end() :] if fm_match else text
+
+    if fragment is None:
+        return _format_embed(reference, body.strip())
+
+    if fragment.startswith("^"):
+        block_id = fragment[1:]
+        lines = body.split("\n")
+        extracted = _extract_block(lines, block_id)
+        if extracted is None:
+            return f"> [Embed error: {reference} — Block ID not found]"
+        return _format_embed(reference, extracted)
+
+    # Heading section
+    heading_text = fragment
+    lines = body.split("\n")
+    section_start, section_end, error = _find_section_by_text(lines, heading_text)
+    if error:
+        return f"> [Embed error: {reference} — {error}]"
+
+    section_lines = lines[section_start:section_end]
+    return _format_embed(reference, "\n".join(section_lines).strip())
+
+
+def _find_section_by_text(
+    lines: list[str], heading_text: str,
+) -> tuple[int | None, int | None, str | None]:
+    """Find a section by heading text (without # prefix).
+
+    Searches all heading levels for a case-insensitive match.
+    """
+    target = heading_text.lower().strip()
+    matches = []
+    in_fence = False
+
+    for i, line in enumerate(lines):
+        if is_fence_line(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = _HEADING_PATTERN.match(line)
+        if m and m.group(2).strip().lower() == target:
+            matches.append((i, len(m.group(1)), line))
+
+    if not matches:
+        return None, None, f"Heading not found: {heading_text}"
+
+    if len(matches) > 1:
+        line_nums = ", ".join(str(m[0] + 1) for m in matches)
+        return None, None, f"Multiple headings match '{heading_text}': lines {line_nums}"
+
+    start_idx, level, _ = matches[0]
+
+    section_end = len(lines)
+    in_fence = False
+    for i in range(start_idx + 1, len(lines)):
+        line = lines[i]
+        if is_fence_line(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = _HEADING_PATTERN.match(line)
+        if m and len(m.group(1)) <= level:
+            section_end = i
+            break
+
+    return start_idx, section_end, None
+
+
+def _format_embed(reference: str, content: str) -> str:
+    """Format expanded embed as a labeled blockquote."""
+    if not content.strip():
+        return f"> [Embedded: {reference}]\n> (empty)"
+
+    quoted_lines = [f"> {line}" if line.strip() else ">" for line in content.split("\n")]
+    return f"> [Embedded: {reference}]\n" + "\n".join(quoted_lines)
 
 
 def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
