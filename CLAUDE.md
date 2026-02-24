@@ -26,7 +26,7 @@ src/
 │   ├── search.py        # search_vault, web_search
 │   ├── sections.py      # prepend_to_file, replace_section, append_to_section
 │   ├── utility.py       # log_interaction, get_current_date
-│   └── audio.py         # transcribe_audio
+│   └── readers.py       # File type handlers (audio, image, office) for read_file dispatch
 ├── config.py            # Env config + setup_logging(name)
 ├── api_server.py        # FastAPI HTTP wrapper with session management
 ├── agent.py             # CLI chat client
@@ -57,7 +57,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|
 | `search_vault` | Hybrid search (semantic + keyword) | `query`, `n_results` (5), `mode` ("hybrid"/"semantic"/"keyword"), `chunk_type` ("frontmatter"/"section"/"paragraph"/"sentence"/"fragment") |
-| `read_file` | Read vault note with pagination | `path`, `offset` (0), `length` (3500) |
+| `read_file` | Read any vault file (text, audio, image, Office) | `path`, `offset` (0), `length` (3500). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction |
 | `list_files_by_frontmatter` | Find files by frontmatter field(s) | `field`, `value`, `match_type` ("contains"/"equals"/"missing"/"exists"/"not_contains"/"not_equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings), `folder`, `recursive` (false) |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
@@ -79,7 +79,6 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `replace_section` | Replace heading + content | `path`, `heading` (with `#`), `content` |
 | `append_to_section` | Append to end of section | `path`, `heading` (with `#`), `content` |
 | `web_search` | DuckDuckGo search | `query` |
-| `transcribe_audio` | Whisper transcription of audio embeds | `path` (note with `![[audio.m4a]]` embeds) |
 
 ### Tool Parameter Types and LLM Efficiency
 
@@ -128,6 +127,7 @@ All paths configured via `.env`:
 | `MAX_SESSIONS` | `20` | Max concurrent API sessions (LRU eviction) |
 | `MAX_SESSION_MESSAGES` | `50` | Max messages per session (trimming) |
 | `WHISPER_MODEL` | `whisper-v3` | Audio transcription model |
+| `VISION_MODEL` | `accounts/fireworks/models/qwen3-vl-30b-a3b-instruct` | Image description model |
 
 `config.py` also provides: `setup_logging(name)` (rotating file handler + stderr), `EXCLUDED_DIRS`, `PREFERENCES_FILE`, `ATTACHMENTS_DIR`.
 
