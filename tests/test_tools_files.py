@@ -10,6 +10,7 @@ from pptx import Presentation
 
 from services.vault import clear_pending_previews
 from tools.files import (
+    _extract_block,
     _merge_bodies,
     _merge_frontmatter,
     _split_blocks,
@@ -1128,3 +1129,57 @@ class TestReadFileOffice:
 
         result = json.loads(read_file("empty.pptx"))
         assert result["success"] is True
+
+
+class TestExtractBlock:
+    """Tests for _extract_block helper."""
+
+    def test_simple_block_id(self):
+        """Finds a line with ^blockid and returns it (suffix stripped)."""
+        lines = ["# Heading", "- Item one ^abc123", "- Item two"]
+        result = _extract_block(lines, "abc123")
+        assert result == "- Item one"
+
+    def test_block_with_indented_children(self):
+        """Returns the anchor line plus all indented children."""
+        lines = [
+            "- Parent ^myblock",
+            "  - Child 1",
+            "  - Child 2",
+            "    - Grandchild",
+            "- Sibling (not included)",
+        ]
+        result = _extract_block(lines, "myblock")
+        assert result == "- Parent\n  - Child 1\n  - Child 2\n    - Grandchild"
+
+    def test_block_at_end_of_file(self):
+        """Block at end of file with children up to EOF."""
+        lines = [
+            "Some intro",
+            "- Last item ^endblock",
+            "  - Sub-item",
+        ]
+        result = _extract_block(lines, "endblock")
+        assert result == "- Last item\n  - Sub-item"
+
+    def test_block_not_found(self):
+        """Returns None when block ID doesn't exist."""
+        lines = ["# Heading", "No blocks here"]
+        result = _extract_block(lines, "nonexistent")
+        assert result is None
+
+    def test_block_id_mid_line(self):
+        """Block ID must be at end of line (after space)."""
+        lines = ["Text ^abc123 more text"]
+        result = _extract_block(lines, "abc123")
+        # Not at end of line, should not match
+        assert result is None
+
+    def test_block_no_children(self):
+        """Block with no indented children returns just the anchor."""
+        lines = [
+            "- Item A ^solo",
+            "- Item B",
+        ]
+        result = _extract_block(lines, "solo")
+        assert result == "- Item A"
