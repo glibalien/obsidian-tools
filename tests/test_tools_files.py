@@ -111,6 +111,29 @@ class TestReadFile:
         before_marker = result["content"].split("\n\n[... truncated")[0]
         assert len(before_marker) == 100
 
+    def test_read_file_expands_embeds(self, vault_config):
+        """read_file on a .md file with embeds should auto-expand them."""
+        (vault_config / "parent.md").write_text(
+            "# Parent\n\nSee: ![[note3]]\n\nEnd.\n"
+        )
+        result = json.loads(read_file("parent.md"))
+        assert result["success"] is True
+        assert "> [Embedded: note3]" in result["content"]
+        assert "> # Note 3" in result["content"]
+        assert "![[note3]]" not in result["content"]
+
+    def test_read_file_embeds_pagination(self, vault_config):
+        """Pagination offsets apply to expanded content."""
+        body = "x" * 100
+        (vault_config / "embedded_target.md").write_text(f"# Target\n\n{body}\n")
+        (vault_config / "paginate.md").write_text(
+            "# Start\n\n![[embedded_target]]\n\n" + "y" * 5000
+        )
+        result = json.loads(read_file("paginate.md"))
+        assert result["success"] is True
+        assert "> [Embedded: embedded_target]" in result["content"]
+        assert "[... truncated" in result["content"]
+
 
 class TestReadFileAudio:
     """Tests for read_file dispatching to audio handler."""

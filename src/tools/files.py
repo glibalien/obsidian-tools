@@ -336,6 +336,8 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
     except Exception as e:
         return err(f"Error reading file: {e}")
 
+    content = _expand_embeds(content, file_path)
+
     total = len(content)
 
     # Short file with no offset — return as-is
