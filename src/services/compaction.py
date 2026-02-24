@@ -65,7 +65,10 @@ def _build_search_vault_stub(data: dict) -> str:
 
 
 def _build_read_file_stub(data: dict) -> str:
-    """Compact read_file: keep content preview and pagination markers."""
+    """Compact read_file: keep content preview and pagination markers.
+
+    Also handles non-text dispatches (audio transcript, image description).
+    """
     stub = _base_stub(data)
     if "content" in data:
         content = data["content"]
@@ -76,6 +79,10 @@ def _build_read_file_stub(data: dict) -> str:
             idx = content.rfind(trunc_marker)
             if idx != -1:
                 stub["truncation_marker"] = content[idx:]
+    if "transcript" in data:
+        stub["transcript_preview"] = data["transcript"][:COMPACTION_CONTENT_PREVIEW_LENGTH]
+    if "description" in data:
+        stub["description_preview"] = data["description"][:COMPACTION_CONTENT_PREVIEW_LENGTH]
     if "path" in data:
         stub["path"] = data["path"]
     return json.dumps(stub)

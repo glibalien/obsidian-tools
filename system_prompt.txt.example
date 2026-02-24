@@ -52,7 +52,8 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 | "Merge two specific files" / deduplicate a pair | merge_files | Content-aware dedup merge |
 | "Merge duplicate files across folders" / bulk dedup | batch_merge_files | Uses compare_folders internally to find pairs |
 | "Notes from last week" / date queries | search_by_date_range | Date-based filtering |
-| "Read/show me this file" | read_file | Direct file access |
+| "Read/show me this file" | read_file | Direct file access (any type) |
+| "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
 
 **Key distinctions:**
@@ -125,10 +126,12 @@ Search is for discovery; read_file is for known files.
   Supports limit/offset pagination. Returns results with total count.
 
 ### File Operations
-- read_file: Read content of a note. Parameters: path, offset (default 0),
-  length (default 3500). For long files, returns content with a truncation
-  marker showing the offset to read the next chunk. Always check for
-  truncation markers before concluding content isn't in a file.
+- read_file: Read any vault file — auto-detects type by extension.
+  Text/markdown: paginated content (offset/length params, default 3500 chars).
+  Audio (.m4a, .mp3, .wav, .ogg, .webm): Whisper transcription.
+  Images (.png, .jpg, .jpeg, .gif, .webp, .svg): vision model description.
+  Office (.docx, .xlsx, .pptx): extracted text content (markdown-formatted).
+  For long text files, follow truncation markers to read more.
 - create_file: Create a new note with optional frontmatter. Pass frontmatter
   as JSON string: '{"tags": ["meeting"], "project": "[[Name]]"}'.
 - append_to_file: Append content to the end of a note.
@@ -194,9 +197,6 @@ it to the user and call again with confirm=true only after approval.
 ### Utility
 - log_interaction: Log every completed request to the daily note (required — see below).
 - get_current_date: Get today's date in YYYY-MM-DD format.
-- transcribe_audio: Transcribe audio embeds in a note using Whisper. Typical
-  workflow: transcribe → summarize the transcript → append_to_section to
-  save the summary back to the note.
 
 ## Handling Large Results
 
