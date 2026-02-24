@@ -164,6 +164,61 @@ class TestReadFileAudio:
             assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched to audio handler"
 
 
+class TestReadFileAttachmentsFallback:
+    """Tests for binary files resolving via Attachments directory fallback."""
+
+    def test_bare_audio_name_resolves_to_attachments(self, vault_config, monkeypatch):
+        """Bare embed filename (no Attachments/ prefix) falls back to Attachments dir."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"audio data")
+        # Call with bare name, no "Attachments/" prefix
+        result = json.loads(read_file("meeting.m4a"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]  # reached handler, not "not found"
+
+    def test_bare_docx_name_resolves_to_attachments(self, vault_config):
+        """Bare .docx filename falls back to Attachments dir."""
+        from docx import Document as DocxDocument
+        doc = DocxDocument()
+        doc.add_paragraph("Test content")
+        path = vault_config / "Attachments" / "report.docx"
+        doc.save(str(path))
+        result = json.loads(read_file("report.docx"))
+        assert result["success"] is True
+        assert "Test content" in result["content"]
+
+    def test_bare_image_name_resolves_to_attachments(self, vault_config, monkeypatch):
+        """Bare image filename falls back to Attachments dir."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        img = vault_config / "Attachments" / "photo.png"
+        img.write_bytes(b"image data")
+        result = json.loads(read_file("photo.png"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_explicit_attachments_path_still_works(self, vault_config, monkeypatch):
+        """Explicit Attachments/ prefix still resolves directly."""
+        monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+        audio = vault_config / "Attachments" / "test.mp3"
+        audio.write_bytes(b"audio")
+        result = json.loads(read_file("Attachments/test.mp3"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_missing_binary_file_returns_error(self, vault_config):
+        """Binary file not found in vault root or Attachments returns error."""
+        result = json.loads(read_file("nonexistent.docx"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_text_file_no_fallback(self, vault_config):
+        """Text files do NOT fall back to Attachments — only binary extensions."""
+        result = json.loads(read_file("nonexistent.md"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+
 class TestReadFileImage:
     """Tests for read_file dispatching to image handler."""
 
