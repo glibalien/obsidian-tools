@@ -1287,6 +1287,14 @@ class TestExpandEmbeds:
         # The one outside should be expanded
         assert "> [Embedded: note3]" in result
 
+    def test_embed_in_inline_code_not_expanded(self, vault_config):
+        """Embeds inside inline code backticks are left as-is."""
+        content = "Use `![[note3]]` to embed files."
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "![[note3]]" in result
+        assert "> [Embedded:" not in result
+
     def test_multiple_embeds(self, vault_config):
         """Multiple embeds in one file are all expanded."""
         content = "![[note1]]\n\n![[note3]]"
