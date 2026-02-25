@@ -4,7 +4,9 @@ Each handler takes a resolved Path and returns ok()/err() JSON.
 """
 
 import base64
+import logging
 import os
+import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -12,6 +14,7 @@ from openai import OpenAI
 from config import FIREWORKS_BASE_URL, VISION_MODEL, WHISPER_MODEL
 from services.vault import err, ok
 
+logger = logging.getLogger(__name__)
 
 # Extension sets for dispatch
 AUDIO_EXTENSIONS = {".m4a", ".mp3", ".wav", ".ogg", ".webm"}
@@ -25,8 +28,14 @@ def handle_audio(file_path: Path) -> str:
     if not api_key:
         return err("FIREWORKS_API_KEY not set")
 
-    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        size = 0
 
+    logger.info("Transcribing audio: %s (%d bytes)", file_path.name, size)
+    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
+    start = time.perf_counter()
     try:
         with open(file_path, "rb") as f:
             response = client.audio.transcriptions.create(
@@ -36,8 +45,11 @@ def handle_audio(file_path: Path) -> str:
                 timestamp_granularities=["word"],
                 extra_body={"diarize": True},
             )
+        elapsed = time.perf_counter() - start
+        logger.info("Transcribed %s in %.2fs", file_path.name, elapsed)
         return ok(transcript=response.text)
     except Exception as e:
+        logger.warning("Transcription failed for %s: %s", file_path.name, e)
         return err(f"Transcription failed: {e}")
 
 

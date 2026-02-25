@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from pptx import Presentation
 
 from services.vault import clear_pending_previews
+from tools.readers import handle_audio, handle_image, handle_office
 from tools.files import (
     _embed_cache,
     _expand_embeds,
@@ -1406,3 +1407,46 @@ class TestExpandEmbeds:
                 _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
             assert any("Cache hit" in r.message and "rec.m4a" in r.message
                        for r in caplog.records)
+
+
+class TestBinaryHandlerLogging:
+    """Tests for logging in binary embed handlers."""
+
+    def test_handle_audio_logs_entry_and_success(self, tmp_path, caplog):
+        """handle_audio logs file name, size, and duration on success."""
+        audio = tmp_path / "rec.m4a"
+        audio.write_bytes(b"x" * 1024)
+
+        mock_response = MagicMock()
+        mock_response.text = "Hello world"
+
+        with patch("tools.readers.OpenAI") as mock_openai_cls:
+            mock_client = MagicMock()
+            mock_openai_cls.return_value = mock_client
+            mock_client.audio.transcriptions.create.return_value = mock_response
+            with patch.dict("os.environ", {"FIREWORKS_API_KEY": "test-key"}):
+                with caplog.at_level(logging.INFO, logger="tools.readers"):
+                    result = handle_audio(audio)
+
+        assert json.loads(result)["success"] is True
+        messages = [r.message for r in caplog.records]
+        assert any("rec.m4a" in m and "1024" in m for m in messages), \
+            f"Expected entry log with filename and size, got: {messages}"
+        assert any("rec.m4a" in m and "s" in m for m in messages), \
+            f"Expected success log with duration, got: {messages}"
+
+    def test_handle_audio_logs_warning_on_failure(self, tmp_path, caplog):
+        """handle_audio logs a WARNING when the API call raises."""
+        audio = tmp_path / "bad.m4a"
+        audio.write_bytes(b"data")
+
+        with patch("tools.readers.OpenAI") as mock_openai_cls:
+            mock_client = MagicMock()
+            mock_openai_cls.return_value = mock_client
+            mock_client.audio.transcriptions.create.side_effect = RuntimeError("API down")
+            with patch.dict("os.environ", {"FIREWORKS_API_KEY": "test-key"}):
+                with caplog.at_level(logging.WARNING, logger="tools.readers"):
+                    handle_audio(audio)
+
+        assert any("bad.m4a" in r.message and r.levelname == "WARNING"
+                   for r in caplog.records)
