@@ -1180,3 +1180,40 @@ class TestIndexVaultManifest:
                 index_vault(full=False)
 
         assert any("Failed to remove indexing sentinel" in r.message for r in caplog.records)
+
+
+class TestIndexWorkers:
+    """Tests for INDEX_WORKERS configuration."""
+
+    def test_default_value(self):
+        """INDEX_WORKERS defaults to 4."""
+        import config
+        assert config.INDEX_WORKERS == 4
+
+    def test_env_override(self, monkeypatch):
+        """INDEX_WORKERS can be set via environment variable."""
+        import importlib
+        import config
+        monkeypatch.setenv("INDEX_WORKERS", "8")
+        with patch("dotenv.load_dotenv"):
+            importlib.reload(config)
+        try:
+            assert config.INDEX_WORKERS == 8
+        finally:
+            monkeypatch.delenv("INDEX_WORKERS", raising=False)
+            with patch("dotenv.load_dotenv"):
+                importlib.reload(config)
+
+    def test_minimum_value(self, monkeypatch):
+        """INDEX_WORKERS has a minimum of 1."""
+        import importlib
+        import config
+        monkeypatch.setenv("INDEX_WORKERS", "0")
+        with patch("dotenv.load_dotenv"):
+            importlib.reload(config)
+        try:
+            assert config.INDEX_WORKERS == 1
+        finally:
+            monkeypatch.delenv("INDEX_WORKERS", raising=False)
+            with patch("dotenv.load_dotenv"):
+                importlib.reload(config)
