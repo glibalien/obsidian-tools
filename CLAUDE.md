@@ -30,9 +30,10 @@ src/
 ├── config.py            # Env config + setup_logging(name)
 ├── api_server.py        # FastAPI HTTP wrapper with session management
 ├── agent.py             # CLI chat client
+├── chunking.py          # Structure-aware markdown chunking (headings, paragraphs, sentences)
 ├── hybrid_search.py     # Semantic + keyword search with RRF
 ├── search_vault.py      # Search interface
-├── index_vault.py       # ChromaDB indexing (structure-aware chunking)
+├── index_vault.py       # ChromaDB indexing orchestration (incremental/full, manifest, pruning)
 └── log_chat.py          # Daily note logging + add_wikilinks
 
 plugin/                  # Obsidian chat sidebar plugin (optional)
@@ -47,7 +48,8 @@ services/                # systemd/launchd/taskscheduler templates
 - **agent.py**: Connects LLM (Fireworks) to MCP server. Loads system prompt from `system_prompt.txt` (falls back to `.example`). Features: agent loop cap (20 iterations), 100K-char tool result truncation with `get_continuation`, compaction between turns, `on_event` callback for SSE streaming, preferences reload per turn, `ensure_interaction_logged` auto-calls `log_interaction` when agent forgets, `force_text_only` code-level enforcement (strips tool calls if model ignores `tool_choice="none"`, capped at 3 retries with preview message fallback). Confirmation preview SSE events are emitted after the response event to guarantee correct rendering order in the plugin.
 - **api_server.py**: FastAPI on 127.0.0.1. File-keyed sessions (LRU eviction, message trimming). CORS enabled. `/chat` and `/chat/stream` share `_prepare_turn`/`_restore_compacted_flags`.
 - **hybrid_search.py**: Semantic (ChromaDB) + keyword search merged via RRF. Keyword: single `$or` query, term frequency ranking, `_case_variants()` for case-insensitive matching. Returns `heading` metadata.
-- **index_vault.py**: Structure-aware chunking (headings → paragraphs → sentences). Frontmatter indexed as dedicated chunk with wikilink brackets stripped. Batch upserts per file. Incremental indexing uses scan-start time. `--full` for full reindex; `--reset` deletes the database and rebuilds from scratch (needed when HNSW index is corrupt or cross-platform-incompatible). Parallel file reading/chunking via `ThreadPoolExecutor` (`INDEX_WORKERS`) with `_prepare_file_chunks` (pure Python, thread-safe); all ChromaDB operations run on the main thread (ChromaDB is not thread-safe). Failures skip `mark_run` so next run retries; `FileNotFoundError` removes source from `valid_sources` so pruning cleans up.
+- **chunking.py**: Structure-aware chunking (headings → paragraphs → sentences). Frontmatter indexed as dedicated chunk with wikilink brackets stripped. `chunk_markdown` is the main entry point; `_parse_frontmatter`/`_strip_frontmatter` also live here.
+- **index_vault.py**: Indexing orchestration. Batch upserts per file. Incremental indexing uses scan-start time. `--full` for full reindex; `--reset` deletes the database and rebuilds from scratch (needed when HNSW index is corrupt or cross-platform-incompatible). Parallel file reading/chunking via `ThreadPoolExecutor` (`INDEX_WORKERS`) with `_prepare_file_chunks` (pure Python, thread-safe); all ChromaDB operations run on the main thread (ChromaDB is not thread-safe). Failures skip `mark_run` so next run retries; `FileNotFoundError` removes source from `valid_sources` so pruning cleans up.
 - **services/chroma.py**: Lazy singletons with `threading.RLock()` for thread-safe init. `purge_database()` for full DB wipe. Monkey-patches ChromaDB's Posthog `capture()` to no-op (thread-unsafe race in `batched_events` dict). `reset()` for tests.
 - **log_chat.py**: `add_wikilinks` uses strip-and-restore to protect code blocks, inline code, URLs, existing wikilinks.
 
