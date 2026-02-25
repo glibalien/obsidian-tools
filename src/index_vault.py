@@ -427,14 +427,14 @@ def _prepare_file_chunks(
 def index_file(md_file: Path) -> None:
     """Index a single markdown file, replacing any existing chunks."""
     result = _prepare_file_chunks(md_file)
-    if result is None:
-        return
-    source, ids, documents, metadatas = result
+    source = str(md_file)
     collection = get_collection()
     existing = collection.get(where={"source": source}, include=[])
     if existing['ids']:
         collection.delete(ids=existing['ids'])
-    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+    if result is not None:
+        _, ids, documents, metadatas = result
+        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
 
 def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | None = None) -> int:
