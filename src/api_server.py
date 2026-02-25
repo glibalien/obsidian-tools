@@ -36,6 +36,7 @@ class Session:
     session_id: str
     active_file: str | None
     messages: list[dict] = field(default_factory=list)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 # File-keyed session storage: active_file -> Session (LRU order)
@@ -116,14 +117,17 @@ def format_context_prefix(active_file: str | None) -> str:
     return f"[The user has a file open. Its exact path is: \"{active_file}\"]\n\n"
 
 
-def _prepare_turn(request: ChatRequest) -> tuple[Session, set[int]]:
-    """Common setup for /chat and /chat/stream endpoints."""
+def _build_system_prompt() -> str:
+    """Build system prompt with current user preferences appended."""
     system_prompt = app.state.system_prompt
     preferences = load_preferences()
     if preferences:
         system_prompt += preferences
+    return system_prompt
 
-    session = get_or_create_session(request.active_file, system_prompt)
+
+def _setup_turn(session: Session, request: ChatRequest, system_prompt: str) -> set[int]:
+    """Prepare turn messages. Must be called with session.lock held."""
     messages = session.messages
     messages[0]["content"] = system_prompt
 
@@ -134,7 +138,7 @@ def _prepare_turn(request: ChatRequest) -> tuple[Session, set[int]]:
     context_prefix = format_context_prefix(request.active_file)
     messages.append({"role": "user", "content": context_prefix + request.message})
 
-    return session, compacted_indices
+    return compacted_indices
 
 
 def _restore_compacted_flags(messages: list[dict], compacted_indices: set[int]) -> None:
@@ -199,36 +203,39 @@ app.add_middleware(
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     """Process a chat message and return the agent's response."""
-    session, compacted_indices = _prepare_turn(request)
+    system_prompt = _build_system_prompt()
+    session = get_or_create_session(request.active_file, system_prompt)
     messages = session.messages
-    turn_start = len(messages) - 1  # index of user message just added
 
-    try:
-        response = await agent_turn(
-            app.state.llm_client,
-            app.state.mcp_session,
-            messages,
-            app.state.tools,
-        )
-        await ensure_interaction_logged(
-            app.state.mcp_session, messages, turn_start, request.message, response,
-        )
-        _restore_compacted_flags(messages, compacted_indices)
-        compact_tool_messages(messages)
-        trim_messages(messages)
-        return ChatResponse(response=response, session_id=session.session_id)
-    except Exception as e:
-        _restore_compacted_flags(messages, compacted_indices)
-        messages.pop()
-        raise HTTPException(status_code=500, detail=str(e))
+    async with session.lock:
+        compacted_indices = _setup_turn(session, request, system_prompt)
+        turn_start = len(messages) - 1
+        try:
+            response = await agent_turn(
+                app.state.llm_client,
+                app.state.mcp_session,
+                messages,
+                app.state.tools,
+            )
+            await ensure_interaction_logged(
+                app.state.mcp_session, messages, turn_start, request.message, response,
+            )
+            _restore_compacted_flags(messages, compacted_indices)
+            compact_tool_messages(messages)
+            trim_messages(messages)
+            return ChatResponse(response=response, session_id=session.session_id)
+        except Exception as e:
+            _restore_compacted_flags(messages, compacted_indices)
+            messages.pop()
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Process a chat message and stream events as SSE."""
-    session, compacted_indices = _prepare_turn(request)
+    system_prompt = _build_system_prompt()
+    session = get_or_create_session(request.active_file, system_prompt)
     messages = session.messages
-    turn_start = len(messages) - 1  # index of user message just added
 
     queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
@@ -237,24 +244,28 @@ async def chat_stream(request: ChatRequest):
 
     async def run_agent():
         try:
-            response = await agent_turn(
-                app.state.llm_client,
-                app.state.mcp_session,
-                messages,
-                app.state.tools,
-                on_event=on_event,
-            )
-            await ensure_interaction_logged(
-                app.state.mcp_session, messages, turn_start,
-                request.message, response,
-            )
-            _restore_compacted_flags(messages, compacted_indices)
-            compact_tool_messages(messages)
-            trim_messages(messages)
-        except Exception as e:
-            _restore_compacted_flags(messages, compacted_indices)
-            messages.pop()
-            await queue.put({"type": "error", "error": str(e)})
+            async with session.lock:
+                compacted_indices = _setup_turn(session, request, system_prompt)
+                turn_start = len(messages) - 1
+                try:
+                    response = await agent_turn(
+                        app.state.llm_client,
+                        app.state.mcp_session,
+                        messages,
+                        app.state.tools,
+                        on_event=on_event,
+                    )
+                    await ensure_interaction_logged(
+                        app.state.mcp_session, messages, turn_start,
+                        request.message, response,
+                    )
+                    _restore_compacted_flags(messages, compacted_indices)
+                    compact_tool_messages(messages)
+                    trim_messages(messages)
+                except Exception as e:
+                    _restore_compacted_flags(messages, compacted_indices)
+                    messages.pop()
+                    await queue.put({"type": "error", "error": str(e)})
         finally:
             await queue.put({"type": "done", "session_id": session.session_id})
             await queue.put(None)  # sentinel
