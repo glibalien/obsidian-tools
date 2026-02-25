@@ -1075,3 +1075,55 @@ class TestIndexVaultManifest:
 
         _, kwargs = mock_prune.call_args
         assert kwargs.get("indexed_sources") is None
+
+    def test_sentinel_write_failure_deletes_manifest(self, tmp_path):
+        """When sentinel write fails, any existing manifest is deleted to prevent stale fast-path."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        # Pre-write a manifest that would otherwise be used
+        manifest_path = tmp_path / "indexed_sources.json"
+        manifest_path.write_text(json.dumps([str(vault_file)]))
+
+        # Patch open to fail only for the sentinel, not for read_manifest or save_manifest
+        original_open = open
+        sentinel_path = str(tmp_path / ".indexing_in_progress")
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == sentinel_path:
+                raise OSError("permission denied")
+            return original_open(path, *args, **kwargs)
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.save_manifest", return_value=False), \
+             patch("builtins.open", side_effect=selective_open):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        assert not manifest_path.exists(), "Stale manifest should be deleted when sentinel write fails"
+
+    def test_sentinel_removal_failure_logs_warning(self, tmp_path, caplog):
+        """Logs a warning when the dirty sentinel cannot be removed after a successful run."""
+        import logging
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.save_manifest", return_value=True), \
+             patch("os.remove", side_effect=OSError("permission denied")):
+            mock_coll.return_value.count.return_value = 5
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                index_vault(full=False)
+
+        assert any("Failed to remove indexing sentinel" in r.message for r in caplog.records)

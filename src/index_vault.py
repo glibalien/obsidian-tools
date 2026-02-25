@@ -460,6 +460,10 @@ def index_vault(full: bool = False) -> None:
     except OSError as e:
         logger.warning("Failed to write indexing sentinel: %s — disabling manifest trust", e)
         indexed_sources = None
+        try:
+            os.remove(get_manifest_file())
+        except OSError:
+            pass  # already absent or unremovable; next run will fall back to slow path
 
     # Index new/modified files
     indexed = 0
@@ -484,8 +488,9 @@ def index_vault(full: bool = False) -> None:
     if save_manifest(valid_sources):
         try:
             os.remove(get_dirty_flag())
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning("Failed to remove indexing sentinel %s: %s — future runs will use full scan",
+                           get_dirty_flag(), e)
 
     mark_run(scan_start)
     collection = get_collection()
