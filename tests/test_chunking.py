@@ -861,6 +861,28 @@ class TestManifest:
             result = save_manifest({"vault/a.md"})
         assert result is True
 
+    def test_load_manifest_non_list_returns_none(self, tmp_path, caplog):
+        """Returns None when manifest JSON is not a flat list (e.g. a dict)."""
+        import logging
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text('{"source": "vault/a.md"}')
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
+        assert result is None
+        assert any("unexpected schema" in r.message for r in caplog.records)
+
+    def test_load_manifest_nested_list_returns_none(self, tmp_path, caplog):
+        """Returns None when manifest JSON contains non-string elements."""
+        import logging
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text('[["nested"]]')
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
+        assert result is None
+        assert any("unexpected schema" in r.message for r in caplog.records)
+
 
 class TestPruneDeletedFiles:
     """Tests for the manifest-aware prune_deleted_files."""
@@ -1031,3 +1053,25 @@ class TestIndexVaultManifest:
 
         _, kwargs = mock_prune.call_args
         assert kwargs.get("indexed_sources") == {str(vault_file), "/old/deleted.md"}
+
+    def test_sentinel_write_failure_disables_manifest(self, tmp_path):
+        """If sentinel write fails, indexed_sources is set to None (slow path forced)."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        # Pre-write a valid manifest
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps([str(vault_file)]))
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
+             patch("index_vault.mark_run"), \
+             patch("builtins.open", side_effect=OSError("disk full")):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") is None

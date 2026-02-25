@@ -77,7 +77,11 @@ def load_manifest() -> set[str] | None:
         return None
     try:
         with open(path) as f:
-            return set(json.load(f))
+            data = json.load(f)
+        if not isinstance(data, list) or not all(isinstance(s, str) for s in data):
+            logger.warning("indexed_sources manifest has unexpected schema, falling back to full scan")
+            return None
+        return set(data)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning("Failed to load indexed_sources manifest: %s — falling back to full scan", e)
         return None
@@ -454,7 +458,8 @@ def index_vault(full: bool = False) -> None:
         with open(get_dirty_flag(), "w"):
             pass
     except OSError as e:
-        logger.warning("Failed to write indexing sentinel: %s", e)
+        logger.warning("Failed to write indexing sentinel: %s — disabling manifest trust", e)
+        indexed_sources = None
 
     # Index new/modified files
     indexed = 0
