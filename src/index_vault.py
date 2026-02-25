@@ -428,7 +428,10 @@ def index_vault(full: bool = False) -> None:
     # Get all valid markdown files
     all_files = get_vault_files(VAULT_PATH)
     valid_sources = set(str(f) for f in all_files)
-    
+
+    # Load manifest for fast pruning (skip on --full to force full scan)
+    indexed_sources = None if full else load_manifest()
+
     # Index new/modified files
     indexed = 0
     for md_file in all_files:
@@ -444,13 +447,16 @@ def index_vault(full: bool = False) -> None:
             indexed += 1
             if indexed % 100 == 0:
                 print(f"Indexed {indexed} files...")
-    
+
     # Prune deleted files
-    pruned = prune_deleted_files(valid_sources)
+    pruned = prune_deleted_files(valid_sources, indexed_sources=indexed_sources)
+
+    # Save updated manifest
+    save_manifest(valid_sources)
 
     mark_run(scan_start)
     collection = get_collection()
-    print(f"Done. Indexed {indexed} new/modified files. Pruned {pruned} stale entries. Total chunks: {collection.count()}")
+    print(f"Done. Indexed {indexed} new/modified files. Pruned {pruned} deleted source(s). Total chunks: {collection.count()}")
 
 
 if __name__ == "__main__":

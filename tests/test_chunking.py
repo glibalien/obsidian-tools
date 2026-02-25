@@ -18,6 +18,7 @@ from index_vault import (
     chunk_markdown,
     format_frontmatter_for_indexing,
     get_last_run,
+    index_vault,
     load_manifest,
     mark_run,
     prune_deleted_files,
@@ -904,3 +905,65 @@ class TestPruneDeletedFiles:
             result = prune_deleted_files({"a.md"}, indexed_sources=None)
         mock_collection.delete.assert_not_called()
         assert result == 0
+
+
+class TestIndexVaultManifest:
+    """Tests that index_vault loads and saves the manifest correctly."""
+
+    def test_saves_manifest_after_run(self, tmp_path):
+        """index_vault saves valid_sources to manifest after each run."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        manifest_path = tmp_path / "indexed_sources.json"
+        assert manifest_path.exists()
+        content = json.loads(manifest_path.read_text())
+        assert str(vault_file) in content
+
+    def test_full_reindex_skips_manifest(self, tmp_path):
+        """--full reindex passes indexed_sources=None to prune (forces slow path)."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=True)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") is None
+
+    def test_incremental_run_uses_manifest(self, tmp_path):
+        """Incremental run loads manifest and passes it to prune."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps([str(vault_file), "/old/deleted.md"]))
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=1) as mock_prune, \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 4
+            index_vault(full=False)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") == {str(vault_file), "/old/deleted.md"}
