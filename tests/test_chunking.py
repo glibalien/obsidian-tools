@@ -239,6 +239,11 @@ class TestSplitSentences:
         result = _split_sentences("Bring fruit, etc. Please hurry.")
         assert result == ["Bring fruit, etc.", "Please hurry."]
 
+    def test_suffix_abbreviation_splits(self):
+        """Name suffixes (Jr., Sr.) at sentence end split correctly."""
+        result = _split_sentences("His name is John Doe Jr. He arrived.")
+        assert result == ["His name is John Doe Jr.", "He arrived."]
+
     def test_single_letter_label_splits(self):
         """Single-letter labels (not initials) split correctly."""
         result = _split_sentences("Plan A. Plan B. Continue.")

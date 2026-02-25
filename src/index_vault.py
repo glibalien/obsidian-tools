@@ -217,9 +217,11 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
 # Titles are almost always followed by a name — never split after these.
 # General abbreviations (etc., vs., Inc.) are excluded because they can
 # legitimately end sentences ("Bring fruit, etc. Please hurry.").
-# "St." excluded — too ambiguous (Saint vs Street).
+# Only title prefixes that always precede a name. Excludes:
+# - "St." (ambiguous: Saint vs Street)
+# - "Jr.", "Sr." (suffixes that follow names and often end sentences)
 _TITLE_ABBREVIATIONS = {
-    "mr", "mrs", "ms", "dr", "jr", "sr",
+    "mr", "mrs", "ms", "dr",
     "prof", "gen", "gov", "sgt",
 }
 
