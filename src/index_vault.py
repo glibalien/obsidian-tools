@@ -214,24 +214,12 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     return sections
 
 
-# Titles are almost always followed by a name — never split after these.
-# General abbreviations (etc., vs., Inc.) are excluded because they can
-# legitimately end sentences ("Bring fruit, etc. Please hurry.").
-# Only title prefixes that always precede a name. Excludes:
-# - "St." (ambiguous: Saint vs Street)
-# - "Jr.", "Sr." (suffixes that follow names and often end sentences)
-_TITLE_ABBREVIATIONS = {
-    "mr", "mrs", "ms", "dr",
-    "prof", "gen", "gov", "sgt",
-}
-
-
 def _split_sentences(text: str) -> list[str]:
     """Split text on sentence boundaries (. ? ! followed by space).
 
-    Avoids splitting on title abbreviations (Mr., Dr., Prof.),
-    e.g./i.e., initials followed by another initial (J. K.),
-    and decimal numbers (3.14).
+    Only two unambiguous suppression rules:
+    - e.g./i.e. (never end sentences)
+    - Adjacent single-letter initials (J. K.)
     """
     # Find candidate split positions: sentence-ending punctuation + space
     result = []
@@ -245,28 +233,24 @@ def _split_sentences(text: str) -> list[str]:
             before = text[last:pos]
             last_word = before.rsplit(None, 1)[-1] if before.strip() else ""
 
-            # Single-letter initial: skip when adjacent to another initial
-            # or a title (covers "Dr. J. Smith", "J. K. Rowling") but not
+            # Adjacent initials: skip when a single uppercase letter is
+            # next to another initial (e.g. "J. K.") but not standalone
             # labels like "Plan A. Plan B."
             if len(last_word) == 1 and last_word.isupper():
                 after_space = pos + 2
-                # Followed by another initial (e.g. "J. K.")
+                # Followed by another initial
                 if (
                     after_space + 1 < len(text)
                     and text[after_space].isupper()
                     and text[after_space + 1] == "."
                 ):
                     continue
-                # Preceded by another initial or a title (e.g. "Dr. J." or "J. K.")
+                # Preceded by another initial
                 words = before.split()
                 if len(words) >= 2:
                     prev = words[-2].rstrip(".")
-                    if (len(prev) == 1 and prev.isupper()) or prev.lower() in _TITLE_ABBREVIATIONS:
+                    if len(prev) == 1 and prev.isupper():
                         continue
-
-            # Title abbreviation
-            if last_word.lower().rstrip(".") in _TITLE_ABBREVIATIONS:
-                continue
 
             # e.g. / i.e. — before the final period we see "e.g" or "i.e"
             stripped = before.rstrip()

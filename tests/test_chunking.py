@@ -186,16 +186,10 @@ class TestSplitSentences:
             "Hello world.", "How are you?", "Fine!",
         ]
 
-    @pytest.mark.parametrize("text,expected", [
-        ("Dr. Smith is here. Next.", ["Dr. Smith is here.", "Next."]),
-        ("Mr. Jones left. Goodbye.", ["Mr. Jones left.", "Goodbye."]),
-        ("Mrs. Lee arrived. Welcome.", ["Mrs. Lee arrived.", "Welcome."]),
-        ("Ms. Park spoke. Done.", ["Ms. Park spoke.", "Done."]),
-        ("Prof. Xu teaches. Good.", ["Prof. Xu teaches.", "Good."]),
-    ], ids=["Dr", "Mr", "Mrs", "Ms", "Prof"])
-    def test_abbreviations(self, text, expected):
-        """Common abbreviations are not treated as sentence boundaries."""
-        assert _split_sentences(text) == expected
+    def test_abbreviations_split_normally(self):
+        """Title abbreviations split like any other period — no special handling."""
+        result = _split_sentences("Dr. Smith is here. Next.")
+        assert result == ["Dr.", "Smith is here.", "Next."]
 
     def test_eg_ie(self):
         """e.g. and i.e. are not treated as sentence boundaries."""
@@ -234,10 +228,10 @@ class TestSplitSentences:
         """Empty string returns empty list."""
         assert _split_sentences("") == []
 
-    def test_multiple_abbreviations_in_sequence(self):
-        """Titles and initials preserved in a complex sentence."""
-        result = _split_sentences("Dr. J. Smith and Mr. K. Lee won. Done.")
-        assert result == ["Dr. J. Smith and Mr. K. Lee won.", "Done."]
+    def test_initials_preserved_in_sequence(self):
+        """Adjacent initials (J. K.) are preserved, including the last one."""
+        result = _split_sentences("By J. K. Rowling and others. Done.")
+        assert result == ["By J. K. Rowling and others.", "Done."]
 
     def test_terminal_abbreviation_splits(self):
         """Non-title abbreviations at sentence end split correctly."""
