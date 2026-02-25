@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-from config import VAULT_PATH, CHROMA_PATH
+from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS
 from services.chroma import get_collection
 from services.vault import get_vault_files, is_fence_line
 
@@ -491,21 +492,31 @@ def index_vault(full: bool = False) -> None:
         except OSError:
             pass  # already absent or unremovable; next run will fall back to slow path
 
-    # Index new/modified files
-    indexed = 0
+    # Collect files to index
+    to_index = []
     for md_file in all_files:
         try:
             modified = md_file.stat().st_mtime > last_run
         except FileNotFoundError:
             continue
         if modified:
+            to_index.append(md_file)
+
+    # Index files in parallel
+    indexed = 0
+    failed = 0
+    with ThreadPoolExecutor(max_workers=INDEX_WORKERS) as executor:
+        futures = {executor.submit(index_file, f): f for f in to_index}
+        for future in as_completed(futures):
+            md_file = futures[future]
             try:
-                index_file(md_file)
-            except FileNotFoundError:
-                continue
-            indexed += 1
-            if indexed % 100 == 0:
-                logger.info("Indexed %s files...", indexed)
+                future.result()
+                indexed += 1
+                if indexed % 100 == 0:
+                    logger.info("Indexed %s files...", indexed)
+            except Exception:
+                failed += 1
+                logger.error("Failed to index %s", md_file, exc_info=True)
 
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources, indexed_sources=indexed_sources)
@@ -520,8 +531,8 @@ def index_vault(full: bool = False) -> None:
 
     mark_run(scan_start)
     collection = get_collection()
-    logger.info("Done. Indexed %s new/modified files. Pruned %s deleted source(s). Total chunks: %s",
-                indexed, pruned, collection.count())
+    logger.info("Done. Indexed %s new/modified files (%s failed). Pruned %s deleted source(s). Total chunks: %s",
+                indexed, failed, pruned, collection.count())
 
 
 if __name__ == "__main__":
