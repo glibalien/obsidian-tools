@@ -243,11 +243,6 @@ def _split_sentences(text: str) -> list[str]:
         if char == ".":
             # Check what precedes the period
             before = text[last:pos]
-
-            # Decimal: digit before period, digit after
-            if before and before[-1].isdigit() and pos + 2 < len(text) and text[pos + 2].isdigit():
-                continue
-
             last_word = before.rsplit(None, 1)[-1] if before.strip() else ""
 
             # Single-letter initial: skip when adjacent to another initial
