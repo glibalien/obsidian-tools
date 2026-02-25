@@ -148,11 +148,14 @@ def _expand_line_embeds(line: str, source_path: Path) -> str:
 
 def _resolve_and_format(reference: str, source_path: Path) -> str:
     """Resolve an embed reference and return formatted blockquote."""
+    # Strip display alias: ![[note|alias]] or ![[note#heading|alias]]
+    target = reference.split("|", 1)[0] if "|" in reference else reference
+
     # Parse reference: split on first #
-    if "#" in reference:
-        filename, fragment = reference.split("#", 1)
+    if "#" in target:
+        filename, fragment = target.split("#", 1)
     else:
-        filename, fragment = reference, None
+        filename, fragment = target, None
 
     # Determine file extension
     if "." not in filename:
@@ -362,7 +365,8 @@ def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
     except Exception as e:
         return err(f"Error reading file: {e}")
 
-    content = _expand_embeds(content, file_path)
+    if ext == ".md":
+        content = _expand_embeds(content, file_path)
 
     total = len(content)
 

@@ -134,6 +134,14 @@ class TestReadFile:
         assert "> [Embedded: embedded_target]" in result["content"]
         assert "[... truncated" in result["content"]
 
+    def test_read_non_md_file_no_expansion(self, vault_config):
+        """Non-.md text files should not have embeds expanded."""
+        (vault_config / "data.txt").write_text("literal ![[note3]] text")
+        result = json.loads(read_file("data.txt"))
+        assert result["success"] is True
+        assert "![[note3]]" in result["content"]
+        assert "> [Embedded:" not in result["content"]
+
 
 class TestReadFileAudio:
     """Tests for read_file dispatching to audio handler."""
@@ -1294,6 +1302,22 @@ class TestExpandEmbeds:
         result = _expand_embeds(content, source)
         assert "![[note3]]" in result
         assert "> [Embedded:" not in result
+
+    def test_aliased_embed(self, vault_config):
+        """![[note3|Summary]] strips alias and expands the note."""
+        content = "![[note3|Summary]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note3|Summary]" in result
+        assert "> # Note 3" in result
+
+    def test_aliased_heading_embed(self, vault_config):
+        """![[note2#Section A|see here]] strips alias and expands section."""
+        content = "![[note2#Section A|see here]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "Content in section A" in result
+        assert "Content in section B" not in result
 
     def test_multiple_embeds(self, vault_config):
         """Multiple embeds in one file are all expanded."""
