@@ -1432,8 +1432,8 @@ class TestBinaryHandlerLogging:
         messages = [r.message for r in caplog.records]
         assert any("rec.m4a" in m and "1024" in m for m in messages), \
             f"Expected entry log with filename and size, got: {messages}"
-        assert any("rec.m4a" in m and "s" in m for m in messages), \
-            f"Expected success log with duration, got: {messages}"
+        assert any("Transcribed" in m and "rec.m4a" in m for m in messages), \
+            f"Expected success log with 'Transcribed' and filename, got: {messages}"
 
     def test_handle_audio_logs_warning_on_failure(self, tmp_path, caplog):
         """handle_audio logs a WARNING when the API call raises."""

@@ -31,6 +31,8 @@ from services.vault import (
     store_preview,
 )
 
+logger = logging.getLogger(__name__)
+
 _BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS
 
 _BLOCK_ID_RE = re.compile(r"\s\^(\S+)\s*$")
@@ -76,8 +78,6 @@ def _extract_block(lines: list[str], block_id: str) -> str | None:
 
     return "\n".join(result_lines)
 
-
-logger = logging.getLogger(__name__)
 
 # In-memory cache for binary embed results: (path_str, mtime) -> content
 _embed_cache: dict[tuple[str, float], str] = {}
