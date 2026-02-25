@@ -529,7 +529,10 @@ def index_vault(full: bool = False) -> None:
             logger.warning("Failed to remove indexing sentinel %s: %s — future runs will use full scan",
                            get_dirty_flag(), e)
 
-    mark_run(scan_start)
+    if failed:
+        logger.warning("Skipping last-run update due to %s failure(s) — next run will retry", failed)
+    else:
+        mark_run(scan_start)
     collection = get_collection()
     logger.info("Done. Indexed %s new/modified files (%s failed). Pruned %s deleted source(s). Total chunks: %s",
                 indexed, failed, pruned, collection.count())

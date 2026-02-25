@@ -1342,3 +1342,39 @@ class TestParallelIndexing:
 
         assert mock_index.call_count == 1
         assert mock_index.call_args.args[0] == new_file
+
+    def test_skips_mark_run_on_failure(self, tmp_path):
+        """mark_run is not called when any file fails, so next run retries."""
+        bad_file = tmp_path / "bad.md"
+        bad_file.write_text("# Bad")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[bad_file]), \
+             patch("index_vault.index_file", side_effect=RuntimeError("boom")), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1):
+            mock_coll.return_value.count.return_value = 0
+            index_vault(full=True)
+
+        mock_mark.assert_not_called()
+
+    def test_calls_mark_run_on_success(self, tmp_path):
+        """mark_run is called when all files succeed."""
+        good_file = tmp_path / "good.md"
+        good_file.write_text("# Good")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[good_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1):
+            mock_coll.return_value.count.return_value = 1
+            index_vault(full=True)
+
+        mock_mark.assert_called_once()
