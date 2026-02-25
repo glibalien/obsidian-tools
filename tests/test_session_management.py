@@ -1,10 +1,12 @@
 """Tests for session management: tool compaction."""
 
+import asyncio
 import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
@@ -719,3 +721,60 @@ class TestStreamEndpoint:
             event_types = [e["type"] for e in events]
             assert "error" in event_types
             assert "done" in event_types
+
+
+@pytest.mark.usefixtures("mock_app")
+class TestConcurrentRequests:
+    """Tests for per-session locking under concurrent requests."""
+
+    def test_same_session_requests_are_serialized(self):
+        """Two concurrent requests for the same session must not interleave."""
+        call_log = []
+
+        async def mock_agent_turn(*args, **kwargs):
+            call_log.append("enter")
+            await asyncio.sleep(0.05)
+            call_log.append("exit")
+            return "response"
+
+        async def run():
+            with patch("api_server.agent_turn", side_effect=mock_agent_turn), \
+                 patch("api_server.ensure_interaction_logged", new_callable=AsyncMock):
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    await asyncio.gather(
+                        client.post("/chat", json={"message": "first", "active_file": "test.md"}),
+                        client.post("/chat", json={"message": "second", "active_file": "test.md"}),
+                    )
+
+        asyncio.run(run())
+        # With serialization: enter, exit, enter, exit (never overlapping)
+        # Without it: enter, enter, exit, exit
+        assert call_log == ["enter", "exit", "enter", "exit"]
+
+    def test_different_session_requests_run_in_parallel(self):
+        """Concurrent requests for different sessions must not block each other."""
+        counter = [0, 0]  # [currently_active, max_active]
+
+        async def mock_agent_turn(*args, **kwargs):
+            counter[0] += 1
+            counter[1] = max(counter[1], counter[0])
+            await asyncio.sleep(0.05)
+            counter[0] -= 1
+            return "response"
+
+        async def run():
+            with patch("api_server.agent_turn", side_effect=mock_agent_turn), \
+                 patch("api_server.ensure_interaction_logged", new_callable=AsyncMock):
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    await asyncio.gather(
+                        client.post("/chat", json={"message": "msg_a", "active_file": "a.md"}),
+                        client.post("/chat", json={"message": "msg_b", "active_file": "b.md"}),
+                    )
+
+        asyncio.run(run())
+        # Both agent_turn calls should have been active at the same time
+        assert counter[1] == 2
