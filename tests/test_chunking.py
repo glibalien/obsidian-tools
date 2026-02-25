@@ -805,13 +805,16 @@ class TestManifest:
             result = load_manifest()
         assert result == {"vault/a.md", "vault/b.md"}
 
-    def test_load_manifest_corrupt_returns_none(self, tmp_path):
+    def test_load_manifest_corrupt_returns_none(self, tmp_path, caplog):
         """Returns None (and logs a warning) on corrupt manifest."""
+        import logging
         manifest = tmp_path / "indexed_sources.json"
         manifest.write_text("not valid json {{{")
         with patch("index_vault.CHROMA_PATH", str(tmp_path)):
-            result = load_manifest()
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
         assert result is None
+        assert any("Failed to load indexed_sources manifest" in r.message for r in caplog.records)
 
     def test_save_manifest_writes_sorted(self, tmp_path):
         """Writes a sorted JSON array to indexed_sources.json."""

@@ -69,16 +69,19 @@ def load_manifest() -> set[str] | None:
     try:
         with open(path) as f:
             return set(json.load(f))
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Failed to load indexed_sources manifest, falling back to full scan")
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load indexed_sources manifest: %s — falling back to full scan", e)
         return None
 
 
 def save_manifest(sources: set[str]) -> None:
     """Save the current set of indexed source paths to disk."""
     os.makedirs(CHROMA_PATH, exist_ok=True)
-    with open(get_manifest_file(), "w") as f:
-        json.dump(sorted(sources), f)
+    try:
+        with open(get_manifest_file(), "w") as f:
+            json.dump(sorted(sources), f)
+    except OSError as e:
+        logger.warning("Failed to save indexed_sources manifest: %s", e)
 
 
 def _fixed_chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
