@@ -1,6 +1,7 @@
 """Tests for tools/files.py - file operations."""
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1376,3 +1377,32 @@ class TestExpandEmbeds:
             _expand_embeds(content, source)
             _expand_embeds(content, source)
             assert mock_audio.call_count == 1
+
+    def test_binary_embed_cache_miss_logged(self, vault_config, monkeypatch, caplog):
+        """Cache miss is logged at DEBUG level with filename and handler type."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake audio")
+
+        with patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Hello"}'
+            _embed_cache.clear()
+            with caplog.at_level(logging.DEBUG, logger="tools.files"):
+                _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+            assert any("Cache miss" in r.message and "rec.m4a" in r.message
+                       for r in caplog.records)
+
+    def test_binary_embed_cache_hit_logged(self, vault_config, monkeypatch, caplog):
+        """Cache hit is logged at DEBUG level with filename."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake audio")
+
+        with patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Hello"}'
+            _embed_cache.clear()
+            _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+            with caplog.at_level(logging.DEBUG, logger="tools.files"):
+                _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+            assert any("Cache hit" in r.message and "rec.m4a" in r.message
+                       for r in caplog.records)
