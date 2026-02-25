@@ -57,12 +57,21 @@ def get_manifest_file() -> str:
     return os.path.join(CHROMA_PATH, "indexed_sources.json")
 
 
+def get_dirty_flag() -> str:
+    """Return path to the in-progress sentinel file."""
+    return os.path.join(CHROMA_PATH, ".indexing_in_progress")
+
+
 def load_manifest() -> set[str] | None:
     """Load set of previously indexed source paths.
 
-    Returns None if no manifest exists or it cannot be read,
-    triggering a full-scan fallback in prune_deleted_files.
+    Returns None if no manifest exists, it cannot be read, or a dirty
+    sentinel indicates the previous run did not complete cleanly —
+    all of which trigger a full-scan fallback in prune_deleted_files.
     """
+    if os.path.exists(get_dirty_flag()):
+        logger.warning("Previous indexing run was incomplete; falling back to full scan")
+        return None
     path = get_manifest_file()
     if not os.path.exists(path):
         return None
@@ -74,14 +83,19 @@ def load_manifest() -> set[str] | None:
         return None
 
 
-def save_manifest(sources: set[str]) -> None:
-    """Save the current set of indexed source paths to disk."""
+def save_manifest(sources: set[str]) -> bool:
+    """Save the current set of indexed source paths to disk.
+
+    Returns True on success, False if the write failed.
+    """
     os.makedirs(CHROMA_PATH, exist_ok=True)
     try:
         with open(get_manifest_file(), "w") as f:
             json.dump(sorted(sources), f)
+        return True
     except OSError as e:
         logger.warning("Failed to save indexed_sources manifest: %s", e)
+        return False
 
 
 def _fixed_chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
@@ -429,8 +443,17 @@ def index_vault(full: bool = False) -> None:
     all_files = get_vault_files(VAULT_PATH)
     valid_sources = set(str(f) for f in all_files)
 
-    # Load manifest for fast pruning (skip on --full to force full scan)
+    # Load manifest for fast pruning (skip on --full to force full scan).
+    # Must happen before writing the dirty sentinel so the sentinel from a
+    # prior incomplete run (if any) is still visible here.
     indexed_sources = None if full else load_manifest()
+
+    # Write dirty sentinel — removed only after successful manifest save
+    try:
+        os.makedirs(CHROMA_PATH, exist_ok=True)
+        open(get_dirty_flag(), "w").close()
+    except OSError as e:
+        logger.warning("Failed to write indexing sentinel: %s", e)
 
     # Index new/modified files
     indexed = 0
@@ -451,8 +474,12 @@ def index_vault(full: bool = False) -> None:
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources, indexed_sources=indexed_sources)
 
-    # Save updated manifest
-    save_manifest(valid_sources)
+    # Save updated manifest; remove dirty sentinel only on success
+    if save_manifest(valid_sources):
+        try:
+            os.remove(get_dirty_flag())
+        except OSError:
+            pass
 
     mark_run(scan_start)
     collection = get_collection()
