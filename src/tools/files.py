@@ -324,17 +324,19 @@ def _format_embed(reference: str, content: str) -> str:
     return f"> [Embedded: {reference}]\n" + "\n".join(quoted_lines)
 
 
-def read_file(path: str, offset: int = 0, length: int = 3500) -> str:
+def read_file(path: str, offset: int = 0, length: int = 30000) -> str:
     """Read content of a vault note with optional pagination.
 
     Args:
         path: Path to the note, either relative to vault root or absolute.
         offset: Character position to start reading from (default 0).
-        length: Maximum characters to return (default 4000).
+        length: Maximum characters to return (default 30000).
 
     Returns:
         The text content of the note, with pagination markers if truncated.
     """
+    # Normalize non-breaking spaces that LLMs sometimes generate in paths
+    path = path.replace("\xa0", " ")
     file_path, error = resolve_file(path)
 
     # For binary files (audio/image/office), fall back to Attachments directory

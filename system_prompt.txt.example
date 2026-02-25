@@ -127,7 +127,7 @@ Search is for discovery; read_file is for known files.
 
 ### File Operations
 - read_file: Read any vault file — auto-detects type by extension.
-  Text/markdown: paginated content (offset/length params, default 3500 chars).
+  Text/markdown: paginated content (offset/length params, default 30000 chars).
   Embeds (![[...]]) in markdown files are auto-expanded inline — you see the
   full content without needing to read embedded files separately.
   Audio (.m4a, .mp3, .wav, .ogg, .webm): Whisper transcription.
