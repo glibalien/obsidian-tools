@@ -50,6 +50,7 @@ MAX_SESSION_MESSAGES = max(2, int(os.getenv("MAX_SESSION_MESSAGES", "50")))
 
 # Indexer configuration
 INDEX_INTERVAL = int(os.getenv("INDEX_INTERVAL", "60"))
+INDEX_WORKERS = max(1, int(os.getenv("INDEX_WORKERS", "4")))
 
 # Pagination defaults for path-only list tools
 LIST_DEFAULT_LIMIT = 500
