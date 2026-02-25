@@ -1,5 +1,6 @@
 """Tests for structure-aware markdown chunking."""
 
+import json
 import os
 import sys
 import tempfile
@@ -17,7 +18,11 @@ from index_vault import (
     chunk_markdown,
     format_frontmatter_for_indexing,
     get_last_run,
+    index_vault,
+    load_manifest,
     mark_run,
+    prune_deleted_files,
+    save_manifest,
 )
 
 
@@ -783,3 +788,342 @@ class TestMarkRun:
             )
         finally:
             iv.CHROMA_PATH = original
+
+
+class TestManifest:
+    """Tests for indexed_sources.json manifest helpers."""
+
+    def test_load_manifest_no_file(self, tmp_path):
+        """Returns None when no manifest exists."""
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            result = load_manifest()
+        assert result is None
+
+    def test_load_manifest_returns_set(self, tmp_path):
+        """Returns a set of source paths from the manifest file."""
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps(["vault/a.md", "vault/b.md"]))
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            result = load_manifest()
+        assert result == {"vault/a.md", "vault/b.md"}
+
+    def test_load_manifest_corrupt_returns_none(self, tmp_path, caplog):
+        """Returns None (and logs a warning) on corrupt manifest."""
+        import logging
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text("not valid json {{{")
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
+        assert result is None
+        assert any("Failed to load indexed_sources manifest" in r.message for r in caplog.records)
+
+    def test_save_manifest_writes_sorted(self, tmp_path):
+        """Writes a sorted JSON array to indexed_sources.json."""
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            save_manifest({"vault/c.md", "vault/a.md", "vault/b.md"})
+        content = json.loads((tmp_path / "indexed_sources.json").read_text())
+        assert content == ["vault/a.md", "vault/b.md", "vault/c.md"]
+
+    def test_save_manifest_creates_dir(self, tmp_path):
+        """Creates CHROMA_PATH directory if it doesn't exist."""
+        chroma_path = str(tmp_path / "new_chroma_dir")
+        with patch("index_vault.CHROMA_PATH", chroma_path):
+            save_manifest({"vault/a.md"})
+        assert (Path(chroma_path) / "indexed_sources.json").exists()
+
+    def test_save_manifest_logs_on_write_error(self, tmp_path, caplog):
+        """Logs a warning and returns False when the manifest file cannot be written."""
+        import logging
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("builtins.open", side_effect=OSError("disk full")):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = save_manifest({"vault/a.md"})
+        assert result is False
+        assert any("Failed to save indexed_sources manifest" in r.message for r in caplog.records)
+
+    def test_load_manifest_dirty_flag_returns_none(self, tmp_path, caplog):
+        """Returns None when dirty sentinel exists (incomplete prior run)."""
+        import logging
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps(["vault/a.md"]))
+        dirty = tmp_path / ".indexing_in_progress"
+        dirty.touch()
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
+        assert result is None
+        assert any("incomplete" in r.message for r in caplog.records)
+
+    def test_save_manifest_returns_true_on_success(self, tmp_path):
+        """Returns True when manifest is saved successfully."""
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            result = save_manifest({"vault/a.md"})
+        assert result is True
+
+    def test_load_manifest_non_list_returns_none(self, tmp_path, caplog):
+        """Returns None when manifest JSON is not a flat list (e.g. a dict)."""
+        import logging
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text('{"source": "vault/a.md"}')
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
+        assert result is None
+        assert any("unexpected schema" in r.message for r in caplog.records)
+
+    def test_load_manifest_nested_list_returns_none(self, tmp_path, caplog):
+        """Returns None when manifest JSON contains non-string elements."""
+        import logging
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text('[["nested"]]')
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                result = load_manifest()
+        assert result is None
+        assert any("unexpected schema" in r.message for r in caplog.records)
+
+
+class TestPruneDeletedFiles:
+    """Tests for the manifest-aware prune_deleted_files."""
+
+    def test_fast_path_no_deletions(self):
+        """Fast path: nothing to prune when indexed matches valid."""
+        mock_collection = MagicMock()
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"a.md", "b.md"},
+                indexed_sources={"a.md", "b.md"},
+            )
+        mock_collection.delete.assert_not_called()
+        assert result == 0
+
+    def test_fast_path_deletes_removed_source(self):
+        """Fast path: deletes by source filter for each removed file."""
+        mock_collection = MagicMock()
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"a.md", "b.md"},
+                indexed_sources={"a.md", "b.md", "deleted.md"},
+            )
+        mock_collection.delete.assert_called_once_with(where={"source": "deleted.md"})
+        assert result == 1
+
+    def test_fast_path_multiple_deletions(self):
+        """Fast path: calls delete once per deleted source."""
+        mock_collection = MagicMock()
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"a.md"},
+                indexed_sources={"a.md", "del1.md", "del2.md"},
+            )
+        assert mock_collection.delete.call_count == 2
+        assert result == 2
+
+    def test_slow_path_when_no_manifest(self):
+        """Slow path (indexed_sources=None): falls back to full metadata scan."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1", "id2", "id3"],
+            "metadatas": [
+                {"source": "kept.md"},
+                {"source": "stale.md"},
+                {"source": "stale.md"},
+            ],
+        }
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"kept.md"},
+                indexed_sources=None,
+            )
+        mock_collection.get.assert_called_once_with(include=["metadatas"])
+        assert result == 1  # 1 unique deleted source
+
+    def test_slow_path_empty_collection(self):
+        """Slow path: returns 0 immediately on empty collection."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files({"a.md"}, indexed_sources=None)
+        mock_collection.delete.assert_not_called()
+        assert result == 0
+
+
+class TestIndexVaultManifest:
+    """Tests that index_vault loads and saves the manifest correctly."""
+
+    def test_saves_manifest_and_removes_sentinel_after_run(self, tmp_path):
+        """index_vault saves manifest and removes the dirty sentinel on success."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        manifest_path = tmp_path / "indexed_sources.json"
+        dirty_path = tmp_path / ".indexing_in_progress"
+        assert manifest_path.exists()
+        assert not dirty_path.exists()
+        content = json.loads(manifest_path.read_text())
+        assert str(vault_file) in content
+
+    def test_dirty_sentinel_forces_slow_path(self, tmp_path):
+        """If dirty sentinel exists, incremental run uses slow path (indexed_sources=None)."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        # Write a valid manifest AND the dirty sentinel (simulates incomplete prior run)
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps([str(vault_file)]))
+        dirty = tmp_path / ".indexing_in_progress"
+        dirty.touch()
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") is None
+
+    def test_sentinel_stays_if_save_manifest_fails(self, tmp_path):
+        """Dirty sentinel is NOT removed if save_manifest fails."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.save_manifest", return_value=False), \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        dirty_path = tmp_path / ".indexing_in_progress"
+        assert dirty_path.exists(), "Sentinel should remain when save_manifest fails"
+
+    def test_full_reindex_skips_manifest(self, tmp_path):
+        """--full reindex passes indexed_sources=None to prune (forces slow path)."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=True)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") is None
+
+    def test_incremental_run_uses_manifest(self, tmp_path):
+        """Incremental run loads manifest and passes it to prune."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps([str(vault_file), "/old/deleted.md"]))
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=1) as mock_prune, \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 4
+            index_vault(full=False)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") == {str(vault_file), "/old/deleted.md"}
+
+    def test_sentinel_write_failure_disables_manifest(self, tmp_path):
+        """If sentinel write fails, indexed_sources is set to None (slow path forced)."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        # Pre-write a valid manifest
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps([str(vault_file)]))
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
+             patch("index_vault.mark_run"), \
+             patch("builtins.open", side_effect=OSError("disk full")):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        _, kwargs = mock_prune.call_args
+        assert kwargs.get("indexed_sources") is None
+
+    def test_sentinel_write_failure_deletes_manifest(self, tmp_path):
+        """When sentinel write fails, any existing manifest is deleted to prevent stale fast-path."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+        # Pre-write a manifest that would otherwise be used
+        manifest_path = tmp_path / "indexed_sources.json"
+        manifest_path.write_text(json.dumps([str(vault_file)]))
+
+        # Patch open to fail only for the sentinel, not for read_manifest or save_manifest
+        original_open = open
+        sentinel_path = str(tmp_path / ".indexing_in_progress")
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == sentinel_path:
+                raise OSError("permission denied")
+            return original_open(path, *args, **kwargs)
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.save_manifest", return_value=False), \
+             patch("builtins.open", side_effect=selective_open):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        assert not manifest_path.exists(), "Stale manifest should be deleted when sentinel write fails"
+
+    def test_sentinel_removal_failure_logs_warning(self, tmp_path, caplog):
+        """Logs a warning when the dirty sentinel cannot be removed after a successful run."""
+        import logging
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.save_manifest", return_value=True), \
+             patch("os.remove", side_effect=OSError("permission denied")):
+            mock_coll.return_value.count.return_value = 5
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                index_vault(full=False)
+
+        assert any("Failed to remove indexing sentinel" in r.message for r in caplog.records)
