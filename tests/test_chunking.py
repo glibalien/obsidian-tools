@@ -12,12 +12,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from index_vault import (
+from chunking import (
     _fixed_chunk_text,
     _split_sentences,
     _strip_wikilink_brackets,
     chunk_markdown,
     format_frontmatter_for_indexing,
+)
+from index_vault import (
     get_last_run,
     index_vault,
     load_manifest,
