@@ -1343,6 +1343,24 @@ class TestParallelIndexing:
         assert mock_index.call_count == 1
         assert mock_index.call_args.args[0] == new_file
 
+    def test_file_not_found_is_not_a_failure(self, tmp_path):
+        """FileNotFoundError (file deleted during indexing) doesn't count as failure."""
+        gone_file = tmp_path / "gone.md"
+        gone_file.write_text("# Gone")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[gone_file]), \
+             patch("index_vault.index_file", side_effect=FileNotFoundError("gone")), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1):
+            mock_coll.return_value.count.return_value = 0
+            index_vault(full=True)
+
+        mock_mark.assert_called_once()
+
     def test_skips_mark_run_on_failure(self, tmp_path):
         """mark_run is not called when any file fails, so next run retries."""
         bad_file = tmp_path / "bad.md"
