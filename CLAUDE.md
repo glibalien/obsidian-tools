@@ -163,6 +163,7 @@ Key details: Uses `MarkdownRenderer.render()` with `sourcePath` captured at requ
 
 ## Coding Standards
 
+- **Logging**: `import logging` + `logger = logging.getLogger(__name__)` immediately after imports (before constants). Use `%s` lazy formatting, not f-strings. Levels: DEBUG for high-frequency internal state, INFO for external calls/lifecycle, WARNING for failures.
 - **No god functions**: Break into focused functions (~50 lines max)
 - **DRY**: Extract repeated logic into helpers
 - **Single responsibility**: Each function does one thing
