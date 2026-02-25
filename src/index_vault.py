@@ -2,6 +2,7 @@
 """Index the Obsidian vault into ChromaDB for semantic search."""
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -49,6 +50,35 @@ def mark_run(timestamp: float | None = None) -> None:
         f.write(datetime.now().isoformat())
     if timestamp is not None:
         os.utime(marker, (timestamp, timestamp))
+
+
+def get_manifest_file() -> str:
+    """Return path to the indexed sources manifest file."""
+    return os.path.join(CHROMA_PATH, "indexed_sources.json")
+
+
+def load_manifest() -> set[str] | None:
+    """Load set of previously indexed source paths.
+
+    Returns None if no manifest exists or it cannot be read,
+    triggering a full-scan fallback in prune_deleted_files.
+    """
+    path = get_manifest_file()
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            return set(json.load(f))
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Failed to load indexed_sources manifest, falling back to full scan")
+        return None
+
+
+def save_manifest(sources: set[str]) -> None:
+    """Save the current set of indexed source paths to disk."""
+    os.makedirs(CHROMA_PATH, exist_ok=True)
+    with open(get_manifest_file(), "w") as f:
+        json.dump(sorted(sources), f)
 
 
 def _fixed_chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:

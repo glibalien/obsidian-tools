@@ -1,5 +1,6 @@
 """Tests for structure-aware markdown chunking."""
 
+import json
 import os
 import sys
 import tempfile
@@ -17,7 +18,9 @@ from index_vault import (
     chunk_markdown,
     format_frontmatter_for_indexing,
     get_last_run,
+    load_manifest,
     mark_run,
+    save_manifest,
 )
 
 
@@ -783,3 +786,43 @@ class TestMarkRun:
             )
         finally:
             iv.CHROMA_PATH = original
+
+
+class TestManifest:
+    """Tests for indexed_sources.json manifest helpers."""
+
+    def test_load_manifest_no_file(self, tmp_path):
+        """Returns None when no manifest exists."""
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            result = load_manifest()
+        assert result is None
+
+    def test_load_manifest_returns_set(self, tmp_path):
+        """Returns a set of source paths from the manifest file."""
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text(json.dumps(["vault/a.md", "vault/b.md"]))
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            result = load_manifest()
+        assert result == {"vault/a.md", "vault/b.md"}
+
+    def test_load_manifest_corrupt_returns_none(self, tmp_path):
+        """Returns None (and logs a warning) on corrupt manifest."""
+        manifest = tmp_path / "indexed_sources.json"
+        manifest.write_text("not valid json {{{")
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            result = load_manifest()
+        assert result is None
+
+    def test_save_manifest_writes_sorted(self, tmp_path):
+        """Writes a sorted JSON array to indexed_sources.json."""
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)):
+            save_manifest({"vault/c.md", "vault/a.md", "vault/b.md"})
+        content = json.loads((tmp_path / "indexed_sources.json").read_text())
+        assert content == ["vault/a.md", "vault/b.md", "vault/c.md"]
+
+    def test_save_manifest_creates_dir(self, tmp_path):
+        """Creates CHROMA_PATH directory if it doesn't exist."""
+        chroma_path = str(tmp_path / "new_chroma_dir")
+        with patch("index_vault.CHROMA_PATH", chroma_path):
+            save_manifest({"vault/a.md"})
+        assert (Path(chroma_path) / "indexed_sources.json").exists()
