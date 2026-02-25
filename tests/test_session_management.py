@@ -510,6 +510,20 @@ class TestChatEndpointIntegration:
             assert "User Preferences" in session.messages[0]["content"]
             assert "Always be concise" in session.messages[0]["content"]
 
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    def test_chat_error_does_not_leak_details(self, mock_agent_turn):
+        """Error responses return generic message, not exception internals."""
+        mock_agent_turn.side_effect = Exception(
+            "Connection to /home/user/vault failed: timeout"
+        )
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/chat", json={"message": "hi", "active_file": "err.md"})
+            assert r.status_code == 500
+            body = r.json()
+            assert body["detail"] == "Internal server error"
+            assert "/home/user/vault" not in json.dumps(body)
+
 
 @pytest.mark.usefixtures("clear_sessions")
 class TestLRUEviction:
@@ -702,9 +716,11 @@ class TestStreamEndpoint:
             assert done_event["session_id"] == sid1
 
     @patch("api_server.agent_turn", new_callable=AsyncMock)
-    def test_stream_error_sends_error_event(self, mock_agent_turn):
-        """Errors during agent_turn produce an error SSE event."""
-        mock_agent_turn.side_effect = Exception("LLM failed")
+    def test_stream_error_sends_sanitized_error_event(self, mock_agent_turn):
+        """Errors during agent_turn produce a sanitized error SSE event."""
+        mock_agent_turn.side_effect = Exception(
+            "Connection to /home/user/vault failed: timeout"
+        )
 
         with TestClient(app, raise_server_exceptions=True) as client:
             response = client.post(
@@ -721,6 +737,10 @@ class TestStreamEndpoint:
             event_types = [e["type"] for e in events]
             assert "error" in event_types
             assert "done" in event_types
+
+            error_event = next(e for e in events if e["type"] == "error")
+            assert error_event["error"] == "Internal server error"
+            assert "/home/user/vault" not in json.dumps(events)
 
 
 @pytest.mark.usefixtures("mock_app")
