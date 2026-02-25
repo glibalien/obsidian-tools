@@ -214,11 +214,57 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     return sections
 
 
+_ABBREVIATIONS = {
+    "mr", "mrs", "ms", "dr", "vs", "etc", "jr", "sr", "st",
+    "prof", "gen", "gov", "sgt", "corp", "inc", "ltd", "co",
+}
+
+
 def _split_sentences(text: str) -> list[str]:
-    """Split text on sentence boundaries (. ? ! followed by space)."""
-    # Split on sentence-ending punctuation followed by a space
-    parts = re.split(r"(?<=[.?!]) ", text)
-    return [p for p in parts if p]
+    """Split text on sentence boundaries (. ? ! followed by space).
+
+    Avoids splitting on common abbreviations (Mr., Dr., etc., e.g., i.e.),
+    single-letter initials (J.), and decimal numbers (3.14).
+    """
+    # Find candidate split positions: sentence-ending punctuation + space
+    result = []
+    last = 0
+    for m in re.finditer(r"[.?!] ", text):
+        pos = m.start()  # position of the punctuation mark
+        char = text[pos]
+
+        if char == ".":
+            # Check what precedes the period
+            before = text[last:pos]
+
+            # Decimal: digit before period, digit after
+            if before and before[-1].isdigit() and pos + 2 < len(text) and text[pos + 2].isdigit():
+                continue
+
+            # Single-letter initial: exactly one uppercase letter before the period
+            last_word = before.rsplit(None, 1)[-1] if before.strip() else ""
+            if len(last_word) == 1 and last_word.isupper():
+                continue
+
+            # Common abbreviation
+            if last_word.lower().rstrip(".") in _ABBREVIATIONS:
+                continue
+
+            # e.g. / i.e. — before the final period we see "e.g" or "i.e"
+            stripped = before.rstrip()
+            if len(stripped) >= 3 and stripped[-3:].lower() in ("e.g", "i.e"):
+                continue
+
+        # Valid split point
+        split_at = m.end()  # after the space
+        result.append(text[last:split_at - 1])  # exclude the trailing space
+        last = split_at
+
+    # Remaining text
+    if last < len(text):
+        result.append(text[last:])
+
+    return [p for p in result if p]
 
 
 def _chunk_sentences(
