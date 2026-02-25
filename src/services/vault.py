@@ -378,7 +378,7 @@ def do_update_frontmatter(
 
 # Precompiled patterns for section parsing
 _FENCE_PATTERN = re.compile(r"^(`{3,}|~{3,})")
-_HEADING_PATTERN = re.compile(r"^(#+)\s+(.*)$")
+HEADING_PATTERN = re.compile(r"^(#+)\s+(.*)$")
 
 
 def is_fence_line(line: str) -> bool:
@@ -426,7 +426,7 @@ def find_section(
             continue
 
         # Check if this line is a matching heading
-        line_heading_match = _HEADING_PATTERN.match(line)
+        line_heading_match = HEADING_PATTERN.match(line)
         if line_heading_match:
             line_level = len(line_heading_match.group(1))
             line_text = line_heading_match.group(2).lower()
@@ -457,7 +457,7 @@ def find_section(
         if in_code_block:
             continue
 
-        line_heading_match = _HEADING_PATTERN.match(line)
+        line_heading_match = HEADING_PATTERN.match(line)
         if line_heading_match:
             line_level = len(line_heading_match.group(1))
             if line_level <= target_level:

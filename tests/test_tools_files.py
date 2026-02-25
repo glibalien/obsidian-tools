@@ -10,6 +10,9 @@ from pptx import Presentation
 
 from services.vault import clear_pending_previews
 from tools.files import (
+    _embed_cache,
+    _expand_embeds,
+    _extract_block,
     _merge_bodies,
     _merge_frontmatter,
     _split_blocks,
@@ -56,30 +59,30 @@ class TestReadFile:
 
     def test_long_file_truncated_with_marker(self, vault_config):
         """Files longer than length should have a continuation marker."""
-        long_content = "# Long Note\n\n" + "x" * 5000
+        long_content = "# Long Note\n\n" + "x" * 50000
         (vault_config / "long.md").write_text(long_content)
         result = json.loads(read_file("long.md"))
         assert result["success"] is True
         assert result["content"].startswith("# Long Note")
-        assert "[... truncated at char 3500 of" in result["content"]
-        assert "Use offset=3500 to read more." in result["content"]
+        assert "[... truncated at char 30000 of" in result["content"]
+        assert "Use offset=30000 to read more." in result["content"]
 
     def test_offset_pagination(self, vault_config):
         """Reading with offset should show continuation header and may show truncation marker."""
-        long_content = "A" * 10000
+        long_content = "A" * 100000
         (vault_config / "long.md").write_text(long_content)
-        result = json.loads(read_file("long.md", offset=3500))
+        result = json.loads(read_file("long.md", offset=30000))
         assert result["success"] is True
-        assert "[Continuing from char 3500 of 10000]" in result["content"]
-        assert "[... truncated at char 7000 of 10000" in result["content"]
+        assert "[Continuing from char 30000 of 100000]" in result["content"]
+        assert "[... truncated at char 60000 of 100000" in result["content"]
 
     def test_offset_final_chunk(self, vault_config):
         """Reading the last chunk should have no truncation marker."""
-        long_content = "B" * 5000
+        long_content = "B" * 50000
         (vault_config / "long.md").write_text(long_content)
-        result = json.loads(read_file("long.md", offset=3500))
+        result = json.loads(read_file("long.md", offset=30000))
         assert result["success"] is True
-        assert "[Continuing from char 3500 of 5000]" in result["content"]
+        assert "[Continuing from char 30000 of 50000]" in result["content"]
         assert "[... truncated" not in result["content"]
 
     def test_offset_past_end(self, vault_config):
@@ -107,6 +110,44 @@ class TestReadFile:
         # Content before the truncation marker should be 100 chars
         before_marker = result["content"].split("\n\n[... truncated")[0]
         assert len(before_marker) == 100
+
+    def test_read_file_expands_embeds(self, vault_config):
+        """read_file on a .md file with embeds should auto-expand them."""
+        (vault_config / "parent.md").write_text(
+            "# Parent\n\nSee: ![[note3]]\n\nEnd.\n"
+        )
+        result = json.loads(read_file("parent.md"))
+        assert result["success"] is True
+        assert "> [Embedded: note3]" in result["content"]
+        assert "> # Note 3" in result["content"]
+        assert "![[note3]]" not in result["content"]
+
+    def test_read_file_embeds_pagination(self, vault_config):
+        """Pagination offsets apply to expanded content."""
+        body = "x" * 100
+        (vault_config / "embedded_target.md").write_text(f"# Target\n\n{body}\n")
+        (vault_config / "paginate.md").write_text(
+            "# Start\n\n![[embedded_target]]\n\n" + "y" * 50000
+        )
+        result = json.loads(read_file("paginate.md"))
+        assert result["success"] is True
+        assert "> [Embedded: embedded_target]" in result["content"]
+        assert "[... truncated" in result["content"]
+
+    def test_read_file_normalizes_nbsp(self, vault_config):
+        """Non-breaking spaces in paths are normalized to regular spaces."""
+        (vault_config / "my file.md").write_text("# Content\n")
+        result = json.loads(read_file("my\xa0file.md"))
+        assert result["success"] is True
+        assert "# Content" in result["content"]
+
+    def test_read_non_md_file_no_expansion(self, vault_config):
+        """Non-.md text files should not have embeds expanded."""
+        (vault_config / "data.txt").write_text("literal ![[note3]] text")
+        result = json.loads(read_file("data.txt"))
+        assert result["success"] is True
+        assert "![[note3]]" in result["content"]
+        assert "> [Embedded:" not in result["content"]
 
 
 class TestReadFileAudio:
@@ -1128,3 +1169,210 @@ class TestReadFileOffice:
 
         result = json.loads(read_file("empty.pptx"))
         assert result["success"] is True
+
+
+class TestExtractBlock:
+    """Tests for _extract_block helper."""
+
+    def test_simple_block_id(self):
+        """Finds a line with ^blockid and returns it (suffix stripped)."""
+        lines = ["# Heading", "- Item one ^abc123", "- Item two"]
+        result = _extract_block(lines, "abc123")
+        assert result == "- Item one"
+
+    def test_block_with_indented_children(self):
+        """Returns the anchor line plus all indented children."""
+        lines = [
+            "- Parent ^myblock",
+            "  - Child 1",
+            "  - Child 2",
+            "    - Grandchild",
+            "- Sibling (not included)",
+        ]
+        result = _extract_block(lines, "myblock")
+        assert result == "- Parent\n  - Child 1\n  - Child 2\n    - Grandchild"
+
+    def test_block_at_end_of_file(self):
+        """Block at end of file with children up to EOF."""
+        lines = [
+            "Some intro",
+            "- Last item ^endblock",
+            "  - Sub-item",
+        ]
+        result = _extract_block(lines, "endblock")
+        assert result == "- Last item\n  - Sub-item"
+
+    def test_block_not_found(self):
+        """Returns None when block ID doesn't exist."""
+        lines = ["# Heading", "No blocks here"]
+        result = _extract_block(lines, "nonexistent")
+        assert result is None
+
+    def test_block_id_mid_line(self):
+        """Block ID must be at end of line (after space)."""
+        lines = ["Text ^abc123 more text"]
+        result = _extract_block(lines, "abc123")
+        # Not at end of line, should not match
+        assert result is None
+
+    def test_block_no_children(self):
+        """Block with no indented children returns just the anchor."""
+        lines = [
+            "- Item A ^solo",
+            "- Item B",
+        ]
+        result = _extract_block(lines, "solo")
+        assert result == "- Item A"
+
+
+class TestExpandEmbeds:
+    """Tests for _expand_embeds — inline embed expansion."""
+
+    def test_no_embeds_unchanged(self, vault_config):
+        """Content without embeds is returned unchanged."""
+        content = "# Hello\n\nNo embeds here."
+        source = vault_config / "source.md"
+        result = _expand_embeds(content, source)
+        assert result == content
+
+    def test_markdown_full_note_embed(self, vault_config):
+        """![[note3]] expands to full note body (no frontmatter)."""
+        content = "# Parent\n\n![[note3]]\n\nAfter."
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note3]" in result
+        assert "> # Note 3" in result
+        assert "![[note3]]" not in result
+        assert "After." in result
+
+    def test_markdown_embed_strips_frontmatter(self, vault_config):
+        """Embedded markdown notes have frontmatter stripped."""
+        content = "Before\n\n![[note1]]\n\nAfter"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note1]" in result
+        # Frontmatter delimiters should not appear in the embedded section
+        embedded_section = result.split("> [Embedded: note1]")[1].split("After")[0]
+        assert "---" not in embedded_section
+        assert "> # Note 1" in result
+
+    def test_heading_embed(self, vault_config):
+        """![[note2#Section A]] expands only that section."""
+        content = "See: ![[note2#Section A]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note2#Section A]" in result
+        assert "Content in section A" in result
+        assert "Content in section B" not in result
+
+    def test_block_id_embed(self, vault_config):
+        """![[note#^blockid]] expands the block and its children."""
+        (vault_config / "blocks.md").write_text(
+            "# Blocks\n\n- Item one ^myid\n  - Child\n- Other\n"
+        )
+        content = "Reference: ![[blocks#^myid]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: blocks#^myid]" in result
+        assert "Item one" in result
+        assert "Child" in result
+        assert "Other" not in result
+
+    def test_unresolved_embed_error_marker(self, vault_config):
+        """Unresolvable embeds produce an error marker."""
+        content = "![[nonexistent_file]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embed error: nonexistent_file" in result
+
+    def test_self_embed_skipped(self, vault_config):
+        """Self-referencing embeds produce an error marker."""
+        (vault_config / "self.md").write_text("# Self\n\n![[self]]\n")
+        result = _expand_embeds("# Self\n\n![[self]]\n", vault_config / "self.md")
+        assert "> [Embed error: self" in result
+        assert "self-reference" in result.lower()
+
+    def test_embed_in_code_block_not_expanded(self, vault_config):
+        """Embeds inside fenced code blocks are left as-is."""
+        content = "# Doc\n\n```\n![[note3]]\n```\n\n![[note3]]\n"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        # The one inside the code block should be literal
+        assert "```\n![[note3]]\n```" in result
+        # The one outside should be expanded
+        assert "> [Embedded: note3]" in result
+
+    def test_embed_in_inline_code_not_expanded(self, vault_config):
+        """Embeds inside inline code backticks are left as-is."""
+        content = "Use `![[note3]]` to embed files."
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "![[note3]]" in result
+        assert "> [Embedded:" not in result
+
+    def test_embed_with_dot_in_folder_name(self, vault_config):
+        """![[2026.02/daily]] resolves as markdown despite dot in folder name."""
+        folder = vault_config / "2026.02"
+        folder.mkdir()
+        (folder / "daily.md").write_text("# Daily\n\nToday's notes.\n")
+        content = "![[2026.02/daily]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: 2026.02/daily]" in result
+        assert "Today's notes" in result
+
+    def test_aliased_embed(self, vault_config):
+        """![[note3|Summary]] strips alias and expands the note."""
+        content = "![[note3|Summary]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note3|Summary]" in result
+        assert "> # Note 3" in result
+
+    def test_aliased_heading_embed(self, vault_config):
+        """![[note2#Section A|see here]] strips alias and expands section."""
+        content = "![[note2#Section A|see here]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "Content in section A" in result
+        assert "Content in section B" not in result
+
+    def test_multiple_embeds(self, vault_config):
+        """Multiple embeds in one file are all expanded."""
+        content = "![[note1]]\n\n![[note3]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: note1]" in result
+        assert "> [Embedded: note3]" in result
+
+    def test_binary_embed_audio(self, vault_config, monkeypatch):
+        """Audio embeds call handle_audio and format the result."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake audio")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Hello world"}'
+            content = "![[rec.m4a]]"
+            source = vault_config / "parent.md"
+            _embed_cache.clear()
+            result = _expand_embeds(content, source)
+            assert "> [Embedded: rec.m4a]" in result
+            assert "> Hello world" in result
+
+    def test_binary_embed_cache_hit(self, vault_config, monkeypatch):
+        """Second expansion of same binary embed uses cache."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake audio")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Cached"}'
+            content = "![[rec.m4a]]"
+            source = vault_config / "parent.md"
+            _embed_cache.clear()
+            _expand_embeds(content, source)
+            _expand_embeds(content, source)
+            assert mock_audio.call_count == 1
