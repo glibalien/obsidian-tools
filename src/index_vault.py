@@ -446,7 +446,7 @@ def index_vault(full: bool = False) -> None:
                 continue
             indexed += 1
             if indexed % 100 == 0:
-                print(f"Indexed {indexed} files...")
+                logger.info("Indexed %s files...", indexed)
 
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources, indexed_sources=indexed_sources)
@@ -456,7 +456,8 @@ def index_vault(full: bool = False) -> None:
 
     mark_run(scan_start)
     collection = get_collection()
-    print(f"Done. Indexed {indexed} new/modified files. Pruned {pruned} deleted source(s). Total chunks: {collection.count()}")
+    logger.info("Done. Indexed %s new/modified files. Pruned %s deleted source(s). Total chunks: %s",
+                indexed, pruned, collection.count())
 
 
 if __name__ == "__main__":
