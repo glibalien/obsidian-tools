@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from index_vault import (
     _fixed_chunk_text,
+    _split_sentences,
     _strip_wikilink_brackets,
     chunk_markdown,
     format_frontmatter_for_indexing,
@@ -171,6 +172,67 @@ class TestChunkMarkdownParagraphFallback:
         assert any(c["chunk_type"] == "paragraph" for c in chunks)
         # All should reference the heading
         assert all(c["heading"] == "# Big Section" for c in chunks)
+
+
+# --- _split_sentences tests ---
+
+
+class TestSplitSentences:
+    """Tests for sentence boundary detection."""
+
+    def test_basic_split(self):
+        """Splits on standard sentence-ending punctuation."""
+        assert _split_sentences("Hello world. How are you? Fine!") == [
+            "Hello world.", "How are you?", "Fine!",
+        ]
+
+    @pytest.mark.parametrize("text,expected", [
+        ("Dr. Smith is here. Next.", ["Dr. Smith is here.", "Next."]),
+        ("Mr. Jones left. Goodbye.", ["Mr. Jones left.", "Goodbye."]),
+        ("Mrs. Lee arrived. Welcome.", ["Mrs. Lee arrived.", "Welcome."]),
+        ("Ms. Park spoke. Done.", ["Ms. Park spoke.", "Done."]),
+        ("Prof. Xu teaches. Good.", ["Prof. Xu teaches.", "Good."]),
+    ], ids=["Dr", "Mr", "Mrs", "Ms", "Prof"])
+    def test_abbreviations(self, text, expected):
+        """Common abbreviations are not treated as sentence boundaries."""
+        assert _split_sentences(text) == expected
+
+    def test_eg_ie(self):
+        """e.g. and i.e. are not treated as sentence boundaries."""
+        result = _split_sentences("Use tools e.g. grep or rg. Next.")
+        assert result == ["Use tools e.g. grep or rg.", "Next."]
+
+        result = _split_sentences("A format i.e. JSON works. Done.")
+        assert result == ["A format i.e. JSON works.", "Done."]
+
+    def test_single_letter_initials(self):
+        """Single-letter initials (J. K. Rowling) are preserved."""
+        result = _split_sentences("J. K. Rowling wrote it. Next.")
+        assert result == ["J. K. Rowling wrote it.", "Next."]
+
+    def test_decimal_numbers(self):
+        """Decimal numbers are not split."""
+        result = _split_sentences("Pi is 3.14 approximately. Next.")
+        assert result == ["Pi is 3.14 approximately.", "Next."]
+
+    def test_question_and_exclamation(self):
+        """Question marks and exclamation points still split normally."""
+        assert _split_sentences("Really? Yes! Okay.") == [
+            "Really?", "Yes!", "Okay.",
+        ]
+
+    def test_no_boundaries(self):
+        """Text with no sentence-ending punctuation returns as single item."""
+        assert _split_sentences("just some text") == ["just some text"]
+
+    def test_empty_string(self):
+        """Empty string returns empty list."""
+        assert _split_sentences("") == []
+
+    def test_multiple_abbreviations_in_sequence(self):
+        """Multiple abbreviations in one sentence."""
+        result = _split_sentences("Dr. J. Smith vs. Mr. K. Lee won. Done.")
+        assert result == ["Dr. J. Smith vs. Mr. K. Lee won.", "Done."]
 
 
 # --- chunk_markdown sentence fallback ---
