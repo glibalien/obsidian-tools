@@ -186,11 +186,6 @@ class TestSplitSentences:
             "Hello world.", "How are you?", "Fine!",
         ]
 
-    def test_abbreviations_split_normally(self):
-        """Title abbreviations split like any other period — no special handling."""
-        result = _split_sentences("Dr. Smith is here. Next.")
-        assert result == ["Dr.", "Smith is here.", "Next."]
-
     def test_eg_ie(self):
         """e.g. and i.e. are not treated as sentence boundaries."""
         result = _split_sentences("Use tools e.g. grep or rg. Next.")
@@ -199,10 +194,12 @@ class TestSplitSentences:
         result = _split_sentences("A format i.e. JSON works. Done.")
         assert result == ["A format i.e. JSON works.", "Done."]
 
-    def test_single_letter_initials(self):
-        """Single-letter initials (J. K. Rowling) are preserved."""
-        result = _split_sentences("J. K. Rowling wrote it. Next.")
-        assert result == ["J. K. Rowling wrote it.", "Next."]
+    def test_abbreviations_split_normally(self):
+        """All abbreviations (Dr., Mr., etc.) split like regular periods."""
+        assert _split_sentences("Dr. Smith is here.") == ["Dr.", "Smith is here."]
+        assert _split_sentences("Bring fruit, etc. Please hurry.") == [
+            "Bring fruit, etc.", "Please hurry.",
+        ]
 
     def test_decimal_numbers_no_space(self):
         """Decimals like 3.14 have no space after the period, so never match."""
@@ -227,29 +224,6 @@ class TestSplitSentences:
     def test_empty_string(self):
         """Empty string returns empty list."""
         assert _split_sentences("") == []
-
-    def test_initials_preserved_in_sequence(self):
-        """Adjacent initials (J. K.) are preserved, including the last one."""
-        result = _split_sentences("By J. K. Rowling and others. Done.")
-        assert result == ["By J. K. Rowling and others.", "Done."]
-
-    def test_terminal_abbreviation_splits(self):
-        """Non-title abbreviations at sentence end split correctly."""
-        result = _split_sentences("Bring fruit, etc. Please hurry.")
-        assert result == ["Bring fruit, etc.", "Please hurry."]
-
-    def test_suffix_abbreviation_splits(self):
-        """Name suffixes (Jr., Sr.) at sentence end split correctly."""
-        result = _split_sentences("His name is John Doe Jr. He arrived.")
-        assert result == ["His name is John Doe Jr.", "He arrived."]
-
-    def test_single_letter_label_splits(self):
-        """Single-letter labels (not initials) split correctly."""
-        result = _split_sentences("Plan A. Plan B. Continue.")
-        assert result == ["Plan A.", "Plan B.", "Continue."]
-
-        result = _split_sentences("Option C. Continue.")
-        assert result == ["Option C.", "Continue."]
 
 
 # --- chunk_markdown sentence fallback ---

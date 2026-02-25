@@ -217,9 +217,8 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
 def _split_sentences(text: str) -> list[str]:
     """Split text on sentence boundaries (. ? ! followed by space).
 
-    Only two unambiguous suppression rules:
-    - e.g./i.e. (never end sentences)
-    - Adjacent single-letter initials (J. K.)
+    Suppresses splitting after e.g. and i.e. — the only abbreviations
+    that unambiguously never end sentences.
     """
     # Find candidate split positions: sentence-ending punctuation + space
     result = []
@@ -229,28 +228,7 @@ def _split_sentences(text: str) -> list[str]:
         char = text[pos]
 
         if char == ".":
-            # Check what precedes the period
             before = text[last:pos]
-            last_word = before.rsplit(None, 1)[-1] if before.strip() else ""
-
-            # Adjacent initials: skip when a single uppercase letter is
-            # next to another initial (e.g. "J. K.") but not standalone
-            # labels like "Plan A. Plan B."
-            if len(last_word) == 1 and last_word.isupper():
-                after_space = pos + 2
-                # Followed by another initial
-                if (
-                    after_space + 1 < len(text)
-                    and text[after_space].isupper()
-                    and text[after_space + 1] == "."
-                ):
-                    continue
-                # Preceded by another initial
-                words = before.split()
-                if len(words) >= 2:
-                    prev = words[-2].rstrip(".")
-                    if len(prev) == 1 and prev.isupper():
-                        continue
 
             # e.g. / i.e. — before the final period we see "e.g" or "i.e"
             stripped = before.rstrip()
