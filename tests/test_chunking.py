@@ -20,6 +20,7 @@ from index_vault import (
     get_last_run,
     load_manifest,
     mark_run,
+    prune_deleted_files,
     save_manifest,
 )
 
@@ -829,3 +830,68 @@ class TestManifest:
         with patch("index_vault.CHROMA_PATH", chroma_path):
             save_manifest({"vault/a.md"})
         assert (Path(chroma_path) / "indexed_sources.json").exists()
+
+
+class TestPruneDeletedFiles:
+    """Tests for the manifest-aware prune_deleted_files."""
+
+    def test_fast_path_no_deletions(self):
+        """Fast path: nothing to prune when indexed matches valid."""
+        mock_collection = MagicMock()
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"a.md", "b.md"},
+                indexed_sources={"a.md", "b.md"},
+            )
+        mock_collection.delete.assert_not_called()
+        assert result == 0
+
+    def test_fast_path_deletes_removed_source(self):
+        """Fast path: deletes by source filter for each removed file."""
+        mock_collection = MagicMock()
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"a.md", "b.md"},
+                indexed_sources={"a.md", "b.md", "deleted.md"},
+            )
+        mock_collection.delete.assert_called_once_with(where={"source": "deleted.md"})
+        assert result == 1
+
+    def test_fast_path_multiple_deletions(self):
+        """Fast path: calls delete once per deleted source."""
+        mock_collection = MagicMock()
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"a.md"},
+                indexed_sources={"a.md", "del1.md", "del2.md"},
+            )
+        assert mock_collection.delete.call_count == 2
+        assert result == 2
+
+    def test_slow_path_when_no_manifest(self):
+        """Slow path (indexed_sources=None): falls back to full metadata scan."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["id1", "id2", "id3"],
+            "metadatas": [
+                {"source": "kept.md"},
+                {"source": "stale.md"},
+                {"source": "stale.md"},
+            ],
+        }
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files(
+                valid_sources={"kept.md"},
+                indexed_sources=None,
+            )
+        mock_collection.get.assert_called_once_with(include=["metadatas"])
+        assert result == 1  # 1 unique deleted source
+
+    def test_slow_path_empty_collection(self):
+        """Slow path: returns 0 immediately on empty collection."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        with patch("index_vault.get_collection", return_value=mock_collection):
+            result = prune_deleted_files({"a.md"}, indexed_sources=None)
+        mock_collection.delete.assert_not_called()
+        assert result == 0

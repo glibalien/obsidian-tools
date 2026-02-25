@@ -384,27 +384,40 @@ def index_file(md_file: Path) -> None:
     collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
 
-def prune_deleted_files(valid_sources: set[str]) -> int:
-    """Remove entries for files that no longer exist. Returns count pruned."""
+def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | None = None) -> int:
+    """Remove entries for files that no longer exist. Returns count of deleted sources.
+
+    Uses a manifest-based fast path when indexed_sources is provided,
+    falling back to a full metadata scan when it is None (first run or --full).
+    """
     collection = get_collection()
+
+    if indexed_sources is not None:
+        # Fast path: only examine sources known to be indexed
+        deleted_sources = indexed_sources - valid_sources
+        for source in deleted_sources:
+            collection.delete(where={"source": source})
+        return len(deleted_sources)
+
+    # Slow path: full metadata scan (no manifest available)
     all_entries = collection.get(include=["metadatas"])
-    
-    if not all_entries['ids']:
+    if not all_entries["ids"]:
         return 0
-    
+
     ids_to_delete = []
-    for doc_id, metadata in zip(all_entries['ids'], all_entries['metadatas']):
-        source = metadata.get('source', '')
+    deleted_sources: set[str] = set()
+    for doc_id, metadata in zip(all_entries["ids"], all_entries["metadatas"]):
+        source = metadata.get("source", "")
         if source not in valid_sources:
             ids_to_delete.append(doc_id)
-    
+            deleted_sources.add(source)
+
     if ids_to_delete:
         batch_size = 5000
         for i in range(0, len(ids_to_delete), batch_size):
-            batch = ids_to_delete[i:i + batch_size]
-            collection.delete(ids=batch)
-    
-    return len(ids_to_delete)
+            collection.delete(ids=ids_to_delete[i:i + batch_size])
+
+    return len(deleted_sources)
 
 
 def index_vault(full: bool = False) -> None:
