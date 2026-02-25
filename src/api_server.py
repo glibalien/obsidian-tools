@@ -205,10 +205,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     """Process a chat message and return the agent's response."""
     system_prompt = _build_system_prompt()
     session = get_or_create_session(request.active_file, system_prompt)
-    messages = session.messages
 
     async with session.lock:
+        pre_turn_length = len(session.messages)
         compacted_indices = _setup_turn(session, request, system_prompt)
+        messages = session.messages
         turn_start = len(messages) - 1
         try:
             response = await agent_turn(
@@ -226,7 +227,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             return ChatResponse(response=response, session_id=session.session_id)
         except Exception as e:
             _restore_compacted_flags(messages, compacted_indices)
-            messages.pop()
+            del messages[pre_turn_length:]
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -235,7 +236,6 @@ async def chat_stream(request: ChatRequest):
     """Process a chat message and stream events as SSE."""
     system_prompt = _build_system_prompt()
     session = get_or_create_session(request.active_file, system_prompt)
-    messages = session.messages
 
     queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
@@ -245,7 +245,9 @@ async def chat_stream(request: ChatRequest):
     async def run_agent():
         try:
             async with session.lock:
+                pre_turn_length = len(session.messages)
                 compacted_indices = _setup_turn(session, request, system_prompt)
+                messages = session.messages
                 turn_start = len(messages) - 1
                 try:
                     response = await agent_turn(
@@ -264,7 +266,7 @@ async def chat_stream(request: ChatRequest):
                     trim_messages(messages)
                 except Exception as e:
                     _restore_compacted_flags(messages, compacted_indices)
-                    messages.pop()
+                    del messages[pre_turn_length:]
                     await queue.put({"type": "error", "error": str(e)})
         finally:
             await queue.put({"type": "done", "session_id": session.session_id})
