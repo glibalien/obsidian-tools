@@ -210,10 +210,15 @@ class TestSplitSentences:
         result = _split_sentences("J. K. Rowling wrote it. Next.")
         assert result == ["J. K. Rowling wrote it.", "Next."]
 
-    def test_decimal_numbers(self):
-        """Decimal numbers are not split."""
+    def test_decimal_numbers_no_space(self):
+        """Decimals like 3.14 have no space after the period, so never match."""
         result = _split_sentences("Pi is 3.14 approximately. Next.")
         assert result == ["Pi is 3.14 approximately.", "Next."]
+
+    def test_digit_led_sentence_splits(self):
+        """Sentences starting with a digit split correctly."""
+        result = _split_sentences("There were 10. 5 remained.")
+        assert result == ["There were 10.", "5 remained."]
 
     def test_question_and_exclamation(self):
         """Question marks and exclamation points still split normally."""
