@@ -215,10 +215,36 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split text on sentence boundaries (. ? ! followed by space)."""
-    # Split on sentence-ending punctuation followed by a space
-    parts = re.split(r"(?<=[.?!]) ", text)
-    return [p for p in parts if p]
+    """Split text on sentence boundaries (. ? ! followed by space).
+
+    Suppresses splitting after e.g. and i.e. — the only abbreviations
+    that unambiguously never end sentences.
+    """
+    # Find candidate split positions: sentence-ending punctuation + space
+    result = []
+    last = 0
+    for m in re.finditer(r"[.?!] ", text):
+        pos = m.start()  # position of the punctuation mark
+        char = text[pos]
+
+        if char == ".":
+            before = text[last:pos]
+
+            # e.g. / i.e. — before the final period we see "e.g" or "i.e"
+            stripped = before.rstrip()
+            if len(stripped) >= 3 and stripped[-3:].lower() in ("e.g", "i.e"):
+                continue
+
+        # Valid split point
+        split_at = m.end()  # after the space
+        result.append(text[last:split_at - 1])  # exclude the trailing space
+        last = split_at
+
+    # Remaining text
+    if last < len(text):
+        result.append(text[last:])
+
+    return [p for p in result if p]
 
 
 def _chunk_sentences(

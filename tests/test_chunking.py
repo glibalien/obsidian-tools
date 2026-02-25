@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from index_vault import (
     _fixed_chunk_text,
+    _split_sentences,
     _strip_wikilink_brackets,
     chunk_markdown,
     format_frontmatter_for_indexing,
@@ -171,6 +172,58 @@ class TestChunkMarkdownParagraphFallback:
         assert any(c["chunk_type"] == "paragraph" for c in chunks)
         # All should reference the heading
         assert all(c["heading"] == "# Big Section" for c in chunks)
+
+
+# --- _split_sentences tests ---
+
+
+class TestSplitSentences:
+    """Tests for sentence boundary detection."""
+
+    def test_basic_split(self):
+        """Splits on standard sentence-ending punctuation."""
+        assert _split_sentences("Hello world. How are you? Fine!") == [
+            "Hello world.", "How are you?", "Fine!",
+        ]
+
+    def test_eg_ie(self):
+        """e.g. and i.e. are not treated as sentence boundaries."""
+        result = _split_sentences("Use tools e.g. grep or rg. Next.")
+        assert result == ["Use tools e.g. grep or rg.", "Next."]
+
+        result = _split_sentences("A format i.e. JSON works. Done.")
+        assert result == ["A format i.e. JSON works.", "Done."]
+
+    def test_abbreviations_split_normally(self):
+        """All abbreviations (Dr., Mr., etc.) split like regular periods."""
+        assert _split_sentences("Dr. Smith is here.") == ["Dr.", "Smith is here."]
+        assert _split_sentences("Bring fruit, etc. Please hurry.") == [
+            "Bring fruit, etc.", "Please hurry.",
+        ]
+
+    def test_decimal_numbers_no_space(self):
+        """Decimals like 3.14 have no space after the period, so never match."""
+        result = _split_sentences("Pi is 3.14 approximately. Next.")
+        assert result == ["Pi is 3.14 approximately.", "Next."]
+
+    def test_digit_led_sentence_splits(self):
+        """Sentences starting with a digit split correctly."""
+        result = _split_sentences("There were 10. 5 remained.")
+        assert result == ["There were 10.", "5 remained."]
+
+    def test_question_and_exclamation(self):
+        """Question marks and exclamation points still split normally."""
+        assert _split_sentences("Really? Yes! Okay.") == [
+            "Really?", "Yes!", "Okay.",
+        ]
+
+    def test_no_boundaries(self):
+        """Text with no sentence-ending punctuation returns as single item."""
+        assert _split_sentences("just some text") == ["just some text"]
+
+    def test_empty_string(self):
+        """Empty string returns empty list."""
+        assert _split_sentences("") == []
 
 
 # --- chunk_markdown sentence fallback ---
