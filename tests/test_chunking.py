@@ -1217,3 +1217,128 @@ class TestIndexWorkers:
             monkeypatch.delenv("INDEX_WORKERS", raising=False)
             with patch("dotenv.load_dotenv"):
                 importlib.reload(config)
+
+
+class TestParallelIndexing:
+    """Tests for parallel file indexing in index_vault."""
+
+    def test_indexes_files_with_thread_pool(self, tmp_path):
+        """index_vault uses ThreadPoolExecutor for file indexing."""
+        files = [tmp_path / f"note{i}.md" for i in range(3)]
+        for f in files:
+            f.write_text(f"# Note {f.stem}")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault.index_file") as mock_index, \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 2):
+            mock_coll.return_value.count.return_value = 10
+            index_vault(full=True)
+
+        assert mock_index.call_count == 3
+        indexed_files = {c.args[0] for c in mock_index.call_args_list}
+        assert indexed_files == set(files)
+
+    def test_file_error_does_not_stop_others(self, tmp_path):
+        """A failing file doesn't prevent other files from being indexed."""
+        good_file = tmp_path / "good.md"
+        good_file.write_text("# Good")
+        bad_file = tmp_path / "bad.md"
+        bad_file.write_text("# Bad")
+
+        call_count = {"value": 0}
+        def selective_index(f):
+            call_count["value"] += 1
+            if f.name == "bad.md":
+                raise RuntimeError("index failed")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[good_file, bad_file]), \
+             patch("index_vault.index_file", side_effect=selective_index), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 2):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=True)
+
+        assert call_count["value"] == 2
+
+    def test_logs_error_for_failed_file(self, tmp_path, caplog):
+        """Failed files are logged at ERROR level."""
+        import logging
+        bad_file = tmp_path / "bad.md"
+        bad_file.write_text("# Bad")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[bad_file]), \
+             patch("index_vault.index_file", side_effect=RuntimeError("boom")), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1):
+            mock_coll.return_value.count.return_value = 0
+            with caplog.at_level(logging.ERROR, logger="index_vault"):
+                index_vault(full=True)
+
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(error_records) >= 1
+        assert any("Failed to index" in r.message for r in error_records)
+        assert any("boom" in (r.exc_text or "") for r in error_records)
+
+    def test_progress_logging(self, tmp_path, caplog):
+        """Progress is logged every 100 files."""
+        import logging
+        files = [tmp_path / f"note{i}.md" for i in range(150)]
+        for f in files:
+            f.write_text("# Note")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 4):
+            mock_coll.return_value.count.return_value = 500
+            with caplog.at_level(logging.INFO, logger="index_vault"):
+                index_vault(full=True)
+
+        progress_msgs = [r for r in caplog.records if "Indexed" in r.message and "files..." in r.message]
+        assert len(progress_msgs) >= 1
+
+    def test_skips_unmodified_files(self, tmp_path):
+        """Incremental indexing only submits modified files to the pool."""
+        old_file = tmp_path / "old.md"
+        old_file.write_text("# Old")
+        new_file = tmp_path / "new.md"
+        new_file.write_text("# New")
+
+        # Set old_file mtime to the past
+        old_mtime = time.time() - 3600
+        os.utime(old_file, (old_mtime, old_mtime))
+
+        # last_run between old and new
+        last_run_time = time.time() - 1800
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[old_file, new_file]), \
+             patch("index_vault.get_last_run", return_value=last_run_time), \
+             patch("index_vault.index_file") as mock_index, \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 2):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        assert mock_index.call_count == 1
+        assert mock_index.call_args.args[0] == new_file
