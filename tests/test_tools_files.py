@@ -59,30 +59,30 @@ class TestReadFile:
 
     def test_long_file_truncated_with_marker(self, vault_config):
         """Files longer than length should have a continuation marker."""
-        long_content = "# Long Note\n\n" + "x" * 5000
+        long_content = "# Long Note\n\n" + "x" * 50000
         (vault_config / "long.md").write_text(long_content)
         result = json.loads(read_file("long.md"))
         assert result["success"] is True
         assert result["content"].startswith("# Long Note")
-        assert "[... truncated at char 3500 of" in result["content"]
-        assert "Use offset=3500 to read more." in result["content"]
+        assert "[... truncated at char 30000 of" in result["content"]
+        assert "Use offset=30000 to read more." in result["content"]
 
     def test_offset_pagination(self, vault_config):
         """Reading with offset should show continuation header and may show truncation marker."""
-        long_content = "A" * 10000
+        long_content = "A" * 100000
         (vault_config / "long.md").write_text(long_content)
-        result = json.loads(read_file("long.md", offset=3500))
+        result = json.loads(read_file("long.md", offset=30000))
         assert result["success"] is True
-        assert "[Continuing from char 3500 of 10000]" in result["content"]
-        assert "[... truncated at char 7000 of 10000" in result["content"]
+        assert "[Continuing from char 30000 of 100000]" in result["content"]
+        assert "[... truncated at char 60000 of 100000" in result["content"]
 
     def test_offset_final_chunk(self, vault_config):
         """Reading the last chunk should have no truncation marker."""
-        long_content = "B" * 5000
+        long_content = "B" * 50000
         (vault_config / "long.md").write_text(long_content)
-        result = json.loads(read_file("long.md", offset=3500))
+        result = json.loads(read_file("long.md", offset=30000))
         assert result["success"] is True
-        assert "[Continuing from char 3500 of 5000]" in result["content"]
+        assert "[Continuing from char 30000 of 50000]" in result["content"]
         assert "[... truncated" not in result["content"]
 
     def test_offset_past_end(self, vault_config):
@@ -127,12 +127,19 @@ class TestReadFile:
         body = "x" * 100
         (vault_config / "embedded_target.md").write_text(f"# Target\n\n{body}\n")
         (vault_config / "paginate.md").write_text(
-            "# Start\n\n![[embedded_target]]\n\n" + "y" * 5000
+            "# Start\n\n![[embedded_target]]\n\n" + "y" * 50000
         )
         result = json.loads(read_file("paginate.md"))
         assert result["success"] is True
         assert "> [Embedded: embedded_target]" in result["content"]
         assert "[... truncated" in result["content"]
+
+    def test_read_file_normalizes_nbsp(self, vault_config):
+        """Non-breaking spaces in paths are normalized to regular spaces."""
+        (vault_config / "my file.md").write_text("# Content\n")
+        result = json.loads(read_file("my\xa0file.md"))
+        assert result["success"] is True
+        assert "# Content" in result["content"]
 
     def test_read_non_md_file_no_expansion(self, vault_config):
         """Non-.md text files should not have embeds expanded."""
