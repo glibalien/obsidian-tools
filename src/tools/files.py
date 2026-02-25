@@ -157,8 +157,9 @@ def _resolve_and_format(reference: str, source_path: Path) -> str:
     else:
         filename, fragment = target, None
 
-    # Determine file extension
-    if "." not in filename:
+    # Determine file extension — use Path.suffix to check the actual filename,
+    # not the whole path (folders can contain dots, e.g. "2026.02/daily")
+    if not Path(filename).suffix:
         lookup_name = filename + ".md"
     else:
         lookup_name = filename
