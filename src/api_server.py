@@ -2,6 +2,7 @@
 """FastAPI HTTP wrapper for the LLM agent."""
 
 import asyncio
+import logging
 import json
 import sys
 import uuid
@@ -28,6 +29,9 @@ from agent import (
     load_preferences,
     mcp_tool_to_openai_function,
 )
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Session:
@@ -228,7 +232,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
         except Exception as e:
             _restore_compacted_flags(messages, compacted_indices)
             del messages[pre_turn_length:]
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.exception("Error processing /chat request")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/chat/stream")
@@ -267,7 +272,8 @@ async def chat_stream(request: ChatRequest):
                 except Exception as e:
                     _restore_compacted_flags(messages, compacted_indices)
                     del messages[pre_turn_length:]
-                    await queue.put({"type": "error", "error": str(e)})
+                    logger.exception("Error processing /chat/stream request")
+                    await queue.put({"type": "error", "error": "Internal server error"})
         finally:
             await queue.put({"type": "done", "session_id": session.session_id})
             await queue.put(None)  # sentinel
