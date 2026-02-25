@@ -522,11 +522,12 @@ def index_vault(full: bool = False) -> None:
             md_file = futures[future]
             try:
                 result = future.result()
+                source = str(md_file)
+                existing = collection.get(where={"source": source}, include=[])
+                if existing['ids']:
+                    collection.delete(ids=existing['ids'])
                 if result is not None:
-                    source, ids, documents, metadatas = result
-                    existing = collection.get(where={"source": source}, include=[])
-                    if existing['ids']:
-                        collection.delete(ids=existing['ids'])
+                    _, ids, documents, metadatas = result
                     collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
                 indexed += 1
                 if indexed % 100 == 0:
