@@ -1450,3 +1450,44 @@ class TestBinaryHandlerLogging:
 
         assert any("bad.m4a" in r.message and r.levelname == "WARNING"
                    for r in caplog.records)
+
+    def test_handle_image_logs_entry_and_success(self, tmp_path, caplog):
+        """handle_image logs file name, size, and duration on success."""
+        img = tmp_path / "diagram.png"
+        img.write_bytes(b"x" * 2048)
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "A diagram"
+
+        with patch("tools.readers.OpenAI") as mock_openai_cls:
+            mock_client = MagicMock()
+            mock_openai_cls.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+            with patch.dict("os.environ", {"FIREWORKS_API_KEY": "test-key"}):
+                with caplog.at_level(logging.INFO, logger="tools.readers"):
+                    result = handle_image(img)
+
+        assert json.loads(result)["success"] is True
+        messages = [r.message for r in caplog.records]
+        assert any("diagram.png" in m and "2048" in m for m in messages), \
+            f"Expected entry log with filename and size, got: {messages}"
+        assert any("Described" in m and "diagram.png" in m for m in messages), \
+            f"Expected success log with 'Described' and filename, got: {messages}"
+
+    def test_handle_image_logs_warning_on_failure(self, tmp_path, caplog):
+        """handle_image logs a WARNING when the API call raises."""
+        img = tmp_path / "broken.png"
+        img.write_bytes(b"data")
+
+        with patch("tools.readers.OpenAI") as mock_openai_cls:
+            mock_client = MagicMock()
+            mock_openai_cls.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = RuntimeError("timeout")
+            with patch.dict("os.environ", {"FIREWORKS_API_KEY": "test-key"}):
+                with caplog.at_level(logging.WARNING, logger="tools.readers"):
+                    result = handle_image(img)
+
+        assert json.loads(result)["success"] is False
+        assert any("broken.png" in r.message and r.levelname == "WARNING"
+                   for r in caplog.records)

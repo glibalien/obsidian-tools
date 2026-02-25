@@ -59,13 +59,18 @@ def handle_image(file_path: Path) -> str:
     if not api_key:
         return err("FIREWORKS_API_KEY not set")
 
-    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        size = 0
 
+    logger.info("Describing image: %s (%d bytes)", file_path.name, size)
+    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
+    start = time.perf_counter()
     try:
         image_data = file_path.read_bytes()
         b64 = base64.b64encode(image_data).decode("utf-8")
 
-        # Infer MIME type from extension
         mime_map = {
             ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
             ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
@@ -82,9 +87,12 @@ def handle_image(file_path: Path) -> str:
                 ],
             }],
         )
+        elapsed = time.perf_counter() - start
         description = response.choices[0].message.content
+        logger.info("Described %s in %.2fs", file_path.name, elapsed)
         return ok(description=description)
     except Exception as e:
+        logger.warning("Image description failed for %s: %s", file_path.name, e)
         return err(f"Image description failed: {e}")
 
 
