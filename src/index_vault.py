@@ -17,7 +17,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS
-from services.chroma import get_collection
+from services.chroma import get_collection, purge_database
 from services.vault import get_vault_files, is_fence_line
 
 
@@ -392,27 +392,22 @@ def chunk_markdown(
 
 
 
-def index_file(md_file: Path) -> None:
-    """Index a single markdown file, replacing any existing chunks."""
-    collection = get_collection()
-    
-    # Delete existing chunks for this file
-    existing = collection.get(
-        where={"source": str(md_file)},
-        include=[]
-    )
-    if existing['ids']:
-        collection.delete(ids=existing['ids'])
-    
-    # Read and chunk the file (including frontmatter for search)
+def _prepare_file_chunks(
+    md_file: Path,
+) -> tuple[str, list[str], list[str], list[dict]] | None:
+    """Read and chunk a file, returning indexing data without touching ChromaDB.
+
+    Safe to call from worker threads — pure Python only.
+    Returns (source, ids, documents, metadatas) or None if the file is empty.
+    """
     content = md_file.read_text(encoding='utf-8', errors='ignore')
     frontmatter = _parse_frontmatter(content)
     chunks = chunk_markdown(content, frontmatter=frontmatter)
 
     if not chunks:
-        return
+        return None
 
-    # Batch upsert all chunks at once
+    source = str(md_file)
     ids = []
     documents = []
     metadatas = []
@@ -420,13 +415,26 @@ def index_file(md_file: Path) -> None:
         ids.append(hashlib.md5(f"{md_file}_{i}".encode()).hexdigest())
         documents.append(f"[{md_file.stem}] {chunk['text']}")
         metadatas.append({
-            "source": str(md_file),
+            "source": source,
             "chunk": i,
             "heading": chunk["heading"],
             "chunk_type": chunk["chunk_type"],
         })
 
-    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+    return source, ids, documents, metadatas
+
+
+def index_file(md_file: Path) -> None:
+    """Index a single markdown file, replacing any existing chunks."""
+    result = _prepare_file_chunks(md_file)
+    source = str(md_file)
+    collection = get_collection()
+    existing = collection.get(where={"source": source}, include=[])
+    if existing['ids']:
+        collection.delete(ids=existing['ids'])
+    if result is not None:
+        _, ids, documents, metadatas = result
+        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
 
 def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | None = None) -> int:
@@ -502,20 +510,31 @@ def index_vault(full: bool = False) -> None:
         if modified:
             to_index.append(md_file)
 
-    # Index files in parallel
+    # Compute chunks in parallel (pure Python in worker threads).
+    # All ChromaDB writes happen on the main thread — ChromaDB is not
+    # thread-safe (telemetry races, singleton init races, SQLite deadlocks).
+    collection = get_collection()
     indexed = 0
     failed = 0
     with ThreadPoolExecutor(max_workers=INDEX_WORKERS) as executor:
-        futures = {executor.submit(index_file, f): f for f in to_index}
+        futures = {executor.submit(_prepare_file_chunks, f): f for f in to_index}
         for future in as_completed(futures):
             md_file = futures[future]
             try:
-                future.result()
+                result = future.result()
+                source = str(md_file)
+                existing = collection.get(where={"source": source}, include=[])
+                if existing['ids']:
+                    collection.delete(ids=existing['ids'])
+                if result is not None:
+                    _, ids, documents, metadatas = result
+                    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
                 indexed += 1
                 if indexed % 100 == 0:
                     logger.info("Indexed %s files...", indexed)
             except FileNotFoundError:
                 logger.debug("File disappeared during indexing: %s", md_file)
+                valid_sources.discard(str(md_file))
             except Exception:
                 failed += 1
                 logger.error("Failed to index %s", md_file, exc_info=True)
@@ -535,14 +554,18 @@ def index_vault(full: bool = False) -> None:
         logger.warning("Skipping last-run update due to %s failure(s) — next run will retry", failed)
     else:
         mark_run(scan_start)
-    collection = get_collection()
     logger.info("Done. Indexed %s new/modified files (%s failed). Pruned %s deleted source(s). Total chunks: %s",
                 indexed, failed, pruned, collection.count())
 
 
 if __name__ == "__main__":
     full_reindex = "--full" in sys.argv
-    if full_reindex:
+    reset_db = "--reset" in sys.argv
+    if reset_db:
+        print("Deleting ChromaDB database and rebuilding from scratch...")
+        purge_database()
+        full_reindex = True
+    elif full_reindex:
         print("Running full reindex...")
     print(f"Vault: {VAULT_PATH}")
     print(f"ChromaDB: {CHROMA_PATH}")

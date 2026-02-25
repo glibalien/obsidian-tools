@@ -1013,7 +1013,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"):
@@ -1040,7 +1040,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
              patch("index_vault.mark_run"):
@@ -1058,7 +1058,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.save_manifest", return_value=False), \
@@ -1077,7 +1077,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
              patch("index_vault.mark_run"):
@@ -1097,7 +1097,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=1) as mock_prune, \
              patch("index_vault.mark_run"):
@@ -1118,7 +1118,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
              patch("index_vault.mark_run"), \
@@ -1149,7 +1149,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1169,7 +1169,7 @@ class TestIndexVaultManifest:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[vault_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1231,7 +1231,7 @@ class TestParallelIndexing:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=files), \
-             patch("index_vault.index_file") as mock_index, \
+             patch("index_vault._prepare_file_chunks", return_value=None) as mock_prepare, \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1239,8 +1239,8 @@ class TestParallelIndexing:
             mock_coll.return_value.count.return_value = 10
             index_vault(full=True)
 
-        assert mock_index.call_count == 3
-        indexed_files = {c.args[0] for c in mock_index.call_args_list}
+        assert mock_prepare.call_count == 3
+        indexed_files = {c.args[0] for c in mock_prepare.call_args_list}
         assert indexed_files == set(files)
 
     def test_file_error_does_not_stop_others(self, tmp_path):
@@ -1255,11 +1255,12 @@ class TestParallelIndexing:
             call_count["value"] += 1
             if f.name == "bad.md":
                 raise RuntimeError("index failed")
+            return None
 
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[good_file, bad_file]), \
-             patch("index_vault.index_file", side_effect=selective_index), \
+             patch("index_vault._prepare_file_chunks", side_effect=selective_index), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1278,7 +1279,7 @@ class TestParallelIndexing:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[bad_file]), \
-             patch("index_vault.index_file", side_effect=RuntimeError("boom")), \
+             patch("index_vault._prepare_file_chunks", side_effect=RuntimeError("boom")), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1302,7 +1303,7 @@ class TestParallelIndexing:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=files), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1332,7 +1333,7 @@ class TestParallelIndexing:
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[old_file, new_file]), \
              patch("index_vault.get_last_run", return_value=last_run_time), \
-             patch("index_vault.index_file") as mock_index, \
+             patch("index_vault._prepare_file_chunks", return_value=None) as mock_prepare, \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run"), \
@@ -1340,8 +1341,8 @@ class TestParallelIndexing:
             mock_coll.return_value.count.return_value = 5
             index_vault(full=False)
 
-        assert mock_index.call_count == 1
-        assert mock_index.call_args.args[0] == new_file
+        assert mock_prepare.call_count == 1
+        assert mock_prepare.call_args.args[0] == new_file
 
     def test_file_not_found_is_not_a_failure(self, tmp_path):
         """FileNotFoundError (file deleted during indexing) doesn't count as failure."""
@@ -1351,7 +1352,7 @@ class TestParallelIndexing:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[gone_file]), \
-             patch("index_vault.index_file", side_effect=FileNotFoundError("gone")), \
+             patch("index_vault._prepare_file_chunks", side_effect=FileNotFoundError("gone")), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run") as mock_mark, \
@@ -1369,7 +1370,7 @@ class TestParallelIndexing:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[bad_file]), \
-             patch("index_vault.index_file", side_effect=RuntimeError("boom")), \
+             patch("index_vault._prepare_file_chunks", side_effect=RuntimeError("boom")), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run") as mock_mark, \
@@ -1387,7 +1388,7 @@ class TestParallelIndexing:
         with patch("index_vault.VAULT_PATH", tmp_path), \
              patch("index_vault.CHROMA_PATH", str(tmp_path)), \
              patch("index_vault.get_vault_files", return_value=[good_file]), \
-             patch("index_vault.index_file"), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0), \
              patch("index_vault.mark_run") as mock_mark, \
