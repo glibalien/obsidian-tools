@@ -831,6 +831,15 @@ class TestManifest:
             save_manifest({"vault/a.md"})
         assert (Path(chroma_path) / "indexed_sources.json").exists()
 
+    def test_save_manifest_logs_on_write_error(self, tmp_path, caplog):
+        """Logs a warning when the manifest file cannot be written."""
+        import logging
+        with patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("builtins.open", side_effect=OSError("disk full")):
+            with caplog.at_level(logging.WARNING, logger="index_vault"):
+                save_manifest({"vault/a.md"})
+        assert any("Failed to save indexed_sources manifest" in r.message for r in caplog.records)
+
 
 class TestPruneDeletedFiles:
     """Tests for the manifest-aware prune_deleted_files."""

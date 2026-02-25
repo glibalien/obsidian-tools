@@ -405,7 +405,7 @@ def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | Non
         return 0
 
     ids_to_delete = []
-    deleted_sources: set[str] = set()
+    deleted_sources = set()
     for doc_id, metadata in zip(all_entries["ids"], all_entries["metadatas"]):
         source = metadata.get("source", "")
         if source not in valid_sources:
