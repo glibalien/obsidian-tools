@@ -1,6 +1,7 @@
 """File operation tools - read, create, move, append."""
 
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -75,6 +76,8 @@ def _extract_block(lines: list[str], block_id: str) -> str | None:
 
     return "\n".join(result_lines)
 
+
+logger = logging.getLogger(__name__)
 
 # In-memory cache for binary embed results: (path_str, mtime) -> content
 _embed_cache: dict[tuple[str, float], str] = {}
@@ -205,14 +208,18 @@ def _expand_binary(file_path: Path, reference: str) -> str:
 
     cache_key = (path_str, mtime)
     if cache_key in _embed_cache:
+        logger.debug("Cache hit: %s", file_path.name)
         expanded = _embed_cache[cache_key]
     else:
         ext = file_path.suffix.lower()
         if ext in AUDIO_EXTENSIONS:
+            logger.debug("Cache miss: %s — calling audio handler", file_path.name)
             raw = handle_audio(file_path)
         elif ext in IMAGE_EXTENSIONS:
+            logger.debug("Cache miss: %s — calling image handler", file_path.name)
             raw = handle_image(file_path)
         elif ext in OFFICE_EXTENSIONS:
+            logger.debug("Cache miss: %s — calling office handler", file_path.name)
             raw = handle_office(file_path)
         else:
             return f"> [Embed error: {reference} — Unsupported binary type]"
