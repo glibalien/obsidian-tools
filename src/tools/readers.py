@@ -98,17 +98,28 @@ def handle_image(file_path: Path) -> str:
 
 def handle_office(file_path: Path) -> str:
     """Extract text content from Office documents (.docx, .xlsx, .pptx)."""
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        size = 0
+
+    logger.info("Extracting office document: %s (%d bytes)", file_path.name, size)
     ext = file_path.suffix.lower()
+    start = time.perf_counter()
     try:
         if ext == ".docx":
-            return _read_docx(file_path)
+            result = _read_docx(file_path)
         elif ext == ".xlsx":
-            return _read_xlsx(file_path)
+            result = _read_xlsx(file_path)
         elif ext == ".pptx":
-            return _read_pptx(file_path)
+            result = _read_pptx(file_path)
         else:
             return err(f"Unsupported office format: {ext}")
+        elapsed = time.perf_counter() - start
+        logger.info("Extracted %s in %.2fs", file_path.name, elapsed)
+        return result
     except Exception as e:
+        logger.warning("Office extraction failed for %s: %s", file_path.name, e)
         return err(f"Failed to read {file_path.name}: {e}")
 
 

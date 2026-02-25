@@ -1491,3 +1491,34 @@ class TestBinaryHandlerLogging:
         assert json.loads(result)["success"] is False
         assert any("broken.png" in r.message and r.levelname == "WARNING"
                    for r in caplog.records)
+
+    def test_handle_office_logs_entry_and_success(self, tmp_path, caplog):
+        """handle_office logs file name, size, and duration on success."""
+        from docx import Document as DocxDocument
+        docx = tmp_path / "report.docx"
+        doc = DocxDocument()
+        doc.add_paragraph("Hello")
+        doc.save(str(docx))
+        size = docx.stat().st_size
+
+        with caplog.at_level(logging.INFO, logger="tools.readers"):
+            result = handle_office(docx)
+
+        assert json.loads(result)["success"] is True
+        messages = [r.message for r in caplog.records]
+        assert any("report.docx" in m and str(size) in m for m in messages), \
+            f"Expected entry log with filename and size, got: {messages}"
+        assert any("Extracted" in m and "report.docx" in m for m in messages), \
+            f"Expected success log with 'Extracted' and filename, got: {messages}"
+
+    def test_handle_office_logs_warning_on_failure(self, tmp_path, caplog):
+        """handle_office logs a WARNING when extraction fails."""
+        bad = tmp_path / "corrupt.docx"
+        bad.write_bytes(b"not a real docx")
+
+        with caplog.at_level(logging.WARNING, logger="tools.readers"):
+            result = handle_office(bad)
+
+        assert json.loads(result)["success"] is False
+        assert any("corrupt.docx" in r.message and r.levelname == "WARNING"
+                   for r in caplog.records)
