@@ -1310,6 +1310,17 @@ class TestExpandEmbeds:
         assert "![[note3]]" in result
         assert "> [Embedded:" not in result
 
+    def test_embed_with_dot_in_folder_name(self, vault_config):
+        """![[2026.02/daily]] resolves as markdown despite dot in folder name."""
+        folder = vault_config / "2026.02"
+        folder.mkdir()
+        (folder / "daily.md").write_text("# Daily\n\nToday's notes.\n")
+        content = "![[2026.02/daily]]"
+        source = vault_config / "parent.md"
+        result = _expand_embeds(content, source)
+        assert "> [Embedded: 2026.02/daily]" in result
+        assert "Today's notes" in result
+
     def test_aliased_embed(self, vault_config):
         """![[note3|Summary]] strips alias and expands the note."""
         content = "![[note3|Summary]]"
