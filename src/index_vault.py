@@ -214,17 +214,21 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     return sections
 
 
-_ABBREVIATIONS = {
-    "mr", "mrs", "ms", "dr", "vs", "etc", "jr", "sr", "st",
-    "prof", "gen", "gov", "sgt", "corp", "inc", "ltd", "co",
+# Titles are almost always followed by a name — never split after these.
+# General abbreviations (etc., vs., Inc.) are excluded because they can
+# legitimately end sentences ("Bring fruit, etc. Please hurry.").
+_TITLE_ABBREVIATIONS = {
+    "mr", "mrs", "ms", "dr", "jr", "sr", "st",
+    "prof", "gen", "gov", "sgt",
 }
 
 
 def _split_sentences(text: str) -> list[str]:
     """Split text on sentence boundaries (. ? ! followed by space).
 
-    Avoids splitting on common abbreviations (Mr., Dr., etc., e.g., i.e.),
-    single-letter initials (J.), and decimal numbers (3.14).
+    Avoids splitting on title abbreviations (Mr., Dr., Prof.),
+    e.g./i.e., initials followed by another initial (J. K.),
+    and decimal numbers (3.14).
     """
     # Find candidate split positions: sentence-ending punctuation + space
     result = []
@@ -241,13 +245,29 @@ def _split_sentences(text: str) -> list[str]:
             if before and before[-1].isdigit() and pos + 2 < len(text) and text[pos + 2].isdigit():
                 continue
 
-            # Single-letter initial: exactly one uppercase letter before the period
             last_word = before.rsplit(None, 1)[-1] if before.strip() else ""
-            if len(last_word) == 1 and last_word.isupper():
-                continue
 
-            # Common abbreviation
-            if last_word.lower().rstrip(".") in _ABBREVIATIONS:
+            # Single-letter initial: skip when adjacent to another initial
+            # or a title (covers "Dr. J. Smith", "J. K. Rowling") but not
+            # labels like "Plan A. Plan B."
+            if len(last_word) == 1 and last_word.isupper():
+                after_space = pos + 2
+                # Followed by another initial (e.g. "J. K.")
+                if (
+                    after_space + 1 < len(text)
+                    and text[after_space].isupper()
+                    and text[after_space + 1] == "."
+                ):
+                    continue
+                # Preceded by another initial or a title (e.g. "Dr. J." or "J. K.")
+                words = before.split()
+                if len(words) >= 2:
+                    prev = words[-2].rstrip(".")
+                    if (len(prev) == 1 and prev.isupper()) or prev.lower() in _TITLE_ABBREVIATIONS:
+                        continue
+
+            # Title abbreviation
+            if last_word.lower().rstrip(".") in _TITLE_ABBREVIATIONS:
                 continue
 
             # e.g. / i.e. — before the final period we see "e.g" or "i.e"

@@ -230,9 +230,22 @@ class TestSplitSentences:
         assert _split_sentences("") == []
 
     def test_multiple_abbreviations_in_sequence(self):
-        """Multiple abbreviations in one sentence."""
-        result = _split_sentences("Dr. J. Smith vs. Mr. K. Lee won. Done.")
-        assert result == ["Dr. J. Smith vs. Mr. K. Lee won.", "Done."]
+        """Titles and initials preserved in a complex sentence."""
+        result = _split_sentences("Dr. J. Smith and Mr. K. Lee won. Done.")
+        assert result == ["Dr. J. Smith and Mr. K. Lee won.", "Done."]
+
+    def test_terminal_abbreviation_splits(self):
+        """Non-title abbreviations at sentence end split correctly."""
+        result = _split_sentences("Bring fruit, etc. Please hurry.")
+        assert result == ["Bring fruit, etc.", "Please hurry."]
+
+    def test_single_letter_label_splits(self):
+        """Single-letter labels (not initials) split correctly."""
+        result = _split_sentences("Plan A. Plan B. Continue.")
+        assert result == ["Plan A.", "Plan B.", "Continue."]
+
+        result = _split_sentences("Option C. Continue.")
+        assert result == ["Option C.", "Continue."]
 
 
 # --- chunk_markdown sentence fallback ---
