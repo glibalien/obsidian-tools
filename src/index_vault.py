@@ -534,6 +534,7 @@ def index_vault(full: bool = False) -> None:
                     logger.info("Indexed %s files...", indexed)
             except FileNotFoundError:
                 logger.debug("File disappeared during indexing: %s", md_file)
+                valid_sources.discard(str(md_file))
             except Exception:
                 failed += 1
                 logger.error("Failed to index %s", md_file, exc_info=True)
