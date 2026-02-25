@@ -451,7 +451,8 @@ def index_vault(full: bool = False) -> None:
     # Write dirty sentinel — removed only after successful manifest save
     try:
         os.makedirs(CHROMA_PATH, exist_ok=True)
-        open(get_dirty_flag(), "w").close()
+        with open(get_dirty_flag(), "w"):
+            pass
     except OSError as e:
         logger.warning("Failed to write indexing sentinel: %s", e)
 

@@ -975,6 +975,25 @@ class TestIndexVaultManifest:
         _, kwargs = mock_prune.call_args
         assert kwargs.get("indexed_sources") is None
 
+    def test_sentinel_stays_if_save_manifest_fails(self, tmp_path):
+        """Dirty sentinel is NOT removed if save_manifest fails."""
+        vault_file = tmp_path / "note.md"
+        vault_file.write_text("# Hello")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[vault_file]), \
+             patch("index_vault.index_file"), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.save_manifest", return_value=False), \
+             patch("index_vault.mark_run"):
+            mock_coll.return_value.count.return_value = 5
+            index_vault(full=False)
+
+        dirty_path = tmp_path / ".indexing_in_progress"
+        assert dirty_path.exists(), "Sentinel should remain when save_manifest fails"
+
     def test_full_reindex_skips_manifest(self, tmp_path):
         """--full reindex passes indexed_sources=None to prune (forces slow path)."""
         vault_file = tmp_path / "note.md"
