@@ -101,4 +101,7 @@ mcp.tool()(get_current_date)
 
 
 if __name__ == "__main__":
+    from config import setup_logging
+
+    setup_logging("mcp")
     mcp.run()
