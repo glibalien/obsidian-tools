@@ -1,48 +1,11 @@
-"""Tests for tools/utility.py - utility tools (logging, date)."""
+"""Tests for tools/utility.py - utility tools (logging)."""
 
 import json
-import re
-from datetime import datetime
 from unittest.mock import patch
 
 import pytest
 
-from tools.utility import get_current_date, log_interaction
-
-
-class TestGetCurrentDate:
-    """Tests for get_current_date tool."""
-
-    def test_get_current_date_format(self):
-        """Should return success with date in YYYY-MM-DD format."""
-        result = json.loads(get_current_date())
-        assert result["success"] is True
-        assert "date" in result
-        # Validate format with regex: YYYY-MM-DD
-        assert re.match(r"^\d{4}-\d{2}-\d{2}$", result["date"])
-
-    def test_get_current_date_matches_today(self):
-        """Should return exact current date when mocked."""
-        mock_date = datetime(2025, 6, 15, 14, 30, 0)
-        with patch("tools.utility.datetime") as mock_datetime:
-            mock_datetime.now.return_value = mock_date
-            result = json.loads(get_current_date())
-            assert result["success"] is True
-            assert result["date"] == "2025-06-15"
-
-    def test_get_current_date_different_dates(self):
-        """Should correctly format various dates."""
-        test_cases = [
-            (datetime(2024, 1, 1), "2024-01-01"),
-            (datetime(2025, 12, 31), "2025-12-31"),
-            (datetime(2026, 2, 17), "2026-02-17"),
-        ]
-        for mock_date, expected in test_cases:
-            with patch("tools.utility.datetime") as mock_datetime:
-                mock_datetime.now.return_value = mock_date
-                result = json.loads(get_current_date())
-                assert result["success"] is True
-                assert result["date"] == expected
+from tools.utility import log_interaction
 
 
 class TestLogInteraction:

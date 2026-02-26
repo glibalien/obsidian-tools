@@ -48,7 +48,6 @@ from tools.sections import (
     replace_section,
 )
 from tools.utility import (
-    get_current_date,
     log_interaction,
 )
 
@@ -93,7 +92,6 @@ mcp.tool()(manage_preferences)
 
 # Utility tools
 mcp.tool()(log_interaction)
-mcp.tool()(get_current_date)
 
 
 if __name__ == "__main__":

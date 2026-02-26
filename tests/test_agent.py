@@ -473,6 +473,23 @@ def test_load_preferences_reloaded_each_turn(tmp_path):
         agent_module.PREFERENCES_FILE = original_prefs_file
 
 
+def test_build_system_prompt_includes_date(tmp_path):
+    """_build_system_prompt should append the current date."""
+    import agent as agent_module
+    from agent import _build_system_prompt
+    from datetime import datetime
+
+    original_prefs_file = agent_module.PREFERENCES_FILE
+
+    try:
+        agent_module.PREFERENCES_FILE = tmp_path / "Preferences.md"
+        prompt = _build_system_prompt()
+        today = datetime.now().strftime("%Y-%m-%d")
+        assert f"Current date: {today}" in prompt
+    finally:
+        agent_module.PREFERENCES_FILE = original_prefs_file
+
+
 @pytest.mark.anyio
 async def test_agent_turn_on_event_tool_call():
     """on_event callback is called with tool_call events."""

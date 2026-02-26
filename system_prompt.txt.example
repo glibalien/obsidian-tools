@@ -196,7 +196,6 @@ it to the user and call again with confirm=true only after approval.
 
 ### Utility
 - log_interaction: Log every completed request to the daily note (required — see below).
-- get_current_date: Get today's date in YYYY-MM-DD format.
 
 ## Handling Large Results
 

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -509,6 +510,20 @@ class TestChatEndpointIntegration:
             client.post("/chat", json={"message": "more", "active_file": "prefs.md"})
             assert "User Preferences" in session.messages[0]["content"]
             assert "Always be concise" in session.messages[0]["content"]
+
+    @patch("api_server.agent_turn", new_callable=AsyncMock)
+    @patch("api_server.load_preferences")
+    def test_system_prompt_includes_current_date(self, mock_load_prefs, mock_agent_turn):
+        """System prompt should include the current date."""
+        mock_agent_turn.return_value = "response"
+        mock_load_prefs.return_value = None
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            client.post("/chat", json={"message": "hi", "active_file": "date.md"})
+            session = file_sessions["date.md"]
+            system_content = session.messages[0]["content"]
+            today = datetime.now().strftime("%Y-%m-%d")
+            assert f"Current date: {today}" in system_content
 
     @patch("api_server.agent_turn", new_callable=AsyncMock)
     def test_chat_error_does_not_leak_details(self, mock_agent_turn):
