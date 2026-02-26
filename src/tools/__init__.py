@@ -19,9 +19,7 @@ from tools.links import (
     search_by_folder,
 )
 from tools.preferences import (
-    list_preferences,
-    remove_preference,
-    save_preference,
+    manage_preferences,
 )
 from tools.search import (
     search_vault,
@@ -54,9 +52,7 @@ __all__ = [
     "find_outlinks",
     "search_by_folder",
     # preferences
-    "list_preferences",
-    "remove_preference",
-    "save_preference",
+    "manage_preferences",
     # search
     "search_vault",
     "web_search",
