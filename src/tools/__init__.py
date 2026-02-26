@@ -1,7 +1,6 @@
 """MCP tool implementations organized by category."""
 
 from tools.files import (
-    append_to_file,
     create_file,
     move_file,
     batch_move_files,
@@ -24,18 +23,13 @@ from tools.search import (
     search_vault,
     web_search,
 )
-from tools.sections import (
-    append_to_section,
-    prepend_to_file,
-    replace_section,
-)
+from tools.editing import edit_file
 from tools.utility import (
     log_interaction,
 )
 
 __all__ = [
     # files
-    "append_to_file",
     "create_file",
     "move_file",
     "batch_move_files",
@@ -53,10 +47,8 @@ __all__ = [
     # search
     "search_vault",
     "web_search",
-    # sections
-    "append_to_section",
-    "prepend_to_file",
-    "replace_section",
+    # editing
+    "edit_file",
     # utility
     "log_interaction",
 ]
