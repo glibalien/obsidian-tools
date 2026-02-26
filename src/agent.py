@@ -9,6 +9,7 @@ import os
 import re
 import sys
 from contextlib import AsyncExitStack
+from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -94,6 +95,16 @@ def load_preferences() -> str | None:
 The following are user preferences and corrections. Always follow these:
 
 {content}"""
+
+
+def _build_system_prompt() -> str:
+    """Build system prompt with preferences and current date."""
+    prompt = SYSTEM_PROMPT
+    preferences = load_preferences()
+    if preferences:
+        prompt += preferences
+    prompt += f"\n\nCurrent date: {datetime.now().strftime('%Y-%m-%d')}"
+    return prompt
 
 
 def create_llm_client() -> OpenAI:
@@ -577,11 +588,9 @@ async def chat_loop():
         # Set up LLM client
         client = create_llm_client()
 
-        # Build initial system prompt with preferences
-        system_prompt = SYSTEM_PROMPT
-        preferences = load_preferences()
-        if preferences:
-            system_prompt += preferences
+        # Build initial system prompt with preferences and date
+        system_prompt = _build_system_prompt()
+        if PREFERENCES_FILE.exists():
             print("Loaded user preferences from Preferences.md")
 
         # Conversation history
@@ -600,12 +609,8 @@ async def chat_loop():
             if not user_input:
                 continue
 
-            # Reload preferences each turn so mid-session changes take effect
-            updated_prompt = SYSTEM_PROMPT
-            preferences = load_preferences()
-            if preferences:
-                updated_prompt += preferences
-            messages[0]["content"] = updated_prompt
+            # Reload preferences + inject current date each turn
+            messages[0]["content"] = _build_system_prompt()
 
             turn_start = len(messages)
             messages.append({"role": "user", "content": user_input})
