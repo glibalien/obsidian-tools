@@ -198,10 +198,16 @@ def _find_matching_files(
         else:
             files = [f for f in files if f.resolve().parent == folder_resolved]
 
+    # Fast path: no frontmatter access needed, skip YAML parsing entirely
+    needs_frontmatter = field is not None or parsed_filters or include_fields
+
     for md_file in files:
+        if not needs_frontmatter:
+            matching.append(get_relative_path(md_file))
+            continue
+
         frontmatter = extract_frontmatter(md_file)
 
-        # Primary field match (skip when field is None for folder-only mode)
         if field is not None:
             if not _matches_field(frontmatter, field, value, match_type):
                 continue
