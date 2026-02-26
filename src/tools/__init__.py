@@ -13,8 +13,7 @@ from tools.frontmatter import (
     update_frontmatter,
 )
 from tools.links import (
-    find_backlinks,
-    find_outlinks,
+    find_links,
 )
 from tools.preferences import (
     manage_preferences,
@@ -40,8 +39,7 @@ __all__ = [
     "search_by_date_range",
     "update_frontmatter",
     # links
-    "find_backlinks",
-    "find_outlinks",
+    "find_links",
     # preferences
     "manage_preferences",
     # search

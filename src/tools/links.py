@@ -12,36 +12,108 @@ from services.vault import err, get_relative_path, get_vault_files, ok, resolve_
 from tools._validation import validate_pagination
 
 
-def find_backlinks(note_name: str, limit: int = LIST_DEFAULT_LIMIT, offset: int = 0) -> str:
-    """Find all vault files that contain wikilinks to a given note.
+def find_links(
+    path: str,
+    direction: str = "both",
+    limit: int = LIST_DEFAULT_LIMIT,
+    offset: int = 0,
+) -> str:
+    """Find links to or from a vault note.
 
     Args:
-        note_name: The note name to search for (without brackets or .md extension).
-        limit: Maximum number of results to return (default 100).
-        offset: Number of results to skip (default 0).
+        path: Path to the note (relative to vault or absolute).
+        direction: "backlinks" (files linking to this note),
+                   "outlinks" (wikilinks from this note),
+                   or "both" (both in one call).
+        limit: Maximum results per direction (default 500).
+        offset: Results to skip per direction (default 0).
 
     Returns:
-        JSON response with list of file paths that link to the note.
+        JSON response with link results. Backlinks are file path strings,
+        outlinks are {name, path} objects. "both" returns separate sections.
     """
-    if not note_name or not note_name.strip():
-        return err("note_name cannot be empty")
+    if direction not in ("backlinks", "outlinks", "both"):
+        return err(f"Invalid direction: {direction}. Must be 'backlinks', 'outlinks', or 'both'")
 
-    note_name = note_name.strip()
-    if note_name.endswith(".md"):
-        note_name = note_name[:-3]
+    file_path, error = resolve_file(path)
+    if error:
+        return err(error)
 
     validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
     if pagination_error:
         return err(pagination_error)
 
-    all_results = _scan_backlinks(note_name)
+    if direction == "backlinks":
+        return _get_backlinks(file_path, validated_offset, validated_limit)
 
+    if direction == "outlinks":
+        return _get_outlinks(file_path, path, validated_offset, validated_limit)
+
+    # direction == "both"
+    backlinks_data = _backlinks_data(file_path, validated_offset, validated_limit)
+    outlinks_data = _outlinks_data(file_path, path, validated_offset, validated_limit)
+    return ok(backlinks=backlinks_data, outlinks=outlinks_data)
+
+
+def _get_backlinks(file_path: Path, offset: int, limit: int) -> str:
+    """Return paginated backlinks as a top-level ok() response."""
+    note_name = file_path.stem
+    all_results = _scan_backlinks(note_name)
     if not all_results:
         return ok(f"No backlinks found to [[{note_name}]]", results=[], total=0)
-
     total = len(all_results)
-    page = all_results[validated_offset:validated_offset + validated_limit]
+    page = all_results[offset:offset + limit]
     return ok(results=page, total=total)
+
+
+def _get_outlinks(file_path: Path, display_path: str, offset: int, limit: int) -> str:
+    """Return paginated outlinks as a top-level ok() response."""
+    all_results = _extract_outlinks(file_path)
+    if all_results is None:
+        return err(f"Reading file failed: {display_path}")
+    if not all_results:
+        return ok(f"No outlinks found in {display_path}", results=[], total=0)
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return ok(results=page, total=total)
+
+
+def _backlinks_data(file_path: Path, offset: int, limit: int) -> dict:
+    """Return backlinks as a dict for embedding in 'both' response."""
+    note_name = file_path.stem
+    all_results = _scan_backlinks(note_name)
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return {"results": page, "total": total}
+
+
+def _outlinks_data(file_path: Path, display_path: str, offset: int, limit: int) -> dict:
+    """Return outlinks as a dict for embedding in 'both' response."""
+    all_results = _extract_outlinks(file_path) or []
+    total = len(all_results)
+    page = all_results[offset:offset + limit]
+    return {"results": page, "total": total}
+
+
+def _extract_outlinks(file_path: Path) -> list[dict] | None:
+    """Extract and resolve wikilinks from a file. Returns None on read error."""
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        logger.warning("Failed to read %s for outlinks: %s", file_path, e)
+        return None
+
+    pattern = r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]"
+    matches = re.findall(pattern, content)
+    if not matches:
+        return []
+
+    stem_map, path_map = _build_note_path_map()
+    unique_names = sorted(set(matches))
+    return [
+        {"name": name, "path": _resolve_link(name, stem_map, path_map)}
+        for name in unique_names
+    ]
 
 
 def _scan_backlinks(note_name: str) -> list[str]:
@@ -59,52 +131,6 @@ def _scan_backlinks(note_name: str) -> list[str]:
             backlinks.append(get_relative_path(md_file))
 
     return sorted(backlinks)
-
-
-def find_outlinks(path: str, limit: int = LIST_DEFAULT_LIMIT, offset: int = 0) -> str:
-    """Extract all wikilinks from a vault file with resolved paths.
-
-    Args:
-        path: Path to the note (relative to vault or absolute).
-        limit: Maximum number of results to return (default 100).
-        offset: Number of results to skip (default 0).
-
-    Returns:
-        JSON response with list of {name, path} objects. path is null
-        for unresolved links (non-existent notes).
-    """
-    file_path, error = resolve_file(path)
-    if error:
-        return err(error)
-
-    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
-    if pagination_error:
-        return err(pagination_error)
-
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as e:
-        return err(f"Reading file failed: {e}")
-
-    # Pattern captures note name before optional |alias
-    pattern = r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]"
-    matches = re.findall(pattern, content)
-
-    if not matches:
-        return ok(f"No outlinks found in {path}", results=[], total=0)
-
-    # Build lookup maps for resolution
-    stem_map, path_map = _build_note_path_map()
-
-    # Deduplicate, resolve paths, and sort
-    unique_names = sorted(set(matches))
-    all_results = [
-        {"name": name, "path": _resolve_link(name, stem_map, path_map)}
-        for name in unique_names
-    ]
-    total = len(all_results)
-    page = all_results[validated_offset:validated_offset + validated_limit]
-    return ok(results=page, total=total)
 
 
 def _build_note_path_map() -> tuple[dict[str, str], dict[str, str]]:
