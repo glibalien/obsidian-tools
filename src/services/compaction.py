@@ -118,8 +118,7 @@ _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
     "web_search": _build_web_search_stub,
     "find_backlinks": _build_list_stub,
     "find_outlinks": _build_list_stub,
-    "search_by_folder": _build_list_stub,
-    "list_files_by_frontmatter": _build_list_stub,
+    "list_files": _build_list_stub,
     "search_by_date_range": _build_list_stub,
 }
 

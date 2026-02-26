@@ -150,52 +150,6 @@ def _resolve_link(
     return path_map.get(normalized)
 
 
-def search_by_folder(
-    folder: str,
-    recursive: bool = False,
-    limit: int = LIST_DEFAULT_LIMIT,
-    offset: int = 0,
-) -> str:
-    """List all markdown files in a vault folder.
-
-    Args:
-        folder: Path to the folder (relative to vault or absolute).
-        recursive: If True, include files in subfolders. Default: False.
-        limit: Maximum number of results to return (default 100).
-        offset: Number of results to skip (default 0).
-
-    Returns:
-        JSON response with list of file paths (relative to vault),
-        or a message if no files found.
-    """
-    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
-    if pagination_error:
-        return err(pagination_error)
-
-    folder_path, error = resolve_dir(folder)
-    if error:
-        return err(error)
-
-    # Use rglob for recursive, glob for non-recursive
-    pattern_func = folder_path.rglob if recursive else folder_path.glob
-
-    files = []
-
-    for md_file in pattern_func("*.md"):
-        if any(excluded in md_file.parts for excluded in EXCLUDED_DIRS):
-            continue
-        files.append(get_relative_path(md_file))
-
-    if not files:
-        mode = "recursively " if recursive else ""
-        return ok(f"No markdown files found {mode}in {folder}", results=[], total=0)
-
-    all_results = sorted(files)
-    total = len(all_results)
-    page = all_results[validated_offset:validated_offset + validated_limit]
-    return ok(results=page, total=total)
-
-
 def compare_folders(
     source: str,
     target: str,
