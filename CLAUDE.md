@@ -21,7 +21,7 @@ src/
 ├── tools/
 │   ├── files.py         # read_file, create_file, move_file, merge_files, batch_merge_files
 │   ├── frontmatter.py   # list_files, update_frontmatter, batch ops
-│   ├── links.py         # find_backlinks, find_outlinks, compare_folders
+│   ├── links.py         # find_links, compare_folders
 │   ├── preferences.py   # manage_preferences (list/add/remove)
 │   ├── search.py        # search_vault, web_search
 │   ├── editing.py       # edit_file
@@ -69,8 +69,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `merge_files` | Merge source into destination | `source`, `destination`, `strategy` ("smart"/"concat"), `delete_source` (bool) |
 | `batch_merge_files` | Batch merge duplicates across folders | `source_folder`, `destination_folder`, `recursive`, `strategy`, `delete_source`, `confirm` |
 | `create_file` | Create new note | `path`, `content`, `frontmatter` (JSON string) |
-| `find_backlinks` | Find files linking to a note | `note_name` (no brackets/extension) |
-| `find_outlinks` | Extract wikilinks from file | `path` |
+| `find_links` | Find links to/from a vault note | `path`, `direction` ("backlinks"/"outlinks"/"both"), `limit`, `offset` |
 | `compare_folders` | Compare two folders by filename stem | `source`, `target`, `recursive` (false) |
 | `search_by_date_range` | Find files by date | `start_date`, `end_date`, `date_type` ("modified"/"created") |
 | `log_interaction` | Log to daily note | `task_description`, `query`, `summary`, `files`, `full_response` |
