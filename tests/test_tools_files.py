@@ -19,7 +19,6 @@ from tools.files import (
     _merge_frontmatter,
     _split_blocks,
     _split_frontmatter_body,
-    append_to_file,
     batch_merge_files,
     batch_move_files,
     create_file,
@@ -411,25 +410,6 @@ class TestMoveFile:
         assert result["success"] is True
         assert "Already at destination" in result["message"]
 
-
-class TestAppendToFile:
-    """Tests for append_to_file tool."""
-
-    def test_append_content(self, vault_config):
-        """Should append content to file."""
-        result = json.loads(append_to_file("note3.md", "\n## New Section\n\nAppended content."))
-        assert result["success"] is True
-        assert result["path"]
-
-        content = (vault_config / "note3.md").read_text()
-        assert "New Section" in content
-        assert "Appended content" in content
-
-    def test_append_to_nonexistent_file(self, vault_config):
-        """Should return error for missing file."""
-        result = json.loads(append_to_file("nonexistent.md", "content"))
-        assert result["success"] is False
-        assert "not found" in result["error"].lower()
 
 
 class TestBatchMoveConfirmationGate:

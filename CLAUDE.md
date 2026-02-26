@@ -19,12 +19,12 @@ src/
 │   ├── compaction.py    # Tool message compaction (shared by API + CLI)
 │   └── vault.py         # Path resolution, ok()/err() helpers, find_section, file scanning
 ├── tools/
-│   ├── files.py         # read_file, create_file, move_file, append_to_file, merge_files, batch_merge_files
+│   ├── files.py         # read_file, create_file, move_file, merge_files, batch_merge_files
 │   ├── frontmatter.py   # list_files, update_frontmatter, batch ops
 │   ├── links.py         # find_backlinks, find_outlinks, compare_folders
 │   ├── preferences.py   # manage_preferences (list/add/remove)
 │   ├── search.py        # search_vault, web_search
-│   ├── sections.py      # prepend_to_file, replace_section, append_to_section
+│   ├── editing.py       # edit_file
 │   ├── utility.py       # log_interaction
 │   └── readers.py       # File type handlers (audio, image, office) for read_file dispatch
 ├── config.py            # Env config + setup_logging(name)
@@ -75,10 +75,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `search_by_date_range` | Find files by date | `start_date`, `end_date`, `date_type` ("modified"/"created") |
 | `log_interaction` | Log to daily note | `task_description`, `query`, `summary`, `files`, `full_response` |
 | `manage_preferences` | List/add/remove preferences | `operation` ("list"/"add"/"remove"), `preference`, `line_number` |
-| `append_to_file` | Append to end of file | `path`, `content` |
-| `prepend_to_file` | Insert after frontmatter | `path`, `content` |
-| `replace_section` | Replace heading + content | `path`, `heading` (with `#`), `content` |
-| `append_to_section` | Append to end of section | `path`, `heading` (with `#`), `content` |
+| `edit_file` | Edit file content (prepend/append/section) | `path`, `content`, `position` ("prepend"/"append"/"section"), `heading` (for section), `mode` ("replace"/"append" for section) |
 | `web_search` | DuckDuckGo search | `query` |
 
 ### Tool Parameter Types and LLM Efficiency
