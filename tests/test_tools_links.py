@@ -1,4 +1,4 @@
-"""Tests for tools/links.py - backlinks, outlinks, folder search."""
+"""Tests for tools/links.py - find_links, folder comparison."""
 
 import json
 
@@ -6,53 +6,47 @@ import pytest
 
 from tools.links import (
     compare_folders,
-    find_backlinks,
-    find_outlinks,
+    find_links,
 )
 
 
 class TestFindBacklinks:
-    """Tests for find_backlinks tool."""
+    """Tests for find_links with direction='backlinks'."""
 
     def test_find_backlinks_basic(self, vault_config):
         """Should find files that link to a note."""
-        result = json.loads(find_backlinks("note1"))
-        assert result["success"] is True
-        assert "note2.md" in result["results"]
-
-    def test_find_backlinks_with_extension(self, vault_config):
-        """Should work with .md extension provided."""
-        result = json.loads(find_backlinks("note1.md"))
+        result = json.loads(find_links("note1.md", direction="backlinks"))
         assert result["success"] is True
         assert "note2.md" in result["results"]
 
     def test_find_backlinks_alias_links(self, vault_config):
         """Should find links with aliases."""
         # note2.md has [[note3|alias]]
-        result = json.loads(find_backlinks("note3"))
+        result = json.loads(find_links("note3.md", direction="backlinks"))
         assert result["success"] is True
         assert "note2.md" in result["results"]
 
     def test_find_backlinks_none_found(self, vault_config):
         """Should return message when no backlinks found."""
-        result = json.loads(find_backlinks("nonexistent_note"))
+        (vault_config / "lonely.md").write_text("# No one links here")
+        result = json.loads(find_links("lonely.md", direction="backlinks"))
         assert result["success"] is True
         assert result["results"] == []
         assert "No backlinks found" in result["message"]
 
-    def test_find_backlinks_empty_name(self, vault_config):
-        """Should return error for empty note name."""
-        result = json.loads(find_backlinks(""))
+    def test_find_backlinks_file_not_found(self, vault_config):
+        """Should return error for missing file."""
+        result = json.loads(find_links("nonexistent.md", direction="backlinks"))
         assert result["success"] is False
-        assert "cannot be empty" in result["error"]
+        assert "not found" in result["error"].lower()
 
 
 class TestFindBacklinksPagination:
-    """Tests for find_backlinks pagination."""
+    """Tests for find_links backlinks pagination."""
 
     def test_pagination_limit(self, vault_config):
         """Should respect limit parameter."""
-        result = json.loads(find_backlinks("note1", limit=1))
+        result = json.loads(find_links("note1.md", direction="backlinks", limit=1))
         assert result["success"] is True
         assert len(result["results"]) <= 1
         assert result["total"] >= 1
@@ -60,20 +54,20 @@ class TestFindBacklinksPagination:
     def test_pagination_offset(self, vault_config):
         """Should respect offset parameter."""
         # Get all results first
-        full = json.loads(find_backlinks("note1"))
+        full = json.loads(find_links("note1.md", direction="backlinks"))
         total = full["total"]
 
         # Offset past all results
-        result = json.loads(find_backlinks("note1", offset=total))
+        result = json.loads(find_links("note1.md", direction="backlinks", offset=total))
         assert result["results"] == [] or len(result["results"]) == 0
 
 
 class TestFindOutlinks:
-    """Tests for find_outlinks tool."""
+    """Tests for find_links with direction='outlinks'."""
 
     def test_find_outlinks_basic(self, vault_config):
         """Should extract wikilinks with resolved paths."""
-        result = json.loads(find_outlinks("note2.md"))
+        result = json.loads(find_links("note2.md", direction="outlinks"))
         assert result["success"] is True
         names = [r["name"] for r in result["results"]]
         assert "note1" in names
@@ -85,7 +79,7 @@ class TestFindOutlinks:
 
     def test_find_outlinks_unresolved_link(self, vault_config):
         """Should return null path for links to non-existent notes."""
-        result = json.loads(find_outlinks("note1.md"))
+        result = json.loads(find_links("note1.md", direction="outlinks"))
         assert result["success"] is True
         by_name = {r["name"]: r["path"] for r in result["results"]}
         assert "wikilink" in by_name
@@ -96,7 +90,7 @@ class TestFindOutlinks:
         (vault_config / "heading_links.md").write_text(
             "See [[note1#Section A]] for details."
         )
-        result = json.loads(find_outlinks("heading_links.md"))
+        result = json.loads(find_links("heading_links.md", direction="outlinks"))
         assert result["success"] is True
         link = result["results"][0]
         assert link["name"] == "note1#Section A"
@@ -107,7 +101,7 @@ class TestFindOutlinks:
         (vault_config / "links_to_project.md").write_text(
             "Check [[project1]] for status."
         )
-        result = json.loads(find_outlinks("links_to_project.md"))
+        result = json.loads(find_links("links_to_project.md", direction="outlinks"))
         assert result["success"] is True
         link = result["results"][0]
         assert link["name"] == "project1"
@@ -116,14 +110,14 @@ class TestFindOutlinks:
     def test_find_outlinks_none_found(self, vault_config):
         """Should return message when no outlinks found."""
         # note3.md has no wikilinks
-        result = json.loads(find_outlinks("note3.md"))
+        result = json.loads(find_links("note3.md", direction="outlinks"))
         assert result["success"] is True
         assert result["results"] == []
         assert "No outlinks found" in result["message"]
 
     def test_find_outlinks_file_not_found(self, vault_config):
         """Should return error for missing file."""
-        result = json.loads(find_outlinks("nonexistent.md"))
+        result = json.loads(find_links("nonexistent.md", direction="outlinks"))
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
@@ -133,7 +127,7 @@ class TestFindOutlinks:
         (vault_config / "dupes.md").write_text(
             "[[same]] and [[same]] and [[same|alias]]"
         )
-        result = json.loads(find_outlinks("dupes.md"))
+        result = json.loads(find_links("dupes.md", direction="outlinks"))
         assert result["success"] is True
         names = [r["name"] for r in result["results"]]
         assert names.count("same") == 1
@@ -149,7 +143,7 @@ class TestFindOutlinks:
         (vault_config / "qualifier_test.md").write_text(
             "[[foo]] and [[sub/foo]]"
         )
-        result = json.loads(find_outlinks("qualifier_test.md"))
+        result = json.loads(find_links("qualifier_test.md", direction="outlinks"))
         by_name = {r["name"]: r["path"] for r in result["results"]}
         # Bare stem resolves to shortest path (root)
         assert by_name["foo"] == "foo.md"
@@ -356,28 +350,72 @@ class TestCompareFolders:
         ]
 
 
-class TestListToolPagination:
-    """Tests for limit/offset pagination on list tools."""
+class TestFindOutlinksPagination:
+    """Tests for find_links outlinks pagination."""
 
     def test_find_outlinks_pagination(self, vault_config):
-        """find_outlinks should respect limit and offset."""
+        """find_links outlinks should respect limit and offset."""
         links = " ".join(f"[[note{i}]]" for i in range(10))
         (vault_config / "many_links.md").write_text(f"# Links\n\n{links}")
 
-        result = json.loads(find_outlinks("many_links.md", limit=3, offset=0))
+        result = json.loads(find_links("many_links.md", direction="outlinks", limit=3, offset=0))
         assert result["success"] is True
         assert len(result["results"]) == 3
         assert result["total"] == 10
 
-        result2 = json.loads(find_outlinks("many_links.md", limit=3, offset=3))
+        result2 = json.loads(find_links("many_links.md", direction="outlinks", limit=3, offset=3))
         assert len(result2["results"]) == 3
         assert result2["total"] == 10
 
     def test_default_pagination_includes_total(self, vault_config):
         """Default call (no limit/offset) should still include total."""
-        result = json.loads(find_outlinks("note1.md"))
+        result = json.loads(find_links("note1.md", direction="outlinks"))
         assert result["success"] is True
         assert "total" in result
+
+
+class TestFindLinksBoth:
+    """Tests for find_links with direction='both'."""
+
+    def test_both_returns_backlinks_and_outlinks(self, vault_config):
+        """Should return both sections in one call."""
+        result = json.loads(find_links("note2.md", direction="both"))
+        assert result["success"] is True
+        assert "backlinks" in result
+        assert "outlinks" in result
+        assert isinstance(result["backlinks"]["results"], list)
+        assert isinstance(result["outlinks"]["results"], list)
+        assert "total" in result["backlinks"]
+        assert "total" in result["outlinks"]
+
+    def test_both_pagination(self, vault_config):
+        """Pagination should apply to both sections."""
+        result = json.loads(find_links("note2.md", direction="both", limit=1))
+        assert result["success"] is True
+        assert len(result["backlinks"]["results"]) <= 1
+        assert len(result["outlinks"]["results"]) <= 1
+
+    def test_both_file_not_found(self, vault_config):
+        """Should error for missing file in both mode."""
+        result = json.loads(find_links("nonexistent.md", direction="both"))
+        assert result["success"] is False
+
+
+class TestFindLinksValidation:
+    """Tests for find_links input validation."""
+
+    def test_invalid_direction(self, vault_config):
+        """Should reject invalid direction values."""
+        result = json.loads(find_links("note1.md", direction="invalid"))
+        assert result["success"] is False
+        assert "Invalid direction" in result["error"]
+
+    def test_default_direction_is_both(self, vault_config):
+        """Default direction should be 'both'."""
+        result = json.loads(find_links("note2.md"))
+        assert result["success"] is True
+        assert "backlinks" in result
+        assert "outlinks" in result
 
 
 @pytest.mark.parametrize(
@@ -389,10 +427,8 @@ class TestListToolPagination:
     ],
 )
 def test_paginated_link_tools_reject_invalid_pagination(vault_config, kwargs, expected_error):
-    """Paginated links tools should return a consistent pagination validation error."""
-    backlinks = json.loads(find_backlinks("note1", **kwargs))
-    outlinks = json.loads(find_outlinks("note2.md", **kwargs))
-
-    for result in (backlinks, outlinks):
+    """find_links should return pagination validation errors for all directions."""
+    for direction in ("backlinks", "outlinks", "both"):
+        result = json.loads(find_links("note1.md", direction=direction, **kwargs))
         assert result["success"] is False
-        assert expected_error in result["error"]
+        assert expected_error in result["error"], f"Failed for direction={direction}"
