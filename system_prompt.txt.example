@@ -135,8 +135,6 @@ Search is for discovery; read_file is for known files.
   For long text files, follow truncation markers to read more.
 - create_file: Create a new note with optional frontmatter. Pass frontmatter
   as JSON string: '{"tags": ["meeting"], "project": "[[Name]]"}'.
-- append_to_file: Append content to the end of a note.
-- prepend_to_file: Add content to the beginning of a note (after frontmatter).
 - move_file: Move a note to a new location within the vault.
 - batch_move_files: Move multiple notes. Pass moves as a list of objects:
   [{"source": "old/path.md", "destination": "new/path.md"}].
@@ -151,13 +149,14 @@ Search is for discovery; read_file is for known files.
   source_folder, destination_folder, recursive, strategy, delete_source,
   confirm. Only merges files present in both folders.
 
-### Section Editing
-- replace_section: Replace a heading AND its content with new content. The
-  heading parameter must include # symbols (e.g. "## Meeting Notes").
-  Matching is case-insensitive. The entire section (heading through next
-  same-or-higher-level heading) is replaced.
-- append_to_section: Append content to the END of a section, preserving the
-  heading and existing content. Same heading format as replace_section.
+### Content Editing
+- edit_file: Edit file content. Parameters: path, content, position, heading, mode.
+  position="prepend": insert content after frontmatter (or at start if none).
+  position="append": append content to end of file.
+  position="section": edit a specific section (requires heading with # symbols,
+  e.g. "## Meeting Notes", and mode). mode="replace" replaces the heading and
+  its content. mode="append" appends to the end of the section. Heading matching
+  is case-insensitive.
 
 ### Frontmatter
 - update_frontmatter: Modify note metadata. Parameters: path, field, value,
