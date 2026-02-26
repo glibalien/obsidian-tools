@@ -22,7 +22,7 @@ src/
 │   ├── files.py         # read_file, create_file, move_file, append_to_file, merge_files, batch_merge_files
 │   ├── frontmatter.py   # list_files_by_frontmatter, update_frontmatter, batch ops
 │   ├── links.py         # find_backlinks, find_outlinks, search_by_folder, compare_folders
-│   ├── preferences.py   # save_preference, list_preferences, remove_preference
+│   ├── preferences.py   # manage_preferences (list/add/remove)
 │   ├── search.py        # search_vault, web_search
 │   ├── sections.py      # prepend_to_file, replace_section, append_to_section
 │   ├── utility.py       # log_interaction, get_current_date
@@ -75,7 +75,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `compare_folders` | Compare two folders by filename stem | `source`, `target`, `recursive` (false) |
 | `search_by_date_range` | Find files by date | `start_date`, `end_date`, `date_type` ("modified"/"created") |
 | `log_interaction` | Log to daily note | `task_description`, `query`, `summary`, `files`, `full_response` |
-| `save_preference` / `list_preferences` / `remove_preference` | Manage Preferences.md | `preference` / (none) / `line_number` |
+| `manage_preferences` | List/add/remove preferences | `operation` ("list"/"add"/"remove"), `preference`, `line_number` |
 | `get_current_date` | Today's date (YYYY-MM-DD) | (none) |
 | `append_to_file` | Append to end of file | `path`, `content` |
 | `prepend_to_file` | Insert after frontmatter | `path`, `content` |

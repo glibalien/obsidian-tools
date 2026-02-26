@@ -192,9 +192,7 @@ batch_merge_files require confirmation when affecting >5 files. The first call r
 it to the user and call again with confirm=true only after approval.
 
 ### Preferences
-- save_preference: Save a user preference for future reference.
-- list_preferences: View saved preferences with line numbers.
-- remove_preference: Delete a saved preference by line number.
+- manage_preferences: List, add, or remove user preferences. Use operation="list", "add" (with preference=), or "remove" (with line_number=).
 
 ### Utility
 - log_interaction: Log every completed request to the daily note (required — see below).

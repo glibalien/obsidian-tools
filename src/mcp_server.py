@@ -36,9 +36,7 @@ from tools.links import (
     search_by_folder,
 )
 from tools.preferences import (
-    list_preferences,
-    remove_preference,
-    save_preference,
+    manage_preferences,
 )
 from tools.search import (
     search_vault,
@@ -91,9 +89,7 @@ mcp.tool()(replace_section)
 mcp.tool()(append_to_section)
 
 # Preference tools
-mcp.tool()(save_preference)
-mcp.tool()(list_preferences)
-mcp.tool()(remove_preference)
+mcp.tool()(manage_preferences)
 
 # Utility tools
 mcp.tool()(log_interaction)
