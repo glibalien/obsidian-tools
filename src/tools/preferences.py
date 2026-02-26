@@ -1,4 +1,4 @@
-"""Preference tools - save, list, remove user preferences."""
+"""Preference tools - manage user preferences."""
 
 from config import PREFERENCES_FILE
 from services.vault import ok, err
@@ -27,58 +27,43 @@ def _write_preferences(preferences: list[str]) -> None:
     PREFERENCES_FILE.write_text(content, encoding="utf-8")
 
 
-def save_preference(preference: str) -> str:
-    """Save a user preference to Preferences.md in the vault root.
+def manage_preferences(
+    operation: str,
+    preference: str | None = None,
+    line_number: int | None = None,
+) -> str:
+    """Manage user preferences stored in Preferences.md.
 
     Args:
-        preference: The preference text to save (will be added as a bullet point).
-
-    Returns:
-        Confirmation message.
+        operation: "list", "add", or "remove".
+        preference: The preference text (required for "add").
+        line_number: 1-indexed line number (required for "remove").
     """
-    if not preference or not preference.strip():
-        return err("preference cannot be empty")
+    if operation == "list":
+        preferences = _read_preferences()
+        if not preferences:
+            return ok("No preferences saved.", results=[])
+        return ok(results=[f"{i}. {pref}" for i, pref in enumerate(preferences, start=1)])
 
-    preference = preference.strip()
-    preferences = _read_preferences()
-    preferences.append(preference)
-    _write_preferences(preferences)
+    if operation == "add":
+        if not preference or not preference.strip():
+            return err("preference cannot be empty")
+        preference = preference.strip()
+        preferences = _read_preferences()
+        preferences.append(preference)
+        _write_preferences(preferences)
+        return ok(f"Saved preference: {preference}")
 
-    return ok(f"Saved preference: {preference}")
+    if operation == "remove":
+        if line_number is None:
+            return err("line_number is required for remove operation")
+        preferences = _read_preferences()
+        if not preferences:
+            return err("No preferences to remove")
+        if line_number < 1 or line_number > len(preferences):
+            return err(f"Invalid line number. Must be between 1 and {len(preferences)}")
+        removed = preferences.pop(line_number - 1)
+        _write_preferences(preferences)
+        return ok(f"Removed preference: {removed}")
 
-
-def list_preferences() -> str:
-    """List all saved user preferences from Preferences.md.
-
-    Returns:
-        Numbered list of preferences, or message if none exist.
-    """
-    preferences = _read_preferences()
-
-    if not preferences:
-        return ok("No preferences saved.", results=[])
-
-    return ok(results=[f"{i}. {pref}" for i, pref in enumerate(preferences, start=1)])
-
-
-def remove_preference(line_number: int) -> str:
-    """Remove a preference by its line number.
-
-    Args:
-        line_number: The line number of the preference to remove (1-indexed).
-
-    Returns:
-        Confirmation message or error.
-    """
-    preferences = _read_preferences()
-
-    if not preferences:
-        return err("No preferences to remove")
-
-    if line_number < 1 or line_number > len(preferences):
-        return err(f"Invalid line number. Must be between 1 and {len(preferences)}")
-
-    removed = preferences.pop(line_number - 1)
-    _write_preferences(preferences)
-
-    return ok(f"Removed preference: {removed}")
+    return err(f"Unknown operation: {operation}. Must be 'list', 'add', or 'remove'")
