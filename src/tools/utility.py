@@ -1,6 +1,4 @@
-"""Utility tools - logging, date."""
-
-from datetime import datetime
+"""Utility tools - logging."""
 
 from log_chat import log_chat
 from services.vault import ok, err
@@ -31,12 +29,3 @@ def log_interaction(
         return err(f"Logging failed: {e}")
 
     return ok(f"Logged to {path}")
-
-
-def get_current_date() -> str:
-    """Get the current date in YYYY-MM-DD format.
-
-    Returns:
-        Current date as a string in YYYY-MM-DD format.
-    """
-    return ok(date=datetime.now().strftime("%Y-%m-%d"))
