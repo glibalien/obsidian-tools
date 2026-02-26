@@ -30,7 +30,7 @@ Projects and tasks are linked structurally, not just by content:
 - To find tasks for a project, use list_files with compound
   filters: field="project", value="Project Name", filters for status/category.
 - For broader relationship discovery (meetings, people, notes referencing a
-  topic), use find_backlinks — it catches wikilinks in both body and frontmatter.
+  topic), use find_links (direction="backlinks") — it catches wikilinks in both body and frontmatter.
 
 ## Choosing the Right Tool
 
@@ -45,8 +45,7 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 | "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
 | "Tasks for project X" / multi-field query | list_files (with filters) | Compound filtering — fast, complete, exact |
 | "Update all files in folder X" / folder-scoped update | batch_update_frontmatter (with folder) | Folder-scoped targeting. Combine with target_field for filtered updates. |
-| "What links to X" / relationship discovery | find_backlinks | Structural relationships via wikilinks |
-| "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
+| "What links to/from X" / relationship discovery | find_links | Structural relationships via wikilinks — use direction param |
 | "List files in folder X" | list_files (folder only) | Direct folder listing — pass only folder param |
 | "Check if files in folder A exist in folder B" / folder comparison | compare_folders | Compares by filename stem, returns overlap and differences |
 | "Merge two specific files" / deduplicate a pair | merge_files | Content-aware dedup merge |
@@ -60,16 +59,17 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 - **Exhaustive vs relevant**: Need ALL matching notes? Use frontmatter/folder/backlinks.
   Need the BEST matching notes? Use search_vault.
 - **Structural vs textual**: Relationships via wikilinks and frontmatter are invisible
-  to text search. Use find_backlinks to discover them.
+  to text search. Use find_links to discover them.
 
 ## Vault Navigation Strategy
 
 For research or summarization tasks:
 1. Start with the right tool (see decision tree above)
-2. Use find_backlinks on key notes to discover related notes, meetings, and
-   tasks that reference them via wikilinks
-3. Use find_outlinks to see what a note links to — results include
-   resolved file paths, so use those paths directly with read_file
+2. Use find_links on key notes to discover related notes, meetings, and
+   tasks that reference them via wikilinks (direction="backlinks") and
+   see what a note links to (direction="outlinks")
+3. Outlink results include resolved file paths — use those paths directly
+   with read_file
 4. Read linked notes to build a complete picture
 
 When search results contain enough information (especially when heading metadata
@@ -115,14 +115,12 @@ Search is for discovery; read_file is for known files.
 - web_search: Search the web via DuckDuckGo.
 
 ### Relationships
-- find_backlinks: Find all notes that link TO a given note. Pass the note
-  name without .md extension or brackets (e.g. "Project Name", not
-  "[[Project Name]]" or "Project Name.md"). Supports limit/offset
+- find_links: Find links to or from a note. Pass file path and direction
+  ("backlinks", "outlinks", or "both"). Backlinks scan the vault for
+  [[note]] references. Outlinks extract wikilinks and resolve paths
+  ({name, path} objects, null path if note doesn't exist). Default
+  direction is "both" (returns both in one call). Supports limit/offset
   pagination. Returns results with total count.
-- find_outlinks: Find all notes that a given note links FROM. Pass the
-  file path (not note name). Returns {name, path} objects where path is
-  the resolved vault path (null if the linked note doesn't exist).
-  Supports limit/offset pagination. Returns results with total count.
 
 ### File Operations
 - read_file: Read any vault file — auto-detects type by extension.
@@ -197,7 +195,7 @@ it to the user and call again with confirm=true only after approval.
 
 ## Handling Large Results
 
-List tools (find_backlinks, find_outlinks, list_files,
+List tools (find_links, list_files,
 search_by_date_range) support limit/offset pagination
 and return a total count. Default limit is 500 (max 2000). Retrieve more pages
 with increasing offsets.
