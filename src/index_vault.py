@@ -14,7 +14,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
-from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS
+from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, setup_logging
 from services.chroma import get_collection, purge_database
 from services.vault import get_vault_files
 
@@ -263,6 +263,7 @@ def index_vault(full: bool = False) -> None:
 
 
 if __name__ == "__main__":
+    setup_logging("index_vault")
     full_reindex = "--full" in sys.argv
     reset_db = "--reset" in sys.argv
     if reset_db:
