@@ -43,22 +43,26 @@ def find_links(
     if pagination_error:
         return err(pagination_error)
 
+    rel_path = get_relative_path(file_path)
+
     if direction == "backlinks":
-        return _get_backlinks(file_path, validated_offset, validated_limit)
+        return _get_backlinks(file_path, rel_path, validated_offset, validated_limit)
 
     if direction == "outlinks":
         return _get_outlinks(file_path, path, validated_offset, validated_limit)
 
     # direction == "both"
-    backlinks_data = _backlinks_data(file_path, validated_offset, validated_limit)
-    outlinks_data = _outlinks_data(file_path, path, validated_offset, validated_limit)
+    backlinks_data = _backlinks_data(file_path, rel_path, validated_offset, validated_limit)
+    outlinks_data, outlinks_err = _outlinks_data(file_path, path, validated_offset, validated_limit)
+    if outlinks_err:
+        return err(outlinks_err)
     return ok(backlinks=backlinks_data, outlinks=outlinks_data)
 
 
-def _get_backlinks(file_path: Path, offset: int, limit: int) -> str:
+def _get_backlinks(file_path: Path, rel_path: str, offset: int, limit: int) -> str:
     """Return paginated backlinks as a top-level ok() response."""
     note_name = file_path.stem
-    all_results = _scan_backlinks(note_name)
+    all_results = _scan_backlinks(note_name, rel_path)
     if not all_results:
         return ok(f"No backlinks found to [[{note_name}]]", results=[], total=0)
     total = len(all_results)
@@ -78,21 +82,29 @@ def _get_outlinks(file_path: Path, display_path: str, offset: int, limit: int) -
     return ok(results=page, total=total)
 
 
-def _backlinks_data(file_path: Path, offset: int, limit: int) -> dict:
+def _backlinks_data(file_path: Path, rel_path: str, offset: int, limit: int) -> dict:
     """Return backlinks as a dict for embedding in 'both' response."""
     note_name = file_path.stem
-    all_results = _scan_backlinks(note_name)
+    all_results = _scan_backlinks(note_name, rel_path)
     total = len(all_results)
     page = all_results[offset:offset + limit]
     return {"results": page, "total": total}
 
 
-def _outlinks_data(file_path: Path, display_path: str, offset: int, limit: int) -> dict:
-    """Return outlinks as a dict for embedding in 'both' response."""
-    all_results = _extract_outlinks(file_path) or []
+def _outlinks_data(
+    file_path: Path, display_path: str, offset: int, limit: int,
+) -> tuple[dict, str | None]:
+    """Return outlinks as a dict for embedding in 'both' response.
+
+    Returns:
+        Tuple of (data_dict, error_message). error_message is None on success.
+    """
+    all_results = _extract_outlinks(file_path)
+    if all_results is None:
+        return {}, f"Reading file failed: {display_path}"
     total = len(all_results)
     page = all_results[offset:offset + limit]
-    return {"results": page, "total": total}
+    return {"results": page, "total": total}, None
 
 
 def _extract_outlinks(file_path: Path) -> list[dict] | None:
@@ -116,9 +128,24 @@ def _extract_outlinks(file_path: Path) -> list[dict] | None:
     ]
 
 
-def _scan_backlinks(note_name: str) -> list[str]:
-    """Fallback: scan all vault files for backlinks (O(n))."""
-    pattern = rf"\[\[{re.escape(note_name)}(?:\|[^\]]+)?\]\]"
+def _scan_backlinks(note_name: str, rel_path: str) -> list[str]:
+    """Scan all vault files for backlinks (O(n)).
+
+    Matches both bare stem links ([[note]]) and folder-qualified links
+    ([[folder/note]]) to handle disambiguation when stems collide.
+    """
+    # Build pattern matching both [[stem]] and [[folder/stem]] forms
+    # rel_path is like "sub/foo.md" — strip .md for the qualified name
+    qualified = rel_path[:-3] if rel_path.endswith(".md") else rel_path
+    qualified = qualified.replace("\\", "/")
+
+    if qualified != note_name:
+        # Match either bare stem or folder-qualified path
+        alt = rf"(?:{re.escape(note_name)}|{re.escape(qualified)})"
+    else:
+        alt = re.escape(note_name)
+
+    pattern = rf"\[\[{alt}(?:\|[^\]]+)?\]\]"
     backlinks = []
 
     for md_file in get_vault_files():

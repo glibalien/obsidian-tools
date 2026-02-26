@@ -34,6 +34,28 @@ class TestFindBacklinks:
         assert result["results"] == []
         assert "No backlinks found" in result["message"]
 
+    def test_find_backlinks_folder_qualified_links(self, vault_config):
+        """Should find folder-qualified wikilinks like [[sub/foo]]."""
+        sub = vault_config / "sub"
+        sub.mkdir(exist_ok=True)
+        (sub / "target.md").write_text("# Target in subfolder")
+        (vault_config / "linker.md").write_text("See [[sub/target]] for details.")
+        result = json.loads(find_links("sub/target.md", direction="backlinks"))
+        assert result["success"] is True
+        assert "linker.md" in result["results"]
+
+    def test_find_backlinks_matches_both_stem_and_qualified(self, vault_config):
+        """Should match both [[foo]] and [[sub/foo]] for sub/foo.md."""
+        sub = vault_config / "sub"
+        sub.mkdir(exist_ok=True)
+        (sub / "foo.md").write_text("# Foo in sub")
+        (vault_config / "bare_link.md").write_text("Link to [[foo]]")
+        (vault_config / "qualified_link.md").write_text("Link to [[sub/foo]]")
+        result = json.loads(find_links("sub/foo.md", direction="backlinks"))
+        assert result["success"] is True
+        assert "bare_link.md" in result["results"]
+        assert "qualified_link.md" in result["results"]
+
     def test_find_backlinks_file_not_found(self, vault_config):
         """Should return error for missing file."""
         result = json.loads(find_links("nonexistent.md", direction="backlinks"))
@@ -399,6 +421,19 @@ class TestFindLinksBoth:
         """Should error for missing file in both mode."""
         result = json.loads(find_links("nonexistent.md", direction="both"))
         assert result["success"] is False
+
+    def test_both_surfaces_outlink_read_error(self, vault_config):
+        """Should return error if file becomes unreadable during outlink extraction."""
+        note = vault_config / "unreadable.md"
+        note.write_text("[[link]]")
+        # Make file unreadable after resolve_file succeeds
+        note.chmod(0o000)
+        try:
+            result = json.loads(find_links("unreadable.md", direction="both"))
+            assert result["success"] is False
+            assert "Reading file failed" in result["error"]
+        finally:
+            note.chmod(0o644)
 
 
 class TestFindLinksValidation:

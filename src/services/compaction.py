@@ -99,6 +99,22 @@ def _build_list_stub(data: dict) -> str:
     return json.dumps(stub)
 
 
+def _build_find_links_stub(data: dict) -> str:
+    """Compact find_links: handle both single-direction and both-mode responses."""
+    stub = _base_stub(data)
+    # Single direction: top-level results/total
+    if "results" in data and isinstance(data["results"], list):
+        stub["result_count"] = len(data["results"])
+        stub["results"] = data["results"]
+    if "total" in data:
+        stub["total"] = data["total"]
+    # Both mode: nested backlinks/outlinks sections
+    for key in ("backlinks", "outlinks"):
+        if key in data and isinstance(data[key], dict):
+            stub[key] = data[key]
+    return json.dumps(stub)
+
+
 def _build_web_search_stub(data: dict) -> str:
     """Compact web_search: keep title and URL, drop snippets."""
     stub = _base_stub(data)
@@ -116,7 +132,7 @@ _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
     "search_vault": _build_search_vault_stub,
     "read_file": _build_read_file_stub,
     "web_search": _build_web_search_stub,
-    "find_links": _build_list_stub,
+    "find_links": _build_find_links_stub,
     "list_files": _build_list_stub,
     "search_by_date_range": _build_list_stub,
 }
