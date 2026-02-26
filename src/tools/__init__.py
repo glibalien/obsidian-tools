@@ -9,7 +9,7 @@ from tools.files import (
 )
 from tools.frontmatter import (
     batch_update_frontmatter,
-    list_files_by_frontmatter,
+    list_files,
     search_by_date_range,
     update_frontmatter,
 )
@@ -43,7 +43,7 @@ __all__ = [
     "read_file",
     # frontmatter
     "batch_update_frontmatter",
-    "list_files_by_frontmatter",
+    "list_files",
     "search_by_date_range",
     "update_frontmatter",
     # links
