@@ -7,6 +7,7 @@ import json
 import sys
 import uuid
 from collections import OrderedDict
+from datetime import datetime
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 
@@ -122,11 +123,12 @@ def format_context_prefix(active_file: str | None) -> str:
 
 
 def _build_system_prompt() -> str:
-    """Build system prompt with current user preferences appended."""
+    """Build system prompt with current user preferences and date appended."""
     system_prompt = app.state.system_prompt
     preferences = load_preferences()
     if preferences:
         system_prompt += preferences
+    system_prompt += f"\n\nCurrent date: {datetime.now().strftime('%Y-%m-%d')}"
     return system_prompt
 
 
