@@ -156,7 +156,7 @@ class TestBuildToolStub:
             "results": ["file1.md", "file2.md", "file3.md"],
             "total": 25,
         })
-        for tool in ["find_backlinks", "find_outlinks", "list_files",
+        for tool in ["find_links", "list_files",
                       "search_by_date_range"]:
             stub = build_tool_stub(content, tool)
             parsed = json.loads(stub)
@@ -172,7 +172,7 @@ class TestBuildToolStub:
             "results": [],
             "total": 0,
         })
-        stub = build_tool_stub(content, "find_backlinks")
+        stub = build_tool_stub(content, "find_links")
         parsed = json.loads(stub)
         assert parsed["total"] == 0
         assert parsed["result_count"] == 0
