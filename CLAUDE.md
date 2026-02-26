@@ -133,7 +133,7 @@ All paths configured via `.env`:
 | `WHISPER_MODEL` | `whisper-v3` | Audio transcription model |
 | `VISION_MODEL` | `accounts/fireworks/models/qwen3-vl-30b-a3b-instruct` | Image description model |
 
-`config.py` also provides: `setup_logging(name)` (rotating file handler + stderr), `EXCLUDED_DIRS`, `PREFERENCES_FILE`, `ATTACHMENTS_DIR`.
+`config.py` also provides: `setup_logging(name)` (rotating file handler + stderr), `EXCLUDED_DIRS`, `PREFERENCES_FILE`, `ATTACHMENTS_DIR`. Entry points that call `setup_logging`: `api_server.py` ("api"), `agent.py` ("agent"), `mcp_server.py` ("mcp"), `index_vault.py` ("index_vault"). Note: the MCP server runs as a **subprocess** of the API server, so it needs its own `setup_logging` call — logs from tool handlers (e.g. `readers.py`) only appear in `mcp.log.md`, not `api.log.md`.
 
 `agent.py` constants: `MAX_TOOL_RESULT_CHARS` (100,000), `SYSTEM_PROMPT_FILE`, `SYSTEM_PROMPT_EXAMPLE`.
 
@@ -167,7 +167,7 @@ Key details: Uses `MarkdownRenderer.render()` with `sourcePath` captured at requ
 
 ## Coding Standards
 
-- **Logging**: `import logging` + `logger = logging.getLogger(__name__)` immediately after imports (before constants). Use `%s` lazy formatting, not f-strings. Levels: DEBUG for high-frequency internal state, INFO for external calls/lifecycle, WARNING for failures.
+- **Logging**: `import logging` + `logger = logging.getLogger(__name__)` immediately after imports (before constants). Use `%s` lazy formatting, not f-strings. Levels: DEBUG for high-frequency internal state, INFO for external calls/lifecycle, WARNING for failures. New `__main__` entry points must call `setup_logging(name)` to get file output.
 - **No god functions**: Break into focused functions (~50 lines max)
 - **DRY**: Extract repeated logic into helpers
 - **Single responsibility**: Each function does one thing
