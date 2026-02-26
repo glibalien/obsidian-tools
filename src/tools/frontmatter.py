@@ -498,7 +498,7 @@ def batch_update_frontmatter(
         target_value: Value to match for target_field. Not required for 'missing'/'exists' match types.
         target_match_type: How to match target_field - 'contains', 'equals', 'missing',
             'exists', 'not_contains', or 'not_equals' (default 'contains').
-        target_filters: Additional targeting conditions (AND logic). Same format as list_files_by_frontmatter filters.
+        target_filters: Additional targeting conditions (AND logic). Same format as list_files filters.
         folder: Restrict targeting to files within this folder (relative to vault root).
             Can be used alone (all files in folder) or with target_field (scoped query).
         recursive: Include subfolders when folder is set (default false). Set true to include subfolders.
