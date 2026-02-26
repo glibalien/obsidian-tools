@@ -44,17 +44,35 @@ class TestFindBacklinks:
         assert result["success"] is True
         assert "linker.md" in result["results"]
 
-    def test_find_backlinks_matches_both_stem_and_qualified(self, vault_config):
-        """Should match both [[foo]] and [[sub/foo]] for sub/foo.md."""
+    def test_find_backlinks_bare_stem_when_no_collision(self, vault_config):
+        """Should match bare [[stem]] when no other file shares the stem."""
         sub = vault_config / "sub"
         sub.mkdir(exist_ok=True)
-        (sub / "foo.md").write_text("# Foo in sub")
-        (vault_config / "bare_link.md").write_text("Link to [[foo]]")
-        (vault_config / "qualified_link.md").write_text("Link to [[sub/foo]]")
-        result = json.loads(find_links("sub/foo.md", direction="backlinks"))
+        (sub / "unique_name.md").write_text("# Unique in sub")
+        (vault_config / "bare_link.md").write_text("Link to [[unique_name]]")
+        (vault_config / "qualified_link.md").write_text("Link to [[sub/unique_name]]")
+        result = json.loads(find_links("sub/unique_name.md", direction="backlinks"))
         assert result["success"] is True
         assert "bare_link.md" in result["results"]
         assert "qualified_link.md" in result["results"]
+
+    def test_find_backlinks_no_bare_stem_when_collision(self, vault_config):
+        """Bare [[foo]] should NOT match sub/foo.md when foo.md also exists."""
+        sub = vault_config / "sub"
+        sub.mkdir(exist_ok=True)
+        (vault_config / "foo.md").write_text("# Root foo")
+        (sub / "foo.md").write_text("# Sub foo")
+        (vault_config / "bare_link.md").write_text("Link to [[foo]]")
+        (vault_config / "qualified_link.md").write_text("Link to [[sub/foo]]")
+        # sub/foo.md should only get the qualified link, not the bare one
+        result = json.loads(find_links("sub/foo.md", direction="backlinks"))
+        assert result["success"] is True
+        assert "qualified_link.md" in result["results"]
+        assert "bare_link.md" not in result["results"]
+        # foo.md (root) should get the bare link
+        result2 = json.loads(find_links("foo.md", direction="backlinks"))
+        assert result2["success"] is True
+        assert "bare_link.md" in result2["results"]
 
     def test_find_backlinks_file_not_found(self, vault_config):
         """Should return error for missing file."""
