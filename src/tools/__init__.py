@@ -31,7 +31,6 @@ from tools.sections import (
     replace_section,
 )
 from tools.utility import (
-    get_current_date,
     log_interaction,
 )
 
@@ -61,6 +60,5 @@ __all__ = [
     "prepend_to_file",
     "replace_section",
     # utility
-    "get_current_date",
     "log_interaction",
 ]
