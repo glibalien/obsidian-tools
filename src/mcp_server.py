@@ -15,7 +15,6 @@ from mcp.server.fastmcp import FastMCP
 
 # Import all tool implementations
 from tools.files import (
-    append_to_file,
     batch_merge_files,
     batch_move_files,
     create_file,
@@ -41,11 +40,7 @@ from tools.search import (
     search_vault,
     web_search,
 )
-from tools.sections import (
-    append_to_section,
-    prepend_to_file,
-    replace_section,
-)
+from tools.editing import edit_file
 from tools.utility import (
     log_interaction,
 )
@@ -65,7 +60,6 @@ mcp.tool()(read_file)
 mcp.tool()(create_file)
 mcp.tool()(move_file)
 mcp.tool()(batch_move_files)
-mcp.tool()(append_to_file)
 mcp.tool()(merge_files)
 mcp.tool()(batch_merge_files)
 
@@ -81,10 +75,8 @@ mcp.tool()(find_backlinks)
 mcp.tool()(find_outlinks)
 
 
-# Section tools
-mcp.tool()(prepend_to_file)
-mcp.tool()(replace_section)
-mcp.tool()(append_to_section)
+# Editing tools
+mcp.tool()(edit_file)
 
 # Preference tools
 mcp.tool()(manage_preferences)
