@@ -956,26 +956,3 @@ def batch_move_files(
 
     return ok(format_batch_result("move", results))
 
-
-def append_to_file(path: str, content: str) -> str:
-    """Append content to the end of an existing vault file.
-
-    Args:
-        path: Path to the note (relative to vault or absolute).
-        content: Content to append to the file.
-
-    Returns:
-        Confirmation message or error.
-    """
-    file_path, error = resolve_file(path)
-    if error:
-        return err(error)
-
-    try:
-        with file_path.open("a", encoding="utf-8") as f:
-            f.write("\n" + content)
-    except Exception as e:
-        return err(f"Appending to file failed: {e}")
-
-    rel = str(get_relative_path(file_path))
-    return ok(f"Appended to {rel}", path=rel)
