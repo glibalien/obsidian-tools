@@ -27,7 +27,7 @@ frontmatter category rather than folder path.
 Projects and tasks are linked structurally, not just by content:
 - Task notes (in TaskNotes/Tasks/) have a "project" frontmatter property
   containing a wikilink to their parent project, e.g. project: "[[Cora Citizenship]]"
-- To find tasks for a project, use list_files_by_frontmatter with compound
+- To find tasks for a project, use list_files with compound
   filters: field="project", value="Project Name", filters for status/category.
 - For broader relationship discovery (meetings, people, notes referencing a
   topic), use find_backlinks — it catches wikilinks in both body and frontmatter.
@@ -39,15 +39,15 @@ everything — it is a relevance-ranked sample, not an exhaustive listing.
 
 | User intent | Tool | Why |
 |---|---|---|
-| "Find notes with field=X" / metadata lookup | list_files_by_frontmatter | Direct field lookup — fast, complete, low token cost. Use filters param for multi-field queries (e.g. "open tasks for project X"). |
-| "Find notes missing field X" / absence check | list_files_by_frontmatter (match_type="missing") | Finds files where a field doesn't exist. Use "not_contains" to find files missing a specific value. |
+| "Find notes with field=X" / metadata lookup | list_files | Direct field lookup — fast, complete, low token cost. Use filters param for multi-field queries (e.g. "open tasks for project X"). |
+| "Find notes missing field X" / absence check | list_files (match_type="missing") | Finds files where a field doesn't exist. Use "not_contains" to find files missing a specific value. |
 | "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
 | "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
-| "Tasks for project X" / multi-field query | list_files_by_frontmatter (with filters) | Compound filtering — fast, complete, exact |
+| "Tasks for project X" / multi-field query | list_files (with filters) | Compound filtering — fast, complete, exact |
 | "Update all files in folder X" / folder-scoped update | batch_update_frontmatter (with folder) | Folder-scoped targeting. Combine with target_field for filtered updates. |
 | "What links to X" / relationship discovery | find_backlinks | Structural relationships via wikilinks |
 | "What does X link to" | find_outlinks | Extract wikilinks from a specific file |
-| "List files in folder X" | search_by_folder | Direct folder listing |
+| "List files in folder X" | list_files (folder only) | Direct folder listing — pass only folder param |
 | "Check if files in folder A exist in folder B" / folder comparison | compare_folders | Compares by filename stem, returns overlap and differences |
 | "Merge two specific files" / deduplicate a pair | merge_files | Content-aware dedup merge |
 | "Merge duplicate files across folders" / bulk dedup | batch_merge_files | Uses compare_folders internally to find pairs |
@@ -85,8 +85,10 @@ Search is for discovery; read_file is for known files.
   Results include a "heading" field showing which section each chunk came from.
   Optional chunk_type filters by: "frontmatter", "section", "paragraph",
   "sentence", or "fragment".
-- list_files_by_frontmatter: PRIMARY tool for frontmatter queries. Fast,
-  complete, low token cost. Parameters: field, value, match_type, folder.
+- list_files: PRIMARY tool for listing and filtering vault files. Supports
+  three modes: (1) folder-only — pass just folder to list all files, (2)
+  frontmatter filtering — pass field, value, match_type, (3) combined —
+  both folder and field to scope queries. Fast, complete, low token cost.
   Supports limit/offset pagination.
   **Match types**: "contains" (default, substring/list member), "equals"
   (exact), "missing" (field absent, value ignored), "exists" (field present,
@@ -105,9 +107,6 @@ Search is for discovery; read_file is for known files.
 - search_by_date_range: Find notes by date range. Parameters: start_date,
   end_date (YYYY-MM-DD), date_type ("modified" or "created", default
   "modified"). Supports limit/offset pagination. Returns results with
-  total count.
-- search_by_folder: List files in a folder. Set recursive=true to include
-  subfolders. Supports limit/offset pagination. Returns results with
   total count.
 - compare_folders: Compare two folders by markdown filename stem
   (case-insensitive). Returns only_in_source, only_in_target, in_both
@@ -176,7 +175,7 @@ Search is for discovery; read_file is for known files.
   operations including "rename" (field=old key, value=new key). Three modes:
   (1) Explicit paths: pass paths (list of file paths).
   (2) Query-based targeting: pass target_field, target_value, and optional
-      target_filters (same format as list_files_by_frontmatter filters).
+      target_filters (same format as list_files filters).
       target_match_type supports all match types including "missing", "not_contains".
   (3) Folder-based: pass folder to target all files in a directory.
       Combine folder with target_field for scoped queries.
@@ -199,8 +198,8 @@ it to the user and call again with confirm=true only after approval.
 
 ## Handling Large Results
 
-List tools (find_backlinks, find_outlinks, search_by_folder,
-list_files_by_frontmatter, search_by_date_range) support limit/offset pagination
+List tools (find_backlinks, find_outlinks, list_files,
+search_by_date_range) support limit/offset pagination
 and return a total count. Default limit is 500 (max 2000). Retrieve more pages
 with increasing offsets.
 

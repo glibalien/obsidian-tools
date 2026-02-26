@@ -8,7 +8,6 @@ from tools.links import (
     compare_folders,
     find_backlinks,
     find_outlinks,
-    search_by_folder,
 )
 
 
@@ -156,46 +155,6 @@ class TestFindOutlinks:
         assert by_name["foo"] == "foo.md"
         # Folder-qualified link resolves to the specific path
         assert by_name["sub/foo"] == "sub/foo.md"
-
-
-class TestSearchByFolder:
-    """Tests for search_by_folder tool."""
-
-    def test_search_by_folder_basic(self, vault_config):
-        """Should list markdown files in folder."""
-        result = json.loads(search_by_folder("projects"))
-        assert result["success"] is True
-        assert any("project1.md" in f for f in result["results"])
-
-    def test_search_by_folder_recursive(self, vault_config):
-        """Should include subfolders when recursive=True."""
-        result = json.loads(search_by_folder(".", recursive=True))
-        assert result["success"] is True
-        assert any("note1.md" in f for f in result["results"])
-        assert any("project1.md" in f for f in result["results"])
-
-    def test_search_by_folder_non_recursive(self, vault_config):
-        """Should not include subfolders when recursive=False."""
-        result = json.loads(search_by_folder(".", recursive=False))
-        assert result["success"] is True
-        assert any("note1.md" in f for f in result["results"])
-        # project1.md is in projects/ subfolder, should not appear
-        assert not any("projects/" in f for f in result["results"])
-
-    def test_search_by_folder_not_found(self, vault_config):
-        """Should return error for missing folder."""
-        result = json.loads(search_by_folder("nonexistent"))
-        assert result["success"] is False
-        assert "not found" in result["error"].lower()
-
-    def test_search_by_folder_empty(self, vault_config):
-        """Should return message for empty folder."""
-        # Create empty folder
-        (vault_config / "empty_folder").mkdir()
-        result = json.loads(search_by_folder("empty_folder"))
-        assert result["success"] is True
-        assert result["results"] == []
-        assert "No markdown files found" in result["message"]
 
 
 class TestCompareFolders:
@@ -414,23 +373,6 @@ class TestListToolPagination:
         assert len(result2["results"]) == 3
         assert result2["total"] == 10
 
-    def test_search_by_folder_pagination(self, vault_config):
-        """search_by_folder should respect limit and offset."""
-        for i in range(5):
-            (vault_config / f"page_test_{i}.md").write_text(f"# Page {i}")
-
-        result = json.loads(search_by_folder(".", limit=3, offset=0))
-        assert result["success"] is True
-        assert len(result["results"]) == 3
-        assert result["total"] >= 5
-
-    def test_pagination_offset_beyond_results(self, vault_config):
-        """Offset beyond results returns empty list with correct total."""
-        result = json.loads(search_by_folder(".", limit=100, offset=9999))
-        assert result["success"] is True
-        assert result["results"] == []
-        assert result["total"] >= 1
-
     def test_default_pagination_includes_total(self, vault_config):
         """Default call (no limit/offset) should still include total."""
         result = json.loads(find_outlinks("note1.md"))
@@ -450,8 +392,7 @@ def test_paginated_link_tools_reject_invalid_pagination(vault_config, kwargs, ex
     """Paginated links tools should return a consistent pagination validation error."""
     backlinks = json.loads(find_backlinks("note1", **kwargs))
     outlinks = json.loads(find_outlinks("note2.md", **kwargs))
-    folder = json.loads(search_by_folder(".", **kwargs))
 
-    for result in (backlinks, outlinks, folder):
+    for result in (backlinks, outlinks):
         assert result["success"] is False
         assert expected_error in result["error"]
