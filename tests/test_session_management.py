@@ -177,6 +177,19 @@ class TestBuildToolStub:
         assert parsed["total"] == 0
         assert parsed["result_count"] == 0
 
+    def test_find_links_both_mode_preserves_nested_sections(self):
+        """find_links both-mode stub preserves backlinks and outlinks sections."""
+        content = json.dumps({
+            "success": True,
+            "backlinks": {"results": ["a.md", "b.md"], "total": 2},
+            "outlinks": {"results": [{"name": "c", "path": "c.md"}], "total": 1},
+        })
+        stub = build_tool_stub(content, "find_links")
+        parsed = json.loads(stub)
+        assert parsed["status"] == "success"
+        assert parsed["backlinks"] == {"results": ["a.md", "b.md"], "total": 2}
+        assert parsed["outlinks"] == {"results": [{"name": "c", "path": "c.md"}], "total": 1}
+
     def test_web_search_stub_keeps_title_url(self):
         """web_search stub keeps title and URL but drops snippet."""
         content = json.dumps({
