@@ -214,7 +214,6 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 | `log_interaction` | Log interactions to daily notes |
 | `save_preference` / `list_preferences` / `remove_preference` | Manage persistent user preferences |
 | `web_search` | Search the web via DuckDuckGo |
-| `get_current_date` | Get current date |
 | `transcribe_audio` | Transcribe audio embeds via Whisper API |
 
 ## Running as a Service
