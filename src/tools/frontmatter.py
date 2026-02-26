@@ -225,8 +225,8 @@ def _find_matching_files(
     return sorted(matching, key=lambda x: x["path"] if isinstance(x, dict) else x)
 
 
-def list_files_by_frontmatter(
-    field: str,
+def list_files(
+    field: str = "",
     value: str = "",
     match_type: str = "contains",
     filters: list[FilterCondition] | None = None,
@@ -236,10 +236,11 @@ def list_files_by_frontmatter(
     limit: int = LIST_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> str:
-    """Find vault files by frontmatter metadata. Use this for structured queries like "find open tasks for project X", "list all notes tagged Y", or "find notes missing field Z".
+    """List vault files, optionally filtered by frontmatter and/or folder. Use for "list files in folder X", "find notes with field=Y", or combined queries.
 
     Args:
         field: Frontmatter field name to match (e.g., 'tags', 'project', 'category').
+            Optional — omit to list all files in a folder without filtering.
         value: Value to match against. Wikilink brackets are stripped automatically.
             Not required for 'missing' or 'exists' match types.
         match_type: How to match the field value:
@@ -252,18 +253,23 @@ def list_files_by_frontmatter(
         filters: Additional AND conditions. Each needs 'field', optional 'value', and optional 'match_type'.
         include_fields: Field names whose values to return with each result, e.g. ["status", "scheduled"].
         folder: Restrict search to files within this folder (relative to vault root).
+            When field is omitted, lists all files in this folder.
         recursive: Include subfolders when folder is set (default false). Set true to include subfolders.
 
     Returns:
         JSON with results (file paths or objects when include_fields is set) and total count.
     """
-    if match_type not in VALID_MATCH_TYPES:
-        return err(
-            f"match_type must be one of {VALID_MATCH_TYPES}, got '{match_type}'"
-        )
+    if not field and not folder:
+        return err("At least one of 'field' or 'folder' is required")
 
-    if match_type not in NO_VALUE_MATCH_TYPES and not value:
-        return err(f"value is required for match_type '{match_type}'")
+    if field:
+        if match_type not in VALID_MATCH_TYPES:
+            return err(
+                f"match_type must be one of {VALID_MATCH_TYPES}, got '{match_type}'"
+            )
+
+        if match_type not in NO_VALUE_MATCH_TYPES and not value:
+            return err(f"value is required for match_type '{match_type}'")
 
     parsed_filters, filter_err = _validate_filters(filters)
     if filter_err:
@@ -282,11 +288,16 @@ def list_files_by_frontmatter(
             return err(folder_err)
 
     matching = _find_matching_files(
-        field, value, match_type, parsed_filters, parsed_include, folder_path, recursive
+        field or None, value, match_type, parsed_filters, parsed_include, folder_path, recursive
     )
 
     if not matching:
-        return ok(f"No files found where {field} {match_type} '{value}'", results=[], total=0)
+        if field:
+            msg = f"No files found where {field} {match_type} '{value}'"
+        else:
+            mode = "recursively " if recursive else ""
+            msg = f"No markdown files found {mode}in {folder}"
+        return ok(msg, results=[], total=0)
 
     total = len(matching)
     page = matching[validated_offset:validated_offset + validated_limit]
