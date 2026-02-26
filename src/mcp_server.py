@@ -30,8 +30,7 @@ from tools.frontmatter import (
 )
 from tools.links import (
     compare_folders,
-    find_backlinks,
-    find_outlinks,
+    find_links,
 )
 from tools.preferences import (
     manage_preferences,
@@ -71,8 +70,7 @@ mcp.tool()(search_by_date_range)
 
 # Link tools
 mcp.tool()(compare_folders)
-mcp.tool()(find_backlinks)
-mcp.tool()(find_outlinks)
+mcp.tool()(find_links)
 
 
 # Editing tools
