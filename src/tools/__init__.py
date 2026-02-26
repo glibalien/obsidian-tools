@@ -16,7 +16,6 @@ from tools.frontmatter import (
 from tools.links import (
     find_backlinks,
     find_outlinks,
-    search_by_folder,
 )
 from tools.preferences import (
     manage_preferences,
@@ -49,7 +48,6 @@ __all__ = [
     # links
     "find_backlinks",
     "find_outlinks",
-    "search_by_folder",
     # preferences
     "manage_preferences",
     # search

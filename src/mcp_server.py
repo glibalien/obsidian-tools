@@ -25,7 +25,7 @@ from tools.files import (
 )
 from tools.frontmatter import (
     batch_update_frontmatter,
-    list_files_by_frontmatter,
+    list_files,
     search_by_date_range,
     update_frontmatter,
 )
@@ -33,7 +33,6 @@ from tools.links import (
     compare_folders,
     find_backlinks,
     find_outlinks,
-    search_by_folder,
 )
 from tools.preferences import (
     manage_preferences,
@@ -71,7 +70,7 @@ mcp.tool()(merge_files)
 mcp.tool()(batch_merge_files)
 
 # Frontmatter tools
-mcp.tool()(list_files_by_frontmatter)
+mcp.tool()(list_files)
 mcp.tool()(update_frontmatter)
 mcp.tool()(batch_update_frontmatter)
 mcp.tool()(search_by_date_range)
@@ -80,7 +79,7 @@ mcp.tool()(search_by_date_range)
 mcp.tool()(compare_folders)
 mcp.tool()(find_backlinks)
 mcp.tool()(find_outlinks)
-mcp.tool()(search_by_folder)
+
 
 # Section tools
 mcp.tool()(prepend_to_file)

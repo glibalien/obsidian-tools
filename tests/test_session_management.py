@@ -156,8 +156,8 @@ class TestBuildToolStub:
             "results": ["file1.md", "file2.md", "file3.md"],
             "total": 25,
         })
-        for tool in ["find_backlinks", "find_outlinks", "search_by_folder",
-                      "list_files_by_frontmatter", "search_by_date_range"]:
+        for tool in ["find_backlinks", "find_outlinks", "list_files",
+                      "search_by_date_range"]:
             stub = build_tool_stub(content, tool)
             parsed = json.loads(stub)
             assert parsed["total"] == 25, f"Failed for {tool}"
