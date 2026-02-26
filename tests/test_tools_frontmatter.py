@@ -10,7 +10,7 @@ from services.vault import clear_pending_previews
 from tools.frontmatter import (
     FilterCondition,
     batch_update_frontmatter,
-    list_files_by_frontmatter,
+    list_files,
     search_by_date_range,
     update_frontmatter,
 )
@@ -330,7 +330,7 @@ class TestUpdateFrontmatterValueNormalization:
 
 
 class TestCompoundFiltering:
-    """Tests for list_files_by_frontmatter compound filtering."""
+    """Tests for list_files compound filtering."""
 
     def test_compound_filter_two_fields(self, vault_config):
         """Should return files matching both the primary field and filter."""
@@ -344,7 +344,7 @@ class TestCompoundFiltering:
             "---\nproject: '[[OtherProject]]'\nstatus: open\ncategory: task\n---\n# Other\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="project",
                 value="MyProject",
                 filters=[FilterCondition(field="status", value="open")],
@@ -365,7 +365,7 @@ class TestCompoundFiltering:
             "---\nproject: '[[Y]]'\nstatus: open\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="project",
                 value="X",
                 filters=[FilterCondition(field="status", value="open")],
@@ -384,7 +384,7 @@ class TestCompoundFiltering:
             "---\ncategory: meeting\nstatus: open-review\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="category",
                 value="meeting",
                 match_type="equals",
@@ -398,16 +398,16 @@ class TestCompoundFiltering:
     def test_filters_empty_list(self, vault_config):
         """Empty filters list should work same as no filters."""
         result_no_filters = json.loads(
-            list_files_by_frontmatter(field="tags", value="test")
+            list_files(field="tags", value="test")
         )
         result_empty = json.loads(
-            list_files_by_frontmatter(field="tags", value="test", filters=[])
+            list_files(field="tags", value="test", filters=[])
         )
         assert result_no_filters["total"] == result_empty["total"]
 
 
 class TestIncludeFields:
-    """Tests for list_files_by_frontmatter include_fields parameter."""
+    """Tests for list_files include_fields parameter."""
 
     def test_include_fields_returns_values(self, vault_config):
         """Results should be dicts with path and requested field values."""
@@ -415,7 +415,7 @@ class TestIncludeFields:
             "---\ncategory: task\nstatus: open\nscheduled: '2026-03-01'\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="category", value="task", match_type="equals",
                 include_fields=["status", "scheduled"],
             )
@@ -432,7 +432,7 @@ class TestIncludeFields:
             "---\ncategory: task\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="category", value="task", match_type="equals",
                 include_fields=["status", "nonexistent"],
             )
@@ -451,7 +451,7 @@ class TestIncludeFields:
             "---\nproject: '[[P1]]'\nstatus: done\ncontext: personal\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="project", value="P1",
                 filters=[FilterCondition(field="status", value="open")],
                 include_fields=["context"],
@@ -464,7 +464,7 @@ class TestIncludeFields:
     def test_include_fields_empty_returns_strings(self, vault_config):
         """Empty include_fields should return plain paths like omitting it."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="test",
                 include_fields=[],
             )
@@ -476,7 +476,7 @@ class TestIncludeFields:
     def test_without_include_fields_returns_strings(self, vault_config):
         """Without include_fields, results should be plain path strings."""
         result = json.loads(
-            list_files_by_frontmatter(field="tags", value="test")
+            list_files(field="tags", value="test")
         )
         assert result["success"] is True
         if result["total"] > 0:
@@ -907,7 +907,7 @@ class TestCaseInsensitiveMatching:
         """Case-insensitive matching should work for contains, equals, list values, and non-string types."""
         (vault_config / filename).write_text(frontmatter)
         result = json.loads(
-            list_files_by_frontmatter(field=field, value=value, match_type=match_type)
+            list_files(field=field, value=value, match_type=match_type)
         )
         assert result["total"] >= 1
         assert any(filename in p for p in result["results"])
@@ -918,7 +918,7 @@ class TestCaseInsensitiveMatching:
             "---\nproject: '[[MyProj]]'\nstatus: OPEN\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="project", value="myproj",
                 filters=[FilterCondition(field="status", value="open", match_type="equals")],
             )
@@ -932,7 +932,7 @@ class TestCaseInsensitiveMatching:
             "---\nProject:\n- '[[MyProj]]'\nStatus: Open\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="project", value="MyProj",
                 filters=[FilterCondition(field="status", value="open")],
             )
@@ -946,7 +946,7 @@ class TestCaseInsensitiveMatching:
             "---\nProject:\n- '[[Proj]]'\nStatus: Open\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="project", value="Proj",
                 include_fields=["status"],
             )
@@ -974,7 +974,7 @@ class TestWikilinkStripping:
         """Wikilink brackets should be stripped during frontmatter matching."""
         (vault_config / filename).write_text(frontmatter)
         result = json.loads(
-            list_files_by_frontmatter(field="project", value=value, match_type=match_type)
+            list_files(field="project", value=value, match_type=match_type)
         )
         assert result["total"] >= 1
         assert any(filename in p for p in result["results"])
@@ -985,7 +985,7 @@ class TestWikilinkStripping:
             "---\nProject:\n- '[[Agentic S2P]]'\nstatus: open\ncategory: task\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="category", value="task",
                 filters=[FilterCondition(field="project", value="Agentic S2P")],
             )
@@ -1000,7 +1000,7 @@ class TestResultMessage:
     def test_found_message_present(self, vault_config):
         """Non-empty results should include a 'Found N' message."""
         result = json.loads(
-            list_files_by_frontmatter(field="tags", value="project")
+            list_files(field="tags", value="project")
         )
         assert result["success"] is True
         assert result["total"] >= 1
@@ -1010,7 +1010,7 @@ class TestResultMessage:
     def test_no_results_message(self, vault_config):
         """Empty results should include a 'No files found' message."""
         result = json.loads(
-            list_files_by_frontmatter(field="nonexistent", value="xyz")
+            list_files(field="nonexistent", value="xyz")
         )
         assert result["total"] == 0
         assert "No files found" in result["message"]
@@ -1213,7 +1213,7 @@ class TestSearchByDateRange:
 def test_frontmatter_paginated_tools_reject_invalid_pagination(vault_config, kwargs, expected_error):
     """Frontmatter paginated tools should return a consistent pagination validation error."""
     list_result = json.loads(
-        list_files_by_frontmatter(field="tags", value="test", **kwargs)
+        list_files(field="tags", value="test", **kwargs)
     )
     date_result = json.loads(
         search_by_date_range(
@@ -1236,7 +1236,7 @@ class TestNegativeMatching:
         """match_type='missing' finds files where the field is absent."""
         # note3.md has no frontmatter at all — should match 'missing' on any field
         result = json.loads(
-            list_files_by_frontmatter(field="company", match_type="missing")
+            list_files(field="company", match_type="missing")
         )
         assert result["success"] is True
         # note3.md has no frontmatter, note1.md has no company field
@@ -1248,7 +1248,7 @@ class TestNegativeMatching:
     def test_missing_excludes_files_with_field(self, vault_config):
         """match_type='missing' excludes files that have the field."""
         result = json.loads(
-            list_files_by_frontmatter(field="tags", match_type="missing")
+            list_files(field="tags", match_type="missing")
         )
         assert result["success"] is True
         # note1.md has tags — should NOT be in results
@@ -1259,7 +1259,7 @@ class TestNegativeMatching:
     def test_exists_finds_files_with_field(self, vault_config):
         """match_type='exists' finds files where the field is present."""
         result = json.loads(
-            list_files_by_frontmatter(field="tags", match_type="exists")
+            list_files(field="tags", match_type="exists")
         )
         assert result["success"] is True
         assert any("note1.md" in p for p in result["results"])
@@ -1270,7 +1270,7 @@ class TestNegativeMatching:
     def test_not_contains_excludes_matching(self, vault_config):
         """match_type='not_contains' excludes files containing the value."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="project", match_type="not_contains"
             )
         )
@@ -1283,7 +1283,7 @@ class TestNegativeMatching:
     def test_not_contains_includes_missing_field(self, vault_config):
         """match_type='not_contains' includes files where the field is absent."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="project", match_type="not_contains"
             )
         )
@@ -1297,7 +1297,7 @@ class TestNegativeMatching:
         (vault_config / "ne2.md").write_text("---\nstatus: closed\n---\n")
         (vault_config / "ne3.md").write_text("---\ntitle: no status\n---\n")
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="status", value="open", match_type="not_equals"
             )
         )
@@ -1314,7 +1314,7 @@ class TestNegativeMatching:
             "---\ncategory: task\nstatus: done\n---\n"
         )
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="category",
                 value="task",
                 match_type="equals",
@@ -1328,7 +1328,7 @@ class TestNegativeMatching:
     def test_value_required_for_contains(self, vault_config):
         """match_type='contains' requires a non-empty value."""
         result = json.loads(
-            list_files_by_frontmatter(field="tags", value="", match_type="contains")
+            list_files(field="tags", value="", match_type="contains")
         )
         assert result["success"] is False
         assert "value" in result["error"].lower()
@@ -1336,7 +1336,7 @@ class TestNegativeMatching:
     def test_invalid_match_type_rejected(self, vault_config):
         """Unknown match_type returns an error."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="test", match_type="regex"
             )
         )
@@ -1348,9 +1348,9 @@ class TestFolderFiltering:
     """Tests for folder parameter on frontmatter tools."""
 
     def test_list_with_folder(self, vault_config):
-        """list_files_by_frontmatter with folder restricts to that directory."""
+        """list_files with folder restricts to that directory."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="project", folder="projects"
             )
         )
@@ -1363,7 +1363,7 @@ class TestFolderFiltering:
         """folder + match_type='missing' finds files in folder without the field."""
         # projects/project1.md has tags and status, but no company
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="company", match_type="missing", folder="projects"
             )
         )
@@ -1376,7 +1376,7 @@ class TestFolderFiltering:
     def test_list_folder_excludes_other_folders(self, vault_config):
         """folder parameter should exclude files outside the folder."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="meeting", folder="projects"
             )
         )
@@ -1392,7 +1392,7 @@ class TestFolderFiltering:
         (sub / "deep.md").write_text("---\ntags:\n  - project\n---\n# Deep\n")
 
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="project", folder="projects"
             )
         )
@@ -1407,7 +1407,7 @@ class TestFolderFiltering:
         (sub / "deep.md").write_text("---\ntags:\n  - project\n---\n# Deep\n")
 
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="project", folder="projects", recursive=False
             )
         )
@@ -1418,7 +1418,7 @@ class TestFolderFiltering:
     def test_list_folder_invalid(self, vault_config):
         """Nonexistent folder returns error."""
         result = json.loads(
-            list_files_by_frontmatter(
+            list_files(
                 field="tags", value="test", folder="nonexistent"
             )
         )
@@ -1599,3 +1599,71 @@ class TestBatchRenameFrontmatter:
             operation="rename",
         ))
         assert result["success"] is False
+
+
+class TestListFilesFolderOnly:
+    """Tests for list_files folder-only mode (no field)."""
+
+    def test_folder_only_basic(self, vault_config):
+        """Should list markdown files in folder without requiring field."""
+        result = json.loads(list_files(folder="projects"))
+        assert result["success"] is True
+        assert any("project1.md" in f for f in result["results"])
+
+    def test_folder_only_recursive(self, vault_config):
+        """Should include subfolders when recursive=True."""
+        result = json.loads(list_files(folder=".", recursive=True))
+        assert result["success"] is True
+        assert any("note1.md" in f for f in result["results"])
+        assert any("project1.md" in f for f in result["results"])
+
+    def test_folder_only_non_recursive(self, vault_config):
+        """Should not include subfolders when recursive=False."""
+        result = json.loads(list_files(folder=".", recursive=False))
+        assert result["success"] is True
+        assert any("note1.md" in f for f in result["results"])
+        assert not any("projects/" in f for f in result["results"])
+
+    def test_folder_not_found(self, vault_config):
+        """Should return error for missing folder."""
+        result = json.loads(list_files(folder="nonexistent"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_folder_empty(self, vault_config):
+        """Should return message for empty folder."""
+        (vault_config / "empty_folder").mkdir()
+        result = json.loads(list_files(folder="empty_folder"))
+        assert result["success"] is True
+        assert result["results"] == []
+        assert "No markdown files found" in result["message"]
+
+    def test_no_field_no_folder_error(self, vault_config):
+        """Should return error when neither field nor folder is provided."""
+        result = json.loads(list_files())
+        assert result["success"] is False
+        assert "field" in result["error"].lower()
+        assert "folder" in result["error"].lower()
+
+    def test_folder_only_pagination(self, vault_config):
+        """Folder-only mode should respect limit and offset."""
+        for i in range(5):
+            (vault_config / f"page_test_{i}.md").write_text(f"# Page {i}")
+        result = json.loads(list_files(folder=".", limit=3, offset=0))
+        assert result["success"] is True
+        assert len(result["results"]) == 3
+        assert result["total"] >= 5
+
+    def test_folder_only_offset_beyond_results(self, vault_config):
+        """Offset beyond results returns empty list with correct total."""
+        result = json.loads(list_files(folder=".", limit=100, offset=9999))
+        assert result["success"] is True
+        assert result["results"] == []
+        assert result["total"] >= 1
+
+    def test_folder_with_field_filter(self, vault_config):
+        """Folder + field should scope the frontmatter query to that folder."""
+        result = json.loads(list_files(
+            folder="projects", field="status", value="active", match_type="equals"
+        ))
+        assert result["success"] is True
