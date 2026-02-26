@@ -131,19 +131,28 @@ def _extract_outlinks(file_path: Path) -> list[dict] | None:
 def _scan_backlinks(note_name: str, rel_path: str) -> list[str]:
     """Scan all vault files for backlinks (O(n)).
 
-    Matches both bare stem links ([[note]]) and folder-qualified links
-    ([[folder/note]]) to handle disambiguation when stems collide.
+    Matches bare stem links ([[note]]) only when this file is the shortest-path
+    holder for that stem (matching Obsidian's resolution). Always matches
+    folder-qualified links ([[folder/note]]).
     """
-    # Build pattern matching both [[stem]] and [[folder/stem]] forms
-    # rel_path is like "sub/foo.md" — strip .md for the qualified name
     qualified = rel_path[:-3] if rel_path.endswith(".md") else rel_path
     qualified = qualified.replace("\\", "/")
 
+    # Determine which patterns to match:
+    # - Bare [[stem]]: only if this file wins stem resolution (shortest path)
+    # - Folder-qualified [[folder/stem]]: always (unambiguous reference)
+    patterns = []
     if qualified != note_name:
-        # Match either bare stem or folder-qualified path
-        alt = rf"(?:{re.escape(note_name)}|{re.escape(qualified)})"
+        patterns.append(re.escape(qualified))
+        if _is_shortest_stem_path(note_name, rel_path):
+            patterns.append(re.escape(note_name))
     else:
-        alt = re.escape(note_name)
+        # Root-level file — bare stem is the only form
+        patterns.append(re.escape(note_name))
+
+    alt = "|".join(patterns)
+    if len(patterns) > 1:
+        alt = rf"(?:{alt})"
 
     pattern = rf"\[\[{alt}(?:\|[^\]]+)?\]\]"
     backlinks = []
@@ -158,6 +167,20 @@ def _scan_backlinks(note_name: str, rel_path: str) -> list[str]:
             backlinks.append(get_relative_path(md_file))
 
     return sorted(backlinks)
+
+
+def _is_shortest_stem_path(stem: str, rel_path: str) -> bool:
+    """Check if rel_path is the shortest path for its stem in the vault.
+
+    Obsidian resolves bare [[stem]] links to the shortest-path file, so bare
+    stem backlinks should only be attributed to the shortest-path holder.
+    """
+    stem_lower = stem.lower()
+    for md_file in get_vault_files():
+        other_rel = get_relative_path(md_file)
+        if md_file.stem.lower() == stem_lower and len(other_rel) < len(rel_path):
+            return False
+    return True
 
 
 def _build_note_path_map() -> tuple[dict[str, str], dict[str, str]]:
