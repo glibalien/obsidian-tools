@@ -87,6 +87,8 @@ def _build_find_notes_stub(data: dict) -> str:
     stub = _base_stub(data)
     if "total" in data:
         stub["total"] = data["total"]
+    if data.get("has_more"):
+        stub["has_more"] = True
     if "results" in data and isinstance(data["results"], list):
         results = data["results"]
         stub["result_count"] = len(results)
