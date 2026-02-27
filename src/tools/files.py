@@ -1049,13 +1049,16 @@ def get_note_info(path: str) -> str:
     created = created_dt.isoformat() if created_dt else modified
 
     # Content-based metadata (headings, size)
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as e:
-        return err(f"Error reading file: {e}")
-
-    headings = _extract_headings(content) if is_md else []
-    size = len(content)
+    if is_md:
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception as e:
+            return err(f"Error reading file: {e}")
+        headings = _extract_headings(content)
+        size = len(content)
+    else:
+        headings = []
+        size = stat.st_size
 
     # Link counts
     if is_md:

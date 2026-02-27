@@ -1574,13 +1574,16 @@ class TestGetNoteInfo:
 
     def test_non_markdown_file(self, vault_config, temp_vault):
         """Should return basic metadata for non-markdown files."""
-        (temp_vault / "data.csv").write_text("a,b,c\n1,2,3\n")
+        csv_file = temp_vault / "data.csv"
+        csv_file.write_text("a,b,c\n1,2,3\n")
         result = json.loads(get_note_info("data.csv"))
         assert result["success"] is True
         assert result["frontmatter"] == {}
         assert result["headings"] == []
         assert result["backlink_count"] == 0
         assert result["outlink_count"] == 0
+        # Non-markdown uses stat byte size, not decoded char count
+        assert result["size"] == csv_file.stat().st_size
 
     def test_headings_respect_code_fences(self, vault_config, temp_vault):
         """Should skip headings inside code fences."""
