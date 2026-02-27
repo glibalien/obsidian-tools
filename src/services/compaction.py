@@ -99,6 +99,31 @@ def _build_list_stub(data: dict) -> str:
     return json.dumps(stub)
 
 
+def _build_find_notes_stub(data: dict) -> str:
+    """Compact find_notes: detect result shape and use appropriate format."""
+    stub = _base_stub(data)
+    if "total" in data:
+        stub["total"] = data["total"]
+    if "results" in data and isinstance(data["results"], list):
+        results = data["results"]
+        stub["result_count"] = len(results)
+        if results and isinstance(results[0], dict) and "content" in results[0]:
+            # Semantic results: snippet format
+            stub["results"] = [
+                {
+                    "source": r["source"],
+                    "heading": r.get("heading", ""),
+                    "snippet": r.get("content", "")[:COMPACTION_SNIPPET_LENGTH],
+                }
+                for r in results
+                if isinstance(r, dict) and "source" in r
+            ]
+        else:
+            # Vault scan results: preserve as-is (paths or field projections)
+            stub["results"] = results
+    return json.dumps(stub)
+
+
 def _build_find_links_stub(data: dict) -> str:
     """Compact find_links: handle both single-direction and both-mode responses."""
     stub = _base_stub(data)
@@ -129,12 +154,10 @@ def _build_web_search_stub(data: dict) -> str:
 
 
 _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
-    "search_vault": _build_search_vault_stub,
+    "find_notes": _build_find_notes_stub,
     "read_file": _build_read_file_stub,
     "web_search": _build_web_search_stub,
     "find_links": _build_find_links_stub,
-    "list_files": _build_list_stub,
-    "search_by_date_range": _build_list_stub,
 }
 
 
