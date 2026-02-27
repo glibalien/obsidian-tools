@@ -38,7 +38,7 @@ def _to_relative(source: str, vault_root: str) -> str:
 def find_notes(
     query: str = "",
     mode: str = "hybrid",
-    folder: str = "",
+    folder: str | None = None,
     recursive: bool = False,
     frontmatter: list[FilterCondition] | None = None,
     date_start: str = "",
@@ -58,6 +58,7 @@ def find_notes(
         mode: Search mode when query is provided - "hybrid" (default),
             "semantic", or "keyword".
         folder: Restrict to files within this folder (relative to vault root).
+            Use "" (empty string) for the vault root directory.
         recursive: Include subfolders when folder is set (default false).
         frontmatter: Metadata filter conditions (AND logic). Each needs
             'field', optional 'value' and 'match_type'.
@@ -79,7 +80,7 @@ def find_notes(
         or {path, field1, field2, ...} dicts when include_fields is set.
     """
     has_query = bool(query and query.strip())
-    has_folder = bool(folder)
+    has_folder = folder is not None
     has_frontmatter = bool(frontmatter)
     has_date = bool(date_start or date_end)
 
