@@ -502,17 +502,18 @@ def _split_frontmatter_body(content: str) -> tuple[dict, str]:
     if not match:
         return {}, content
 
+    body = content[match.end():]
+
     try:
         fm = yaml.safe_load(match.group(1))
     except yaml.YAMLError:
-        return {}, content
+        return {}, body
 
     if fm is None:
         fm = {}
     if not isinstance(fm, dict):
-        return {}, content
+        return {}, body
 
-    body = content[match.end():]
     return fm, body
 
 
