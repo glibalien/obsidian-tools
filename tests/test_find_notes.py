@@ -33,7 +33,7 @@ class TestFindMatchingFilesDateFilter:
     """Tests for date filtering in _find_matching_files."""
 
     def test_date_filter_modified(self, dated_vault, vault_config):
-        from tools.frontmatter import _find_matching_files
+        from services.vault import _find_matching_files
 
         start = datetime(2025, 6, 1)
         end = datetime(2025, 6, 30)
@@ -45,7 +45,7 @@ class TestFindMatchingFilesDateFilter:
         assert "recent-note.md" in results[0]
 
     def test_date_filter_with_frontmatter(self, dated_vault, vault_config):
-        from tools.frontmatter import _find_matching_files
+        from services.vault import _find_matching_files
 
         start = datetime(2025, 1, 1)
         end = datetime(2025, 12, 31)
@@ -57,7 +57,7 @@ class TestFindMatchingFilesDateFilter:
         assert "recent-note.md" in results[0]
 
     def test_date_filter_no_matches(self, dated_vault, vault_config):
-        from tools.frontmatter import _find_matching_files
+        from services.vault import _find_matching_files
 
         start = datetime(2024, 1, 1)
         end = datetime(2024, 12, 31)
@@ -69,7 +69,7 @@ class TestFindMatchingFilesDateFilter:
 
     def test_date_filter_start_only(self, dated_vault, vault_config):
         """date_start without date_end filters from start onwards."""
-        from tools.frontmatter import _find_matching_files
+        from services.vault import _find_matching_files
 
         start = datetime(2025, 6, 1)
         results = _find_matching_files(
@@ -83,7 +83,7 @@ class TestFindMatchingFilesDateFilter:
 
     def test_date_filter_end_only(self, dated_vault, vault_config):
         """date_end without date_start filters up to end."""
-        from tools.frontmatter import _find_matching_files
+        from services.vault import _find_matching_files
 
         end = datetime(2025, 6, 30)
         results = _find_matching_files(
@@ -97,7 +97,7 @@ class TestFindMatchingFilesDateFilter:
 
     def test_date_filter_created_type(self, temp_vault, vault_config):
         """date_type="created" with no frontmatter filters uses on-demand parse."""
-        from tools.frontmatter import _find_matching_files
+        from services.vault import _find_matching_files
 
         note = temp_vault / "dated.md"
         note.write_text("---\nDate: 2025-03-15\n---\nContent")
@@ -116,7 +116,7 @@ class TestGetFileDate:
     """Tests for the _get_file_date helper."""
 
     def test_modified_date(self, dated_vault, vault_config):
-        from tools.frontmatter import _get_file_date
+        from services.vault import _get_file_date
 
         recent = dated_vault / "recent-note.md"
         result = _get_file_date(recent, "modified")
@@ -125,7 +125,7 @@ class TestGetFileDate:
         assert result.month == 6
 
     def test_created_date_from_frontmatter(self, temp_vault, vault_config):
-        from tools.frontmatter import _get_file_date
+        from services.vault import _get_file_date
 
         # note1.md has Date: 2024-01-15 in frontmatter
         note1 = temp_vault / "note1.md"
@@ -137,7 +137,7 @@ class TestGetFileDate:
 
     def test_created_date_no_frontmatter(self, dated_vault, vault_config):
         """Falls back to filesystem creation time when no Date field."""
-        from tools.frontmatter import _get_file_date
+        from services.vault import _get_file_date
 
         recent = dated_vault / "recent-note.md"
         result = _get_file_date(recent, "created")
@@ -165,7 +165,7 @@ class TestFindNotesVaultScan:
         assert result["total"] == 2
 
     def test_frontmatter_only(self, temp_vault, vault_config):
-        from tools.frontmatter import FilterCondition
+        from services.vault import FilterCondition
         from tools.search import find_notes
 
         (temp_vault / "a.md").write_text("---\nmystatus: unique123\n---\nA")
@@ -194,7 +194,7 @@ class TestFindNotesVaultScan:
         assert "recent-note.md" in result["results"][0]
 
     def test_folder_plus_frontmatter_plus_date(self, dated_vault, vault_config):
-        from tools.frontmatter import FilterCondition
+        from services.vault import FilterCondition
         from tools.search import find_notes
 
         result = json.loads(
@@ -364,7 +364,7 @@ class TestFindNotesQueryMode:
     def test_query_with_frontmatter_filter(self, temp_vault, vault_config):
         from unittest.mock import patch
 
-        from tools.frontmatter import FilterCondition
+        from services.vault import FilterCondition
         from tools.search import find_notes
 
         (temp_vault / "active.md").write_text("---\nstatus: active\n---\nActive note")
