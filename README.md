@@ -12,14 +12,16 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 
 **Vault Management** — Read, create, move files; edit specific markdown sections by heading; update frontmatter fields; batch operations for bulk changes
 
-**Integrations** — Audio transcription via Whisper, web search via DuckDuckGo, interaction logging to daily notes, persistent user preferences
+**File Readers** — Audio transcription via Whisper, image description via vision model, Office document extraction (.docx, .xlsx, .pptx), all auto-dispatched through `read_file`
+
+**Integrations** — Web search via DuckDuckGo, interaction logging to daily notes, persistent user preferences
 
 ## How It Works
 
 ![Architecture diagram](obsidian-tools-architecture.svg)
 
 1. **Indexer** scans your vault and creates embeddings in ChromaDB, splitting notes by headings, paragraphs, and sentences for precise retrieval
-2. **MCP Server** exposes 23 tools for searching, reading, and modifying vault content
+2. **MCP Server** exposes 16 tools for searching, reading, and modifying vault content
 3. **LLM Agent** (powered by [Fireworks AI](https://fireworks.ai/)) orchestrates the tools to answer your questions
 4. **Interfaces** — chat in Obsidian via the sidebar plugin, from the terminal via the CLI agent, or programmatically via the HTTP API
 
@@ -106,11 +108,12 @@ INDEX_INTERVAL=60
 | `VAULT_PATH` | Path to your Obsidian vault |
 | `CHROMA_PATH` | Where to store the ChromaDB database (relative or absolute) |
 | `FIREWORKS_API_KEY` | API key from [Fireworks AI](https://fireworks.ai/) |
-| `FIREWORKS_MODEL` | Fireworks model ID (default: gpt-oss-120b) |
+| `FIREWORKS_MODEL` | Fireworks model ID (default: `gpt-oss-120b`) |
 | `API_PORT` | Port for the HTTP API server (default: `8000`) |
 | `INDEX_INTERVAL` | How often the vault indexer runs, in minutes (default: `60`) |
+| `INDEX_WORKERS` | Thread pool size for parallel file indexing (default: `4`) |
 
-See `.env.example` for additional optional variables (logging, session limits, Whisper model, etc.).
+See `.env.example` for additional optional variables (logging, session limits, Whisper/vision models, etc.).
 
 </details>
 
@@ -195,26 +198,22 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 
 | Tool | Description |
 |------|-------------|
-| `search_vault` | Hybrid search (semantic + keyword) with mode and chunk_type filters |
-| `read_file` | Read vault note content with pagination |
-| `create_file` | Create a new note with optional frontmatter |
+| `find_notes` | Unified discovery — hybrid/semantic/keyword search, frontmatter filters, date ranges, folder browsing |
+| `read_file` | Read any vault file — markdown (with embed expansion), audio (Whisper), images (vision), Office docs |
+| `get_note_info` | Lightweight metadata — frontmatter, headings, size, timestamps, link counts |
+| `create_file` | Create a new note with optional YAML frontmatter |
+| `edit_file` | Edit file content — prepend, append, or target a specific section by heading |
 | `move_file` | Move a file within the vault |
-| `batch_move_files` | Move multiple files at once |
-| `append_to_file` | Append content to end of a file |
-| `prepend_to_file` | Insert content after frontmatter |
-| `replace_section` | Replace a markdown section by heading |
-| `append_to_section` | Append content to a section |
-| `list_files_by_frontmatter` | Find files by frontmatter field values |
-| `update_frontmatter` | Set, remove, or append frontmatter fields |
-| `batch_update_frontmatter` | Update frontmatter on multiple files |
-| `find_backlinks` | Find files linking to a note |
-| `find_outlinks` | Extract wikilinks from a file |
-| `search_by_date_range` | Find files by created or modified date |
-| `search_by_folder` | List files in a folder |
+| `batch_move_files` | Move multiple files — explicit list or query-based targeting by frontmatter/folder |
+| `merge_files` | Merge source into destination — smart (content-aware dedup) or concat |
+| `batch_merge_files` | Batch merge matching files across two folders |
+| `update_frontmatter` | Set, remove, append, or rename frontmatter fields |
+| `batch_update_frontmatter` | Bulk frontmatter update — by path list, frontmatter query, or folder |
+| `find_links` | Find backlinks, outlinks, or both for a note |
+| `compare_folders` | Compare two folders by filename — find duplicates and unique files |
 | `log_interaction` | Log interactions to daily notes |
-| `save_preference` / `list_preferences` / `remove_preference` | Manage persistent user preferences |
+| `manage_preferences` | List, add, or remove persistent user preferences |
 | `web_search` | Search the web via DuckDuckGo |
-| `transcribe_audio` | Transcribe audio embeds via Whisper API |
 
 ## Running as a Service
 
@@ -320,6 +319,7 @@ src/
 ├── api_server.py        # FastAPI HTTP wrapper with session management
 ├── agent.py             # CLI chat agent with tool result continuation
 ├── config.py            # Shared configuration
+├── chunking.py          # Structure-aware markdown chunking
 ├── hybrid_search.py     # Semantic + keyword search with RRF
 ├── search_vault.py      # Search interface
 ├── index_vault.py       # Structure-aware vault indexer
@@ -329,14 +329,14 @@ src/
 │   ├── compaction.py    # Tool message compaction for token management
 │   └── vault.py         # Path resolution, response helpers, utilities
 └── tools/
-    ├── files.py         # File operations
+    ├── files.py         # File operations (read, create, move, merge, batch)
     ├── frontmatter.py   # Frontmatter queries and updates
-    ├── links.py         # Backlinks, outlinks, folder listing
+    ├── links.py         # Backlinks, outlinks, folder comparison
     ├── preferences.py   # User preferences
     ├── search.py        # Vault search, web search
-    ├── sections.py      # Section editing
-    ├── utility.py       # Logging, date
-    └── audio.py         # Audio transcription
+    ├── editing.py       # Section and position-based editing
+    ├── utility.py       # Interaction logging
+    └── readers.py       # File type handlers (audio, image, Office docs)
 
 plugin/                  # Obsidian chat sidebar (optional)
 services/                # Service templates (systemd, launchd, Task Scheduler)
