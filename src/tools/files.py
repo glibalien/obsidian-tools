@@ -982,7 +982,7 @@ def _json_safe_frontmatter(fm: dict) -> dict:
     return {k: _json_safe_value(v) for k, v in fm.items()}
 
 
-_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})(.*)")
 
 
 def _extract_headings(content: str) -> list[str]:
@@ -1008,12 +1008,14 @@ def _extract_headings(content: str) -> list[str]:
         m = _FENCE_RE.match(line.strip())
         if m:
             delimiter = m.group(1)
+            rest = m.group(2)
             char = delimiter[0]
             length = len(delimiter)
             if fence_char is None:
                 fence_char = char
                 fence_len = length
-            elif char == fence_char and length >= fence_len:
+            elif char == fence_char and length >= fence_len and not rest.strip():
+                # Closing fence: must match char/length and have no info string
                 fence_char = None
                 fence_len = 0
             continue

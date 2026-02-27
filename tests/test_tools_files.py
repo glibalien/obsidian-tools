@@ -1557,6 +1557,11 @@ class TestExtractHeadings:
         content = "# Before\n\n~~~~\n~~~\n## Fake\n~~~\n~~~~\n\n## After\n"
         assert _extract_headings(content) == ["# Before", "## After"]
 
+    def test_info_string_fence_does_not_close_block(self):
+        """A fence line with an info string (e.g. ```python) cannot close a block."""
+        content = "# Before\n\n```\n```python\n## Fake\n```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
 
 class TestGetNoteInfo:
     """Tests for get_note_info tool."""
