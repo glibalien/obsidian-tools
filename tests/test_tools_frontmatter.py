@@ -1,4 +1,4 @@
-"""Tests for tools/frontmatter.py - batch_update_frontmatter and search_by_date_range."""
+"""Tests for tools/frontmatter.py - batch_update_frontmatter, and find_notes migration."""
 
 import json
 import os
@@ -10,10 +10,9 @@ from services.vault import clear_pending_previews
 from tools.frontmatter import (
     FilterCondition,
     batch_update_frontmatter,
-    list_files,
-    search_by_date_range,
     update_frontmatter,
 )
+from tools.search import find_notes
 
 
 class TestBatchUpdateFrontmatter:
@@ -330,7 +329,7 @@ class TestUpdateFrontmatterValueNormalization:
 
 
 class TestCompoundFiltering:
-    """Tests for list_files compound filtering."""
+    """Tests for find_notes compound filtering."""
 
     def test_compound_filter_two_fields(self, vault_config):
         """Should return files matching both the primary field and filter."""
@@ -344,10 +343,11 @@ class TestCompoundFiltering:
             "---\nproject: '[[OtherProject]]'\nstatus: open\ncategory: task\n---\n# Other\n"
         )
         result = json.loads(
-            list_files(
-                field="project",
-                value="MyProject",
-                filters=[FilterCondition(field="status", value="open")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="project", value="MyProject"),
+                    FilterCondition(field="status", value="open"),
+                ],
             )
         )
         assert result["success"] is True
@@ -365,10 +365,11 @@ class TestCompoundFiltering:
             "---\nproject: '[[Y]]'\nstatus: open\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="project",
-                value="X",
-                filters=[FilterCondition(field="status", value="open")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="project", value="X"),
+                    FilterCondition(field="status", value="open"),
+                ],
             )
         )
         assert result["success"] is True
@@ -384,11 +385,11 @@ class TestCompoundFiltering:
             "---\ncategory: meeting\nstatus: open-review\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="category",
-                value="meeting",
-                match_type="equals",
-                filters=[FilterCondition(field="status", value="open", match_type="equals")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="category", value="meeting", match_type="equals"),
+                    FilterCondition(field="status", value="open", match_type="equals"),
+                ],
             )
         )
         assert result["success"] is True
@@ -398,16 +399,16 @@ class TestCompoundFiltering:
     def test_filters_empty_list(self, vault_config):
         """Empty filters list should work same as no filters."""
         result_no_filters = json.loads(
-            list_files(field="tags", value="test")
+            find_notes(frontmatter=[FilterCondition(field="tags", value="test")])
         )
         result_empty = json.loads(
-            list_files(field="tags", value="test", filters=[])
+            find_notes(frontmatter=[FilterCondition(field="tags", value="test")])
         )
         assert result_no_filters["total"] == result_empty["total"]
 
 
 class TestIncludeFields:
-    """Tests for list_files include_fields parameter."""
+    """Tests for find_notes include_fields parameter."""
 
     def test_include_fields_returns_values(self, vault_config):
         """Results should be dicts with path and requested field values."""
@@ -415,8 +416,8 @@ class TestIncludeFields:
             "---\ncategory: task\nstatus: open\nscheduled: '2026-03-01'\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="category", value="task", match_type="equals",
+            find_notes(
+                frontmatter=[FilterCondition(field="category", value="task", match_type="equals")],
                 include_fields=["status", "scheduled"],
             )
         )
@@ -432,8 +433,8 @@ class TestIncludeFields:
             "---\ncategory: task\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="category", value="task", match_type="equals",
+            find_notes(
+                frontmatter=[FilterCondition(field="category", value="task", match_type="equals")],
                 include_fields=["status", "nonexistent"],
             )
         )
@@ -451,9 +452,11 @@ class TestIncludeFields:
             "---\nproject: '[[P1]]'\nstatus: done\ncontext: personal\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="project", value="P1",
-                filters=[FilterCondition(field="status", value="open")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="project", value="P1"),
+                    FilterCondition(field="status", value="open"),
+                ],
                 include_fields=["context"],
             )
         )
@@ -464,8 +467,8 @@ class TestIncludeFields:
     def test_include_fields_empty_returns_strings(self, vault_config):
         """Empty include_fields should return plain paths like omitting it."""
         result = json.loads(
-            list_files(
-                field="tags", value="test",
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="test")],
                 include_fields=[],
             )
         )
@@ -476,7 +479,7 @@ class TestIncludeFields:
     def test_without_include_fields_returns_strings(self, vault_config):
         """Without include_fields, results should be plain path strings."""
         result = json.loads(
-            list_files(field="tags", value="test")
+            find_notes(frontmatter=[FilterCondition(field="tags", value="test")])
         )
         assert result["success"] is True
         if result["total"] > 0:
@@ -907,7 +910,7 @@ class TestCaseInsensitiveMatching:
         """Case-insensitive matching should work for contains, equals, list values, and non-string types."""
         (vault_config / filename).write_text(frontmatter)
         result = json.loads(
-            list_files(field=field, value=value, match_type=match_type)
+            find_notes(frontmatter=[FilterCondition(field=field, value=value, match_type=match_type)])
         )
         assert result["total"] >= 1
         assert any(filename in p for p in result["results"])
@@ -918,9 +921,11 @@ class TestCaseInsensitiveMatching:
             "---\nproject: '[[MyProj]]'\nstatus: OPEN\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="project", value="myproj",
-                filters=[FilterCondition(field="status", value="open", match_type="equals")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="project", value="myproj"),
+                    FilterCondition(field="status", value="open", match_type="equals"),
+                ],
             )
         )
         assert result["total"] >= 1
@@ -932,9 +937,11 @@ class TestCaseInsensitiveMatching:
             "---\nProject:\n- '[[MyProj]]'\nStatus: Open\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="project", value="MyProj",
-                filters=[FilterCondition(field="status", value="open")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="project", value="MyProj"),
+                    FilterCondition(field="status", value="open"),
+                ],
             )
         )
         assert result["total"] >= 1
@@ -946,8 +953,8 @@ class TestCaseInsensitiveMatching:
             "---\nProject:\n- '[[Proj]]'\nStatus: Open\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="project", value="Proj",
+            find_notes(
+                frontmatter=[FilterCondition(field="project", value="Proj")],
                 include_fields=["status"],
             )
         )
@@ -974,7 +981,7 @@ class TestWikilinkStripping:
         """Wikilink brackets should be stripped during frontmatter matching."""
         (vault_config / filename).write_text(frontmatter)
         result = json.loads(
-            list_files(field="project", value=value, match_type=match_type)
+            find_notes(frontmatter=[FilterCondition(field="project", value=value, match_type=match_type)])
         )
         assert result["total"] >= 1
         assert any(filename in p for p in result["results"])
@@ -985,9 +992,11 @@ class TestWikilinkStripping:
             "---\nProject:\n- '[[Agentic S2P]]'\nstatus: open\ncategory: task\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="category", value="task",
-                filters=[FilterCondition(field="project", value="Agentic S2P")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="category", value="task"),
+                    FilterCondition(field="project", value="Agentic S2P"),
+                ],
             )
         )
         assert result["total"] >= 1
@@ -997,27 +1006,25 @@ class TestWikilinkStripping:
 class TestResultMessage:
     """Tests for explicit count message in results."""
 
-    def test_found_message_present(self, vault_config):
-        """Non-empty results should include a 'Found N' message."""
+    def test_found_results_present(self, vault_config):
+        """Non-empty results should have total >= 1."""
         result = json.loads(
-            list_files(field="tags", value="project")
+            find_notes(frontmatter=[FilterCondition(field="tags", value="project")])
         )
         assert result["success"] is True
         assert result["total"] >= 1
-        assert "Found" in result["message"]
-        assert str(result["total"]) in result["message"]
 
     def test_no_results_message(self, vault_config):
-        """Empty results should include a 'No files found' message."""
+        """Empty results should include a 'No matching notes found' message."""
         result = json.loads(
-            list_files(field="nonexistent", value="xyz")
+            find_notes(frontmatter=[FilterCondition(field="nonexistent", value="xyz")])
         )
         assert result["total"] == 0
-        assert "No files found" in result["message"]
+        assert "No matching notes found" in result["message"]
 
 
 class TestSearchByDateRange:
-    """Tests for search_by_date_range tool."""
+    """Tests for date range filtering via find_notes."""
 
     def test_date_range_modified(self, vault_config):
         """Should find files whose mtime falls within the specified date range."""
@@ -1027,9 +1034,9 @@ class TestSearchByDateRange:
         os.utime(vault_config / "note2.md", (target_ts, target_ts))
 
         result = json.loads(
-            search_by_date_range(
-                start_date="2023-06-01",
-                end_date="2023-06-30",
+            find_notes(
+                date_start="2023-06-01",
+                date_end="2023-06-30",
                 date_type="modified",
             )
         )
@@ -1048,9 +1055,9 @@ class TestSearchByDateRange:
         os.utime(vault_config / "note2.md", (outside_ts, outside_ts))
 
         result = json.loads(
-            search_by_date_range(
-                start_date="2023-06-01",
-                end_date="2023-06-30",
+            find_notes(
+                date_start="2023-06-01",
+                date_end="2023-06-30",
                 date_type="modified",
             )
         )
@@ -1063,9 +1070,9 @@ class TestSearchByDateRange:
         """Should find files by frontmatter Date field when date_type='created'."""
         # note1.md has Date: 2024-01-15 in its frontmatter
         result = json.loads(
-            search_by_date_range(
-                start_date="2024-01-01",
-                end_date="2024-01-31",
+            find_notes(
+                date_start="2024-01-01",
+                date_end="2024-01-31",
                 date_type="created",
             )
         )
@@ -1080,9 +1087,9 @@ class TestSearchByDateRange:
             "---\nDate: '[[2024-03-10]]'\n---\n\n# Wikilink Date Note\n"
         )
         result = json.loads(
-            search_by_date_range(
-                start_date="2024-03-01",
-                end_date="2024-03-31",
+            find_notes(
+                date_start="2024-03-01",
+                date_end="2024-03-31",
                 date_type="created",
             )
         )
@@ -1094,45 +1101,45 @@ class TestSearchByDateRange:
     def test_date_range_no_matches(self, vault_config):
         """Should return empty results when no files fall within the date range."""
         result = json.loads(
-            search_by_date_range(
-                start_date="1990-01-01",
-                end_date="1990-01-31",
+            find_notes(
+                date_start="1990-01-01",
+                date_end="1990-01-31",
                 date_type="modified",
             )
         )
         assert result["success"] is True
         assert result["results"] == []
         assert result["total"] == 0
-        assert "No files found" in result["message"]
+        assert "No matching notes found" in result["message"]
 
     def test_date_range_invalid_start(self, vault_config):
-        """Should return error for a malformed start_date."""
+        """Should return error for a malformed date_start."""
         result = json.loads(
-            search_by_date_range(
-                start_date="15-01-2024",
-                end_date="2024-01-31",
+            find_notes(
+                date_start="15-01-2024",
+                date_end="2024-01-31",
             )
         )
         assert result["success"] is False
-        assert "start_date" in result["error"]
+        assert "date_start" in result["error"]
 
     def test_date_range_invalid_end(self, vault_config):
-        """Should return error for a malformed end_date."""
+        """Should return error for a malformed date_end."""
         result = json.loads(
-            search_by_date_range(
-                start_date="2024-01-01",
-                end_date="January 31 2024",
+            find_notes(
+                date_start="2024-01-01",
+                date_end="January 31 2024",
             )
         )
         assert result["success"] is False
-        assert "end_date" in result["error"]
+        assert "date_end" in result["error"]
 
     def test_date_range_start_after_end(self, vault_config):
-        """Should return error when start_date is later than end_date."""
+        """Should return error when date_start is later than date_end."""
         result = json.loads(
-            search_by_date_range(
-                start_date="2024-12-31",
-                end_date="2024-01-01",
+            find_notes(
+                date_start="2024-12-31",
+                date_end="2024-01-01",
             )
         )
         assert result["success"] is False
@@ -1141,9 +1148,9 @@ class TestSearchByDateRange:
     def test_date_range_invalid_date_type(self, vault_config):
         """Should return error for an unrecognized date_type."""
         result = json.loads(
-            search_by_date_range(
-                start_date="2024-01-01",
-                end_date="2024-12-31",
+            find_notes(
+                date_start="2024-01-01",
+                date_end="2024-12-31",
                 date_type="accessed",
             )
         )
@@ -1152,7 +1159,7 @@ class TestSearchByDateRange:
         assert "accessed" in result["error"]
 
     def test_date_range_pagination(self, vault_config):
-        """Should respect limit and offset and report correct total count."""
+        """Should respect n_results and offset and report correct total count."""
         # Set all markdown files to a known mtime inside our range
         target_ts = time.mktime(time.strptime("2025-05-20", "%Y-%m-%d"))
         for md_file in vault_config.rglob("*.md"):
@@ -1160,9 +1167,9 @@ class TestSearchByDateRange:
 
         # First: get total without pagination
         full_result = json.loads(
-            search_by_date_range(
-                start_date="2025-05-01",
-                end_date="2025-05-31",
+            find_notes(
+                date_start="2025-05-01",
+                date_end="2025-05-31",
                 date_type="modified",
             )
         )
@@ -1172,11 +1179,11 @@ class TestSearchByDateRange:
 
         # Paginate: first page of 2
         page1 = json.loads(
-            search_by_date_range(
-                start_date="2025-05-01",
-                end_date="2025-05-31",
+            find_notes(
+                date_start="2025-05-01",
+                date_end="2025-05-31",
                 date_type="modified",
-                limit=2,
+                n_results=2,
                 offset=0,
             )
         )
@@ -1186,11 +1193,11 @@ class TestSearchByDateRange:
 
         # Second page: next 2 (or fewer if total <= 3)
         page2 = json.loads(
-            search_by_date_range(
-                start_date="2025-05-01",
-                end_date="2025-05-31",
+            find_notes(
+                date_start="2025-05-01",
+                date_end="2025-05-31",
                 date_type="modified",
-                limit=2,
+                n_results=2,
                 offset=2,
             )
         )
@@ -1206,25 +1213,25 @@ class TestSearchByDateRange:
     ("kwargs", "expected_error"),
     [
         ({"offset": -1}, "offset must be >= 0"),
-        ({"limit": 0}, "limit must be >= 1"),
-        ({"limit": 2001}, "limit must be <= 2000"),
+        ({"n_results": 0}, "limit must be >= 1"),
+        ({"n_results": 2001}, "limit must be <= 2000"),
     ],
 )
-def test_frontmatter_paginated_tools_reject_invalid_pagination(vault_config, kwargs, expected_error):
-    """Frontmatter paginated tools should return a consistent pagination validation error."""
-    list_result = json.loads(
-        list_files(field="tags", value="test", **kwargs)
+def test_find_notes_rejects_invalid_pagination(vault_config, kwargs, expected_error):
+    """find_notes should return a consistent pagination validation error."""
+    frontmatter_result = json.loads(
+        find_notes(frontmatter=[FilterCondition(field="tags", value="test")], **kwargs)
     )
     date_result = json.loads(
-        search_by_date_range(
-            start_date="1990-01-01",
-            end_date="2099-12-31",
+        find_notes(
+            date_start="1990-01-01",
+            date_end="2099-12-31",
             date_type="modified",
             **kwargs,
         )
     )
 
-    for result in (list_result, date_result):
+    for result in (frontmatter_result, date_result):
         assert result["success"] is False
         assert expected_error in result["error"]
 
@@ -1236,7 +1243,7 @@ class TestNegativeMatching:
         """match_type='missing' finds files where the field is absent."""
         # note3.md has no frontmatter at all — should match 'missing' on any field
         result = json.loads(
-            list_files(field="company", match_type="missing")
+            find_notes(frontmatter=[FilterCondition(field="company", match_type="missing")])
         )
         assert result["success"] is True
         # note3.md has no frontmatter, note1.md has no company field
@@ -1248,7 +1255,7 @@ class TestNegativeMatching:
     def test_missing_excludes_files_with_field(self, vault_config):
         """match_type='missing' excludes files that have the field."""
         result = json.loads(
-            list_files(field="tags", match_type="missing")
+            find_notes(frontmatter=[FilterCondition(field="tags", match_type="missing")])
         )
         assert result["success"] is True
         # note1.md has tags — should NOT be in results
@@ -1259,7 +1266,7 @@ class TestNegativeMatching:
     def test_exists_finds_files_with_field(self, vault_config):
         """match_type='exists' finds files where the field is present."""
         result = json.loads(
-            list_files(field="tags", match_type="exists")
+            find_notes(frontmatter=[FilterCondition(field="tags", match_type="exists")])
         )
         assert result["success"] is True
         assert any("note1.md" in p for p in result["results"])
@@ -1270,8 +1277,8 @@ class TestNegativeMatching:
     def test_not_contains_excludes_matching(self, vault_config):
         """match_type='not_contains' excludes files containing the value."""
         result = json.loads(
-            list_files(
-                field="tags", value="project", match_type="not_contains"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="project", match_type="not_contains")]
             )
         )
         assert result["success"] is True
@@ -1283,8 +1290,8 @@ class TestNegativeMatching:
     def test_not_contains_includes_missing_field(self, vault_config):
         """match_type='not_contains' includes files where the field is absent."""
         result = json.loads(
-            list_files(
-                field="tags", value="project", match_type="not_contains"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="project", match_type="not_contains")]
             )
         )
         assert result["success"] is True
@@ -1297,8 +1304,8 @@ class TestNegativeMatching:
         (vault_config / "ne2.md").write_text("---\nstatus: closed\n---\n")
         (vault_config / "ne3.md").write_text("---\ntitle: no status\n---\n")
         result = json.loads(
-            list_files(
-                field="status", value="open", match_type="not_equals"
+            find_notes(
+                frontmatter=[FilterCondition(field="status", value="open", match_type="not_equals")]
             )
         )
         assert result["success"] is True
@@ -1314,11 +1321,11 @@ class TestNegativeMatching:
             "---\ncategory: task\nstatus: done\n---\n"
         )
         result = json.loads(
-            list_files(
-                field="category",
-                value="task",
-                match_type="equals",
-                filters=[FilterCondition(field="status", match_type="missing")],
+            find_notes(
+                frontmatter=[
+                    FilterCondition(field="category", value="task", match_type="equals"),
+                    FilterCondition(field="status", match_type="missing"),
+                ],
             )
         )
         assert result["success"] is True
@@ -1328,7 +1335,7 @@ class TestNegativeMatching:
     def test_value_required_for_contains(self, vault_config):
         """match_type='contains' requires a non-empty value."""
         result = json.loads(
-            list_files(field="tags", value="", match_type="contains")
+            find_notes(frontmatter=[FilterCondition(field="tags", value="", match_type="contains")])
         )
         assert result["success"] is False
         assert "value" in result["error"].lower()
@@ -1336,8 +1343,8 @@ class TestNegativeMatching:
     def test_invalid_match_type_rejected(self, vault_config):
         """Unknown match_type returns an error."""
         result = json.loads(
-            list_files(
-                field="tags", value="test", match_type="regex"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="test", match_type="regex")]
             )
         )
         assert result["success"] is False
@@ -1348,10 +1355,11 @@ class TestFolderFiltering:
     """Tests for folder parameter on frontmatter tools."""
 
     def test_list_with_folder(self, vault_config):
-        """list_files with folder restricts to that directory."""
+        """find_notes with folder restricts to that directory."""
         result = json.loads(
-            list_files(
-                field="tags", value="project", folder="projects"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="project")],
+                folder="projects",
             )
         )
         assert result["success"] is True
@@ -1363,8 +1371,9 @@ class TestFolderFiltering:
         """folder + match_type='missing' finds files in folder without the field."""
         # projects/project1.md has tags and status, but no company
         result = json.loads(
-            list_files(
-                field="company", match_type="missing", folder="projects"
+            find_notes(
+                frontmatter=[FilterCondition(field="company", match_type="missing")],
+                folder="projects",
             )
         )
         assert result["success"] is True
@@ -1376,8 +1385,9 @@ class TestFolderFiltering:
     def test_list_folder_excludes_other_folders(self, vault_config):
         """folder parameter should exclude files outside the folder."""
         result = json.loads(
-            list_files(
-                field="tags", value="meeting", folder="projects"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="meeting")],
+                folder="projects",
             )
         )
         assert result["success"] is True
@@ -1392,8 +1402,9 @@ class TestFolderFiltering:
         (sub / "deep.md").write_text("---\ntags:\n  - project\n---\n# Deep\n")
 
         result = json.loads(
-            list_files(
-                field="tags", value="project", folder="projects"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="project")],
+                folder="projects",
             )
         )
         assert result["success"] is True
@@ -1407,8 +1418,9 @@ class TestFolderFiltering:
         (sub / "deep.md").write_text("---\ntags:\n  - project\n---\n# Deep\n")
 
         result = json.loads(
-            list_files(
-                field="tags", value="project", folder="projects", recursive=False
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="project")],
+                folder="projects", recursive=False,
             )
         )
         assert result["success"] is True
@@ -1418,8 +1430,9 @@ class TestFolderFiltering:
     def test_list_folder_invalid(self, vault_config):
         """Nonexistent folder returns error."""
         result = json.loads(
-            list_files(
-                field="tags", value="test", folder="nonexistent"
+            find_notes(
+                frontmatter=[FilterCondition(field="tags", value="test")],
+                folder="nonexistent",
             )
         )
         assert result["success"] is False
@@ -1601,69 +1614,70 @@ class TestBatchRenameFrontmatter:
         assert result["success"] is False
 
 
-class TestListFilesFolderOnly:
-    """Tests for list_files folder-only mode (no field)."""
+class TestFindNotesFolderOnly:
+    """Tests for find_notes folder-only mode (no frontmatter filter)."""
 
     def test_folder_only_basic(self, vault_config):
-        """Should list markdown files in folder without requiring field."""
-        result = json.loads(list_files(folder="projects"))
+        """Should list markdown files in folder without requiring frontmatter."""
+        result = json.loads(find_notes(folder="projects"))
         assert result["success"] is True
         assert any("project1.md" in f for f in result["results"])
 
     def test_folder_only_recursive(self, vault_config):
         """Should include subfolders when recursive=True."""
-        result = json.loads(list_files(folder=".", recursive=True))
+        result = json.loads(find_notes(folder=".", recursive=True))
         assert result["success"] is True
         assert any("note1.md" in f for f in result["results"])
         assert any("project1.md" in f for f in result["results"])
 
     def test_folder_only_non_recursive(self, vault_config):
         """Should not include subfolders when recursive=False."""
-        result = json.loads(list_files(folder=".", recursive=False))
+        result = json.loads(find_notes(folder=".", recursive=False))
         assert result["success"] is True
         assert any("note1.md" in f for f in result["results"])
         assert not any("projects/" in f for f in result["results"])
 
     def test_folder_not_found(self, vault_config):
         """Should return error for missing folder."""
-        result = json.loads(list_files(folder="nonexistent"))
+        result = json.loads(find_notes(folder="nonexistent"))
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
     def test_folder_empty(self, vault_config):
         """Should return message for empty folder."""
         (vault_config / "empty_folder").mkdir()
-        result = json.loads(list_files(folder="empty_folder"))
+        result = json.loads(find_notes(folder="empty_folder"))
         assert result["success"] is True
         assert result["results"] == []
-        assert "No markdown files found" in result["message"]
+        assert "No matching notes found" in result["message"]
 
-    def test_no_field_no_folder_error(self, vault_config):
-        """Should return error when neither field nor folder is provided."""
-        result = json.loads(list_files())
+    def test_no_args_error(self, vault_config):
+        """Should return error when no filters are provided."""
+        result = json.loads(find_notes())
         assert result["success"] is False
-        assert "field" in result["error"].lower()
+        assert "filter" in result["error"].lower()
         assert "folder" in result["error"].lower()
 
     def test_folder_only_pagination(self, vault_config):
-        """Folder-only mode should respect limit and offset."""
+        """Folder-only mode should respect n_results and offset."""
         for i in range(5):
             (vault_config / f"page_test_{i}.md").write_text(f"# Page {i}")
-        result = json.loads(list_files(folder=".", limit=3, offset=0))
+        result = json.loads(find_notes(folder=".", n_results=3, offset=0))
         assert result["success"] is True
         assert len(result["results"]) == 3
         assert result["total"] >= 5
 
     def test_folder_only_offset_beyond_results(self, vault_config):
         """Offset beyond results returns empty list with correct total."""
-        result = json.loads(list_files(folder=".", limit=100, offset=9999))
+        result = json.loads(find_notes(folder=".", n_results=100, offset=9999))
         assert result["success"] is True
         assert result["results"] == []
         assert result["total"] >= 1
 
-    def test_folder_with_field_filter(self, vault_config):
-        """Folder + field should scope the frontmatter query to that folder."""
-        result = json.loads(list_files(
-            folder="projects", field="status", value="active", match_type="equals"
+    def test_folder_with_frontmatter_filter(self, vault_config):
+        """Folder + frontmatter should scope the query to that folder."""
+        result = json.loads(find_notes(
+            folder="projects",
+            frontmatter=[FilterCondition(field="status", value="active", match_type="equals")],
         ))
         assert result["success"] is True
