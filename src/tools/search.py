@@ -281,6 +281,12 @@ def _query_mode(
     if not results:
         return ok("No matching notes found", results=[], total=0)
 
+    # Determine has_more from the pre-filter count: if search_results
+    # returned exactly search_limit entries, more matches may exist beyond
+    # the fetch window.  Computing this after filtering would miss the case
+    # where filtering reduces the count below search_limit.
+    hit_ceiling = len(results) >= search_limit
+
     if has_filters:
         # Build filter set from vault scan (returns vault-relative paths)
         filter_paths = set(
@@ -312,9 +318,8 @@ def _query_mode(
 
     total = len(results)
     page = results[offset:offset + limit]
-    # Signal when total may undercount because we hit the fetch ceiling
     kwargs = {}
-    if total >= search_limit:
+    if hit_ceiling:
         kwargs["has_more"] = True
     return ok(results=page, total=total, **kwargs)
 

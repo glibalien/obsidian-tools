@@ -566,6 +566,31 @@ class TestFindNotesQueryPagination:
             assert result["total"] == 50
             assert "has_more" not in result
 
+    def test_has_more_survives_filtering(self, temp_vault, vault_config):
+        """has_more computed from pre-filter count, not post-filter."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "keep").mkdir(exist_ok=True)
+        (temp_vault / "keep" / "a.md").write_text("A")
+
+        # Return exactly 500 results (hits ceiling), but only 1 passes filter
+        mock_results = [
+            {"source": f"note{i}.md", "content": f"C {i}", "heading": ""}
+            for i in range(499)
+        ] + [
+            {"source": "keep/a.md", "content": "A", "heading": ""},
+        ]
+        with patch("tools.search.search_results", return_value=mock_results):
+            result = json.loads(find_notes(
+                query="test", folder="keep",
+            ))
+            assert result["success"]
+            assert result["total"] == 1
+            # Ceiling was hit pre-filter, so has_more must be set
+            assert result.get("has_more") is True
+
 
 class TestFindNotesQuerySort:
     """Tests for P2: sort applied in query mode."""
@@ -700,3 +725,32 @@ class TestFindNotesCompaction:
         # Should preserve as vault-scan, not rewrite into snippet format
         assert stub["results"][0]["path"] == "note.md"
         assert stub["results"][0]["source"] == "Wikipedia"
+
+    def test_stub_preserves_has_more(self):
+        """has_more flag survives compaction."""
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": [
+                {"source": "note.md", "content": "text", "heading": ""},
+            ],
+            "total": 500,
+            "has_more": True,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert stub.get("has_more") is True
+
+    def test_stub_omits_has_more_when_absent(self):
+        """has_more not added when original response didn't have it."""
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": [
+                {"source": "note.md", "content": "text", "heading": ""},
+            ],
+            "total": 1,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert "has_more" not in stub
