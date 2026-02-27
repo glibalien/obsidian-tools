@@ -19,7 +19,12 @@ from tools.readers import (
 )
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
+    FilterCondition,
     HEADING_PATTERN,
+    NO_VALUE_MATCH_TYPES,
+    VALID_MATCH_TYPES,
+    _find_matching_files,
+    _validate_filters,
     consume_preview,
     do_move_file,
     err,
@@ -29,6 +34,7 @@ from services.vault import (
     is_fence_line,
     ok,
     parse_frontmatter_date,
+    resolve_dir,
     resolve_file,
     resolve_vault_path,
     store_preview,
@@ -902,25 +908,71 @@ def move_file(
 
 
 def batch_move_files(
-    moves: list[dict],
+    moves: list[dict] | None = None,
+    destination_folder: str | None = None,
+    target_field: str | None = None,
+    target_value: str | None = None,
+    target_match_type: str = "contains",
+    target_filters: list[FilterCondition] | None = None,
+    folder: str | None = None,
+    recursive: bool = False,
     confirm: bool = False,
 ) -> str:
     """Move multiple vault files to new locations.
 
+    Two input modes:
+    - Explicit moves: provide a ``moves`` list of {source, destination} dicts.
+    - Query-based: provide ``destination_folder`` and optional targeting params
+      (``target_field``/``target_value``, ``target_filters``, ``folder``).
+
     Args:
         moves: List of move operations, each a dict with 'source' and 'destination' keys.
-               Example: [{"source": "old/path.md", "destination": "new/path.md"}]
+        destination_folder: Target folder for query-based moves. Files keep their filename.
+        target_field: Frontmatter field to match for query-based targeting.
+        target_value: Value to match for target_field.
+        target_match_type: How to match - 'contains', 'equals', 'missing', 'exists',
+            'not_contains', or 'not_equals' (default 'contains').
+        target_filters: Additional targeting conditions (AND logic).
+        folder: Restrict targeting to files within this folder.
+        recursive: Include subfolders when folder is set (default false).
         confirm: Must be true to execute when moving more than 5 files.
 
     Returns:
         Summary of successes and failures, or confirmation preview for large batches.
     """
+    # Mutual exclusivity checks
+    has_explicit = moves is not None
+    has_query = target_field is not None or folder is not None or bool(target_filters)
+
+    if has_explicit and has_query:
+        return err("Cannot combine 'moves' with query-based targeting (target_field/folder)")
+    if has_explicit and destination_folder is not None:
+        return err("Cannot combine 'moves' with 'destination_folder'")
+
+    if has_explicit:
+        return _batch_move_explicit(moves, confirm)
+
+    # Query-based mode
+    if destination_folder is None:
+        return err("'destination_folder' is required when using query-based targeting")
+    if target_field is None and folder is None and not target_filters:
+        return err(
+            "Provide target_field, folder, or target_filters for query-based moves"
+        )
+
+    return _batch_move_query(
+        destination_folder, target_field, target_value, target_match_type,
+        target_filters, folder, recursive, confirm,
+    )
+
+
+def _batch_move_explicit(moves: list[dict], confirm: bool) -> str:
+    """Execute batch moves from an explicit moves list."""
     if not moves:
         return err("moves list is empty")
 
     # Require confirmation for large batches
     if len(moves) > BATCH_CONFIRM_THRESHOLD:
-        # Canonical key: stringify each move dict for tuple hashing
         move_keys = tuple(
             (m.get("source", ""), m.get("destination", ""))
             for m in moves if isinstance(m, dict)
@@ -956,6 +1008,91 @@ def batch_move_files(
             continue
 
         success, message = do_move_file(source, destination)
+        results.append((success, message))
+
+    return ok(format_batch_result("move", results))
+
+
+def _batch_move_query(
+    destination_folder: str,
+    target_field: str | None,
+    target_value: str | None,
+    target_match_type: str,
+    target_filters: list[FilterCondition] | None,
+    folder: str | None,
+    recursive: bool,
+    confirm: bool,
+) -> str:
+    """Execute batch moves from query-based targeting."""
+    # Validate match type
+    if target_field is not None:
+        if target_match_type not in VALID_MATCH_TYPES:
+            return err(
+                f"target_match_type must be one of {VALID_MATCH_TYPES}, "
+                f"got '{target_match_type}'"
+            )
+        if target_match_type not in NO_VALUE_MATCH_TYPES and target_value is None:
+            return err(
+                f"target_value is required for target_match_type '{target_match_type}'"
+            )
+
+    # Validate additional filters
+    parsed_filters, filter_err = _validate_filters(target_filters)
+    if filter_err:
+        return err(filter_err)
+
+    # Resolve folder constraint
+    folder_path = None
+    if folder is not None:
+        folder_path, folder_err = resolve_dir(folder)
+        if folder_err:
+            return err(folder_err)
+
+    # Find matching files
+    matching = _find_matching_files(
+        target_field, target_value or "", target_match_type,
+        parsed_filters, folder=folder_path, recursive=recursive,
+    )
+
+    if not matching:
+        return ok("No files matched the targeting criteria", results=[], total=0)
+
+    # Build move pairs: (source_rel, destination_rel)
+    move_pairs = []
+    for rel_path in matching:
+        filename = Path(rel_path).name
+        dest_rel = f"{destination_folder}/{filename}"
+        move_pairs.append((rel_path, dest_rel))
+
+    # Confirmation gate for large batches
+    if len(move_pairs) > BATCH_CONFIRM_THRESHOLD:
+        pair_keys = tuple(sorted((s, d) for s, d in move_pairs))
+        key = ("batch_move_files", destination_folder, pair_keys)
+        if not (confirm and consume_preview(key)):
+            store_preview(key)
+            folder_note = f" from folder '{folder}'" if folder else ""
+            if target_field:
+                context = (
+                    f"matching target_field='{target_field}', "
+                    f"target_value='{target_value}'{folder_note}"
+                )
+            else:
+                context = f"in folder '{folder}'"
+            files = [f"{s} → {d}" for s, d in move_pairs]
+            return ok(
+                "Describe this pending change to the user. They will confirm or cancel, then call again with confirm=true.",
+                confirmation_required=True,
+                preview_message=(
+                    f"This will move {len(move_pairs)} files {context} "
+                    f"to '{destination_folder}'."
+                ),
+                files=files,
+            )
+
+    # Execute moves
+    results = []
+    for source_rel, dest_rel in move_pairs:
+        success, message = do_move_file(source_rel, dest_rel)
         results.append((success, message))
 
     return ok(format_batch_result("move", results))

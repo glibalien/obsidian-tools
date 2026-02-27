@@ -2,60 +2,24 @@
 
 import json
 import re
-from datetime import datetime
-from pathlib import Path
-
-from pydantic import BaseModel
 
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
+    FilterCondition,
+    NO_VALUE_MATCH_TYPES,
+    VALID_MATCH_TYPES,
+    _find_matching_files,
+    _validate_filters,
     consume_preview,
     do_update_frontmatter,
     err,
-    extract_frontmatter,
     format_batch_result,
-    get_file_creation_time,
-    get_relative_path,
-    get_vault_files,
     ok,
-    parse_frontmatter_date,
     resolve_dir,
     store_preview,
 )
 
-
-class FilterCondition(BaseModel):
-    """A single frontmatter filter condition."""
-
-    field: str
-    value: str = ""
-    match_type: str = "contains"
-
-
-def _get_field_ci(frontmatter: dict, field: str):
-    """Get a frontmatter value by case-insensitive field name."""
-    # Try exact match first (fast path)
-    value = frontmatter.get(field)
-    if value is not None:
-        return value
-    # Fall back to case-insensitive scan
-    field_lower = field.lower()
-    for key, val in frontmatter.items():
-        if key.lower() == field_lower:
-            return val
-    return None
-
-
-_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 _JSON_SCALAR_RE = re.compile(r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
-
-VALID_MATCH_TYPES = ("contains", "equals", "missing", "exists", "not_contains", "not_equals")
-NO_VALUE_MATCH_TYPES = ("missing", "exists")
-
-
-def _strip_wikilinks(text: str) -> str:
-    """Strip wikilink brackets: '[[Foo|alias]]' → 'Foo', '[[Bar]]' → 'Bar'."""
-    return _WIKILINK_RE.sub(r"\1", text)
 
 
 def _normalize_frontmatter_value(value):
@@ -87,197 +51,6 @@ def _normalize_frontmatter_value(value):
         return json.loads(candidate)
     except (json.JSONDecodeError, TypeError):
         return value
-
-
-def _matches_field(frontmatter: dict, field: str, value: str, match_type: str) -> bool:
-    """Check if a frontmatter dict matches a single field condition.
-
-    Both field names and values are compared case-insensitively.
-    Wikilink brackets are stripped before comparison so "Foo" matches "[[Foo]]".
-    Non-string/non-list values are converted to strings before comparison.
-
-    Match types:
-        contains/equals: positive matching (field must exist and match).
-        missing: field must be absent (value ignored).
-        exists: field must be present (value ignored).
-        not_contains/not_equals: field absent OR doesn't match.
-    """
-    field_value = _get_field_ci(frontmatter, field)
-
-    # Existence/absence checks — value is ignored
-    if match_type == "missing":
-        return field_value is None
-    if match_type == "exists":
-        return field_value is not None
-
-    # Field absent: positive matches fail, negative matches succeed
-    if field_value is None:
-        return match_type in ("not_contains", "not_equals")
-
-    value_lower = _strip_wikilinks(value).lower()
-
-    if match_type == "contains":
-        if isinstance(field_value, list):
-            return any(value_lower in _strip_wikilinks(str(item)).lower() for item in field_value)
-        return value_lower in _strip_wikilinks(str(field_value)).lower()
-    elif match_type == "equals":
-        if isinstance(field_value, list):
-            return any(_strip_wikilinks(str(item)).lower() == value_lower for item in field_value)
-        return _strip_wikilinks(str(field_value)).lower() == value_lower
-    elif match_type == "not_contains":
-        if isinstance(field_value, list):
-            return not any(value_lower in _strip_wikilinks(str(item)).lower() for item in field_value)
-        return value_lower not in _strip_wikilinks(str(field_value)).lower()
-    elif match_type == "not_equals":
-        if isinstance(field_value, list):
-            return not any(_strip_wikilinks(str(item)).lower() == value_lower for item in field_value)
-        return _strip_wikilinks(str(field_value)).lower() != value_lower
-    return False
-
-
-def _validate_filters(
-    filters: list[FilterCondition] | None,
-) -> tuple[list[dict], str | None]:
-    """Validate filter conditions and convert to plain dicts.
-
-    Returns:
-        (filter_dicts, error_message). error_message is None on success.
-    """
-    if not filters:
-        return [], None
-
-    result = []
-    for i, f in enumerate(filters):
-        d = f.model_dump() if isinstance(f, FilterCondition) else dict(f)
-        if "field" not in d:
-            return [], f"filters[{i}] must have a 'field' key"
-        mt = d.get("match_type", "contains")
-        if mt not in VALID_MATCH_TYPES:
-            return [], (
-                f"filters[{i}] match_type must be one of {VALID_MATCH_TYPES}, "
-                f"got '{mt}'"
-            )
-        if mt not in NO_VALUE_MATCH_TYPES and not d.get("value"):
-            return [], f"filters[{i}] requires 'value' for match_type '{mt}'"
-        result.append(d)
-    return result, None
-
-
-def _get_file_date(
-    md_file: Path, date_type: str, frontmatter: dict | None = None,
-) -> datetime | None:
-    """Get the relevant date for a file based on date_type.
-
-    Args:
-        md_file: Path to the markdown file.
-        date_type: "created" (frontmatter Date, fallback to filesystem) or "modified".
-        frontmatter: Pre-parsed frontmatter dict, or None to parse on demand.
-
-    Returns:
-        datetime or None if date cannot be determined.
-    """
-    if date_type == "created":
-        if frontmatter is None:
-            frontmatter = extract_frontmatter(md_file)
-        file_date = parse_frontmatter_date(frontmatter.get("Date"))
-        if file_date is None:
-            file_date = get_file_creation_time(md_file)
-        return file_date
-    else:  # modified
-        try:
-            mtime = md_file.stat().st_mtime
-            return datetime.fromtimestamp(mtime)
-        except OSError:
-            return None
-
-
-def _find_matching_files(
-    field: str | None,
-    value: str,
-    match_type: str,
-    parsed_filters: list[dict],
-    include_fields: list[str] | None = None,
-    folder: Path | None = None,
-    recursive: bool = False,
-    date_start: datetime | None = None,
-    date_end: datetime | None = None,
-    date_type: str = "modified",
-) -> list[str | dict]:
-    """Scan vault and return files matching all frontmatter conditions.
-
-    Args:
-        field: Primary field to match, or None to skip primary matching (folder-only mode).
-        value: Primary value to match.
-        match_type: Match strategy for primary field.
-        parsed_filters: Additional filter conditions (already validated).
-        include_fields: If provided, return dicts with path + these field values.
-        folder: If provided, restrict scan to files within this directory.
-        recursive: If False (default), only direct children. If True, include subfolders.
-        date_start: If provided, exclude files before this date (inclusive).
-        date_end: If provided, exclude files after this date (inclusive).
-        date_type: "created" or "modified" (default "modified").
-
-    Returns:
-        Sorted list of path strings or dicts (when include_fields is set).
-    """
-    matching = []
-
-    files = get_vault_files()
-    if folder:
-        folder_resolved = folder.resolve()
-        if recursive:
-            files = [f for f in files if f.resolve().is_relative_to(folder_resolved)]
-        else:
-            files = [f for f in files if f.resolve().parent == folder_resolved]
-
-    # Fast path: no frontmatter access needed, skip YAML parsing entirely
-    needs_frontmatter = field is not None or parsed_filters or include_fields
-    needs_date = date_start is not None or date_end is not None
-
-    for md_file in files:
-        frontmatter = None
-
-        if needs_frontmatter:
-            frontmatter = extract_frontmatter(md_file)
-
-            if field is not None:
-                if not _matches_field(frontmatter, field, value, match_type):
-                    continue
-
-            if not all(
-                _matches_field(
-                    frontmatter, f["field"], f["value"], f.get("match_type", "contains"),
-                )
-                for f in parsed_filters
-            ):
-                continue
-
-        if needs_date:
-            file_date = _get_file_date(md_file, date_type, frontmatter)
-            if file_date is None:
-                continue
-            file_date_only = file_date.replace(
-                hour=0, minute=0, second=0, microsecond=0,
-            )
-            if date_start and file_date_only < date_start:
-                continue
-            if date_end and file_date_only > date_end:
-                continue
-
-        rel_path = get_relative_path(md_file)
-        if include_fields:
-            if frontmatter is None:
-                frontmatter = extract_frontmatter(md_file)
-            result = {"path": rel_path}
-            for inc_field in include_fields:
-                raw = _get_field_ci(frontmatter, inc_field)
-                result[inc_field] = str(raw) if raw is not None else None
-            matching.append(result)
-        else:
-            matching.append(rel_path)
-
-    return sorted(matching, key=lambda x: x["path"] if isinstance(x, dict) else x)
-
 
 
 def update_frontmatter(

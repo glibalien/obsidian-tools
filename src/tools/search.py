@@ -8,13 +8,15 @@ from pathlib import Path
 
 from search_vault import search_results
 import services.vault as vault_service
-from services.vault import err, ok, resolve_dir
-from tools._validation import validate_pagination
-from tools.frontmatter import (
+from services.vault import (
     FilterCondition,
     _find_matching_files,
     _validate_filters,
+    err,
+    ok,
+    resolve_dir,
 )
+from tools._validation import validate_pagination
 
 VALID_MODES = {"hybrid", "semantic", "keyword"}
 VALID_SORTS = {"relevance", "modified", "created", "name"}
