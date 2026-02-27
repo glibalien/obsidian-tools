@@ -430,3 +430,53 @@ class TestFindNotesQueryMode:
             result = json.loads(find_notes(query="test"))
             assert not result["success"]
             assert "Search failed" in result["error"]
+
+
+class TestFindNotesCompaction:
+    """Tests for find_notes compaction stub."""
+
+    def test_stub_semantic_results(self):
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": [
+                {"source": "note.md", "content": "A" * 200, "heading": "Section"},
+                {"source": "other.md", "content": "B" * 50, "heading": ""},
+            ],
+            "total": 2,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert stub["status"] == "success"
+        assert stub["result_count"] == 2
+        assert stub["total"] == 2
+        assert "snippet" in stub["results"][0]
+        assert len(stub["results"][0]["snippet"]) <= 100  # capped
+
+    def test_stub_vault_scan_paths(self):
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": ["note1.md", "note2.md", "note3.md"],
+            "total": 3,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert stub["status"] == "success"
+        assert stub["result_count"] == 3
+        assert stub["results"] == ["note1.md", "note2.md", "note3.md"]
+        assert stub["total"] == 3
+
+    def test_stub_vault_scan_with_fields(self):
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": [
+                {"path": "note.md", "status": "active"},
+            ],
+            "total": 1,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert stub["result_count"] == 1
+        assert stub["results"][0]["path"] == "note.md"
