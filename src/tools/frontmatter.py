@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from config import LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
     consume_preview,
@@ -23,7 +22,6 @@ from services.vault import (
     resolve_dir,
     store_preview,
 )
-from tools._validation import validate_pagination
 
 
 class FilterCondition(BaseModel):
@@ -281,84 +279,6 @@ def _find_matching_files(
     return sorted(matching, key=lambda x: x["path"] if isinstance(x, dict) else x)
 
 
-def list_files(
-    field: str = "",
-    value: str = "",
-    match_type: str = "contains",
-    filters: list[FilterCondition] | None = None,
-    include_fields: list[str] | None = None,
-    folder: str = "",
-    recursive: bool = False,
-    limit: int = LIST_DEFAULT_LIMIT,
-    offset: int = 0,
-) -> str:
-    """List vault files, optionally filtered by frontmatter and/or folder. Use for "list files in folder X", "find notes with field=Y", or combined queries.
-
-    Args:
-        field: Frontmatter field name to match (e.g., 'tags', 'project', 'category').
-            Optional — omit to list all files in a folder without filtering.
-        value: Value to match against. Wikilink brackets are stripped automatically.
-            Not required for 'missing' or 'exists' match types.
-        match_type: How to match the field value:
-            'contains' - substring/list member match (default).
-            'equals' - exact match.
-            'missing' - field is absent (value ignored).
-            'exists' - field is present with any value (value ignored).
-            'not_contains' - field is absent or doesn't contain value.
-            'not_equals' - field is absent or doesn't equal value.
-        filters: Additional AND conditions. Each needs 'field', optional 'value', and optional 'match_type'.
-        include_fields: Field names whose values to return with each result, e.g. ["status", "scheduled"].
-        folder: Restrict search to files within this folder (relative to vault root).
-            When field is omitted, lists all files in this folder.
-        recursive: Include subfolders when folder is set (default false). Set true to include subfolders.
-
-    Returns:
-        JSON with results (file paths or objects when include_fields is set) and total count.
-    """
-    if not field and not folder:
-        return err("At least one of 'field' or 'folder' is required")
-
-    if field:
-        if match_type not in VALID_MATCH_TYPES:
-            return err(
-                f"match_type must be one of {VALID_MATCH_TYPES}, got '{match_type}'"
-            )
-
-        if match_type not in NO_VALUE_MATCH_TYPES and not value:
-            return err(f"value is required for match_type '{match_type}'")
-
-    parsed_filters, filter_err = _validate_filters(filters)
-    if filter_err:
-        return err(filter_err)
-
-    parsed_include = include_fields if include_fields else None
-
-    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
-    if pagination_error:
-        return err(pagination_error)
-
-    folder_path = None
-    if folder:
-        folder_path, folder_err = resolve_dir(folder)
-        if folder_err:
-            return err(folder_err)
-
-    matching = _find_matching_files(
-        field or None, value, match_type, parsed_filters, parsed_include, folder_path, recursive
-    )
-
-    if not matching:
-        if field:
-            msg = f"No files found where {field} {match_type} '{value}'"
-        else:
-            mode = "recursively " if recursive else ""
-            msg = f"No markdown files found {mode}in {folder}"
-        return ok(msg, results=[], total=0)
-
-    total = len(matching)
-    page = matching[validated_offset:validated_offset + validated_limit]
-    return ok(f"Found {total} matching files", results=page, total=total)
-
 
 def update_frontmatter(
     path: str,
@@ -591,80 +511,3 @@ def batch_update_frontmatter(
     return ok(format_batch_result("update", results))
 
 
-def search_by_date_range(
-    start_date: str,
-    end_date: str,
-    date_type: str = "modified",
-    limit: int = LIST_DEFAULT_LIMIT,
-    offset: int = 0,
-) -> str:
-    """Find vault files within a date range.
-
-    Args:
-        start_date: Start of date range (inclusive), format: YYYY-MM-DD.
-        end_date: End of date range (inclusive), format: YYYY-MM-DD.
-        date_type: Which date to check - "created" (frontmatter Date field,
-                   falls back to filesystem creation time) or "modified"
-                   (filesystem modification time). Default: "modified".
-
-    Returns:
-        Newline-separated list of matching file paths (relative to vault),
-        or a message if no files found.
-    """
-    validated_offset, validated_limit, pagination_error = validate_pagination(offset, limit)
-    if pagination_error:
-        return err(pagination_error)
-
-    if date_type not in ("created", "modified"):
-        return err(f"date_type must be 'created' or 'modified', got '{date_type}'")
-
-    try:
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-    except ValueError:
-        return err(f"Invalid start_date format. Use YYYY-MM-DD, got '{start_date}'")
-
-    try:
-        end = datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError:
-        return err(f"Invalid end_date format. Use YYYY-MM-DD, got '{end_date}'")
-
-    if start > end:
-        return err(f"start_date ({start_date}) is after end_date ({end_date})")
-
-    matching = []
-
-    for md_file in get_vault_files():
-        file_date = None
-
-        if date_type == "created":
-            # Try frontmatter Date first, fall back to filesystem creation time
-            frontmatter = extract_frontmatter(md_file)
-            file_date = parse_frontmatter_date(frontmatter.get("Date"))
-            if file_date is None:
-                file_date = get_file_creation_time(md_file)
-        else:  # modified
-            try:
-                mtime = md_file.stat().st_mtime
-                file_date = datetime.fromtimestamp(mtime)
-            except OSError:
-                continue
-
-        if file_date is None:
-            continue
-
-        # Compare date only (ignore time component)
-        file_date_only = file_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        if start <= file_date_only <= end:
-            matching.append(get_relative_path(md_file))
-
-    if not matching:
-        return ok(
-            f"No files found with {date_type} date between {start_date} and {end_date}",
-            results=[],
-            total=0,
-        )
-
-    all_results = sorted(matching)
-    total = len(all_results)
-    page = all_results[validated_offset:validated_offset + validated_limit]
-    return ok(results=page, total=total)
