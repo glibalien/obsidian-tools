@@ -20,10 +20,10 @@ src/
 │   └── vault.py         # Path resolution, ok()/err() helpers, find_section, file scanning
 ├── tools/
 │   ├── files.py         # read_file, create_file, move_file, merge_files, batch_merge_files
-│   ├── frontmatter.py   # list_files, update_frontmatter, batch ops
+│   ├── frontmatter.py   # update_frontmatter, batch ops, FilterCondition, internal helpers
 │   ├── links.py         # find_links, compare_folders
 │   ├── preferences.py   # manage_preferences (list/add/remove)
-│   ├── search.py        # search_vault, web_search
+│   ├── search.py        # find_notes, web_search
 │   ├── editing.py       # edit_file
 │   ├── utility.py       # log_interaction
 │   └── readers.py       # File type handlers (audio, image, office) for read_file dispatch
@@ -44,7 +44,7 @@ services/                # systemd/launchd/taskscheduler templates
 ### Key Components
 
 - **services/vault.py**: `ok()`/`err()` response helpers, `resolve_file()`/`resolve_dir()` path validation, `find_section()` for heading lookup, `get_vault_files()`/`get_vault_note_names()` for scanning, `is_fence_line()` for code fence detection.
-- **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for search_vault, read_file, list tools, web_search; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
+- **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for find_notes (detects semantic vs vault-scan result shape), read_file, find_links, web_search; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
 - **agent.py**: Connects LLM (Fireworks) to MCP server. Loads system prompt from `system_prompt.txt` (falls back to `.example`). Features: agent loop cap (20 iterations), 100K-char tool result truncation with `get_continuation`, compaction between turns, `on_event` callback for SSE streaming, preferences reload per turn, `ensure_interaction_logged` auto-calls `log_interaction` when agent forgets, `force_text_only` code-level enforcement (strips tool calls if model ignores `tool_choice="none"`, capped at 3 retries with preview message fallback). Confirmation preview SSE events are emitted after the response event to guarantee correct rendering order in the plugin.
 - **api_server.py**: FastAPI on 127.0.0.1. File-keyed sessions (LRU eviction, message trimming). CORS enabled. `/chat` and `/chat/stream` share `_prepare_turn`/`_restore_compacted_flags`.
 - **hybrid_search.py**: Semantic (ChromaDB) + keyword search merged via RRF. Keyword: single `$or` query, term frequency ranking, `_case_variants()` for case-insensitive matching. Returns `heading` metadata.
@@ -59,9 +59,8 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|
-| `search_vault` | Hybrid search (semantic + keyword) | `query`, `n_results` (5), `mode` ("hybrid"/"semantic"/"keyword"), `chunk_type` ("frontmatter"/"section"/"paragraph"/"sentence"/"fragment") |
+| `find_notes` | Unified discovery (search + filter + date) | `query`, `mode` ("hybrid"/"semantic"/"keyword"), `folder`, `recursive` (false), `frontmatter` (array of FilterCondition, AND), `date_start`/`date_end` (YYYY-MM-DD), `date_type` ("modified"/"created"), `sort` ("relevance"/"name"/"modified"/"created"), `include_fields`, `n_results` (20), `offset` |
 | `read_file` | Read any vault file (text, audio, image, Office) | `path`, `offset` (0), `length` (30000). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction. Markdown files auto-expand `![[...]]` embeds inline (1 level deep, binary results cached by mtime). |
-| `list_files` | List and filter vault files by frontmatter and/or folder | `field`, `value`, `match_type` ("contains"/"equals"/"missing"/"exists"/"not_contains"/"not_equals"), `filters` (array of FilterCondition, compound AND), `include_fields` (array of strings), `folder`, `recursive` (false) |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
 | `move_file` | Relocate vault file | `source`, `destination` |
@@ -71,7 +70,6 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `create_file` | Create new note | `path`, `content`, `frontmatter` (JSON string) |
 | `find_links` | Find links to/from a vault note | `path`, `direction` ("backlinks"/"outlinks"/"both"), `limit`, `offset` |
 | `compare_folders` | Compare two folders by filename stem | `source`, `target`, `recursive` (false) |
-| `search_by_date_range` | Find files by date | `start_date`, `end_date`, `date_type` ("modified"/"created") |
 | `log_interaction` | Log to daily note | `task_description`, `query`, `summary`, `files`, `full_response` |
 | `manage_preferences` | List/add/remove preferences | `operation` ("list"/"add"/"remove"), `preference`, `line_number` |
 | `edit_file` | Edit file content (prepend/append/section) | `path`, `content`, `position` ("prepend"/"append"/"section"), `heading` (for section), `mode` ("replace"/"append" for section) |
