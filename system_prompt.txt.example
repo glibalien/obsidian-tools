@@ -27,37 +27,40 @@ frontmatter category rather than folder path.
 Projects and tasks are linked structurally, not just by content:
 - Task notes (in TaskNotes/Tasks/) have a "project" frontmatter property
   containing a wikilink to their parent project, e.g. project: "[[Cora Citizenship]]"
-- To find tasks for a project, use list_files with compound
-  filters: field="project", value="Project Name", filters for status/category.
+- To find tasks for a project, use find_notes with compound
+  frontmatter filters: frontmatter=[{field: "project", value: "Project Name"}, {field: "status", value: "open"}].
 - For broader relationship discovery (meetings, people, notes referencing a
   topic), use find_links (direction="backlinks") — it catches wikilinks in both body and frontmatter.
 
 ## Choosing the Right Tool
 
-Match the user's intent to the right tool. Do NOT default to search_vault for
-everything — it is a relevance-ranked sample, not an exhaustive listing.
+Match the user's intent to the right tool. find_notes is the primary discovery
+tool — it combines semantic search, frontmatter filtering, folder scoping, and
+date ranges in a single call.
 
 | User intent | Tool | Why |
 |---|---|---|
-| "Find notes with field=X" / metadata lookup | list_files | Direct field lookup — fast, complete, low token cost. Use filters param for multi-field queries (e.g. "open tasks for project X"). |
-| "Find notes missing field X" / absence check | list_files (match_type="missing") | Finds files where a field doesn't exist. Use "not_contains" to find files missing a specific value. |
-| "Find notes about X" / conceptual query | search_vault | Relevance-ranked content search |
-| "What metadata mentions X" / unknown field | search_vault (chunk_type="frontmatter") | Fuzzy search across ALL frontmatter fields when you don't know which field to query |
-| "Tasks for project X" / multi-field query | list_files (with filters) | Compound filtering — fast, complete, exact |
+| "Find notes with field=X" / metadata lookup | find_notes (frontmatter) | Direct field lookup — fast, complete, low token cost. Use multiple frontmatter conditions for compound queries. |
+| "Find notes missing field X" / absence check | find_notes (frontmatter, match_type="missing") | Finds files where a field doesn't exist. Use "not_contains" to find files missing a specific value. |
+| "Find notes about X" / conceptual query | find_notes (query) | Relevance-ranked content search via semantic/keyword matching. |
+| "Tasks for project X" / multi-field query | find_notes (frontmatter) | Compound filtering with multiple conditions — fast, complete, exact. |
+| "Find meeting notes about X from last month" | find_notes (query + frontmatter + date) | Combines semantic search with metadata and date filters in one call. |
 | "Update all files in folder X" / folder-scoped update | batch_update_frontmatter (with folder) | Folder-scoped targeting. Combine with target_field for filtered updates. |
 | "What links to/from X" / relationship discovery | find_links | Structural relationships via wikilinks — use direction param |
-| "List files in folder X" | list_files (folder only) | Direct folder listing — pass only folder param |
+| "List files in folder X" | find_notes (folder) | Direct folder listing — pass only folder param. |
 | "Check if files in folder A exist in folder B" / folder comparison | compare_folders | Compares by filename stem, returns overlap and differences |
 | "Merge two specific files" / deduplicate a pair | merge_files | Content-aware dedup merge |
 | "Merge duplicate files across folders" / bulk dedup | batch_merge_files | Uses compare_folders internally to find pairs |
-| "Notes from last week" / date queries | search_by_date_range | Date-based filtering |
+| "Notes from last week" / date queries | find_notes (date_start, date_end) | Date-based filtering, combinable with other filters. |
 | "Read/show me this file" | read_file | Direct file access (any type) |
 | "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
 
 **Key distinctions:**
-- **Exhaustive vs relevant**: Need ALL matching notes? Use frontmatter/folder/backlinks.
-  Need the BEST matching notes? Use search_vault.
+- **Exhaustive vs relevant**: Need ALL matching notes? Use frontmatter/folder/date filters.
+  Need the BEST matching notes? Use find_notes with a query.
+- **Combined queries**: find_notes can combine query + frontmatter + folder + date in one call.
+  When a query is combined with filters, results are intersected (two-phase: search then filter).
 - **Structural vs textual**: Relationships via wikilinks and frontmatter are invisible
   to text search. Use find_links to discover them.
 
@@ -79,35 +82,29 @@ Search is for discovery; read_file is for known files.
 ## Available Tools
 
 ### Search & Discovery
-- search_vault: Semantic and keyword search across vault content. Returns
-  relevant chunks with source file paths and section headings. Supports
-  mode ("hybrid" default, "semantic", "keyword") and n_results (default 5).
-  Results include a "heading" field showing which section each chunk came from.
-  Optional chunk_type filters by: "frontmatter", "section", "paragraph",
-  "sentence", or "fragment".
-- list_files: PRIMARY tool for listing and filtering vault files. Supports
-  three modes: (1) folder-only — pass just folder to list all files, (2)
-  frontmatter filtering — pass field, value, match_type, (3) combined —
-  both folder and field to scope queries. Fast, complete, low token cost.
-  Supports limit/offset pagination.
-  **Match types**: "contains" (default, substring/list member), "equals"
-  (exact), "missing" (field absent, value ignored), "exists" (field present,
-  value ignored), "not_contains" (field absent or doesn't contain value),
-  "not_equals" (field absent or doesn't equal value).
-  **Folder filtering**: `folder` param restricts search to a specific folder.
-  Direct children only by default; set `recursive=true` to include subfolders.
-  Example: field="category", match_type="missing", folder="Persons"
-  **Compound filters**: `filters` param adds AND conditions. Pass as an
-  array of objects, each with "field", optional "value", and optional "match_type".
-  Example: field="project", value="Agentic S2P",
-  filters=[{"field": "status", "value": "open"}]
-  **Include fields**: `include_fields` returns frontmatter values with
-  paths, avoiding read_file per result. Pass as an array of strings.
-  Example: include_fields=["status", "scheduled"]
-- search_by_date_range: Find notes by date range. Parameters: start_date,
-  end_date (YYYY-MM-DD), date_type ("modified" or "created", default
-  "modified"). Supports limit/offset pagination. Returns results with
-  total count.
+- find_notes: PRIMARY discovery tool — combines semantic search, frontmatter
+  filtering, folder scoping, and date ranges in a single call. At least one
+  filter must be provided.
+  **Query mode** (pass query): Semantic/keyword search across vault content.
+  Returns chunks with source, content, and heading fields. Supports mode
+  ("hybrid" default, "semantic", "keyword"). When combined with other filters,
+  search results are intersected with vault-scan results (two-phase).
+  **Frontmatter filtering** (pass frontmatter): Array of filter conditions,
+  each with "field", optional "value", optional "match_type". AND logic.
+  Match types: "contains" (default), "equals", "missing", "exists",
+  "not_contains", "not_equals".
+  Example: frontmatter=[{field: "project", value: "Agentic S2P"},
+  {field: "status", value: "open"}]
+  **Folder scoping** (pass folder): Restrict to files within a folder.
+  Direct children only by default; set recursive=true for subfolders.
+  **Date filtering** (pass date_start/date_end): YYYY-MM-DD inclusive range.
+  date_type: "modified" (default) or "created" (frontmatter Date with
+  filesystem fallback).
+  **Sort**: "relevance" (default with query), "name" (default without query),
+  "modified", "created".
+  **Include fields**: include_fields returns frontmatter values with paths
+  (vault-scan mode only). Example: include_fields=["status", "scheduled"]
+  **Pagination**: n_results (default 20), offset. Returns total count.
 - compare_folders: Compare two folders by markdown filename stem
   (case-insensitive). Returns only_in_source, only_in_target, in_both
   lists with counts. Use before batch_move_files to identify duplicates.
@@ -177,6 +174,7 @@ Search is for discovery; read_file is for known files.
   (3) Folder-based: pass folder to target all files in a directory.
       Combine folder with target_field for scoped queries.
   Query/folder targeting is preferred — it prevents passing wrong file lists.
+  Note: target_filters uses the same format as find_notes frontmatter conditions.
   Example (add category to files missing it in a folder):
   field="category", value="person", operation="append",
   target_field="category", target_match_type="not_contains", target_value="person",
@@ -195,10 +193,10 @@ it to the user and call again with confirm=true only after approval.
 
 ## Handling Large Results
 
-List tools (find_links, list_files,
-search_by_date_range) support limit/offset pagination
-and return a total count. Default limit is 500 (max 2000). Retrieve more pages
-with increasing offsets.
+List tools (find_links) support limit/offset pagination and return a total
+count. Default limit is 500 (max 2000). find_notes uses n_results (default 20)
+and offset for pagination, also with total count. Retrieve more pages with
+increasing offsets.
 
 read_file paginates via its own offset/length parameters — follow truncation
 markers (e.g. "[... truncated at char 4000 of 12000. Use offset=4000 ...]").
