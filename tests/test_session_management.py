@@ -20,7 +20,7 @@ from services.compaction import build_tool_stub, compact_tool_messages
 class TestBuildToolStub:
     """Tests for build_tool_stub."""
 
-    def test_search_vault_success(self):
+    def test_generic_search_success(self):
         """Search results produce stub with file list and count."""
         content = json.dumps({
             "success": True,
@@ -82,8 +82,8 @@ class TestBuildToolStub:
 
     # --- Tool-specific stub tests ---
 
-    def test_search_vault_stub_preserves_headings_and_snippets(self):
-        """search_vault stub keeps source, heading, and content snippet."""
+    def test_find_notes_stub_preserves_headings_and_snippets(self):
+        """find_notes stub keeps source, heading, and content snippet."""
         content = json.dumps({
             "success": True,
             "results": [
@@ -91,7 +91,7 @@ class TestBuildToolStub:
                 {"source": "Notes/project.md", "content": "Project timeline updated", "heading": "### Timeline"},
             ],
         })
-        stub = build_tool_stub(content, "search_vault")
+        stub = build_tool_stub(content, "find_notes")
         parsed = json.loads(stub)
         assert parsed["status"] == "success"
         assert parsed["result_count"] == 2
@@ -100,24 +100,24 @@ class TestBuildToolStub:
         assert parsed["results"][0]["heading"] == "## Meeting Notes"
         assert parsed["results"][0]["snippet"].startswith("Discussed")
 
-    def test_search_vault_stub_truncates_long_content(self):
-        """search_vault snippet is capped at SNIPPET_LENGTH chars."""
+    def test_find_notes_stub_truncates_long_content(self):
+        """find_notes snippet is capped at SNIPPET_LENGTH chars."""
         content = json.dumps({
             "success": True,
             "results": [{"source": "a.md", "content": "x" * 200, "heading": ""}],
         })
-        stub = build_tool_stub(content, "search_vault")
+        stub = build_tool_stub(content, "find_notes")
         parsed = json.loads(stub)
         assert len(parsed["results"][0]["snippet"]) == 80
 
-    def test_search_vault_stub_empty_results(self):
-        """search_vault with no results preserves message."""
+    def test_find_notes_stub_empty_results(self):
+        """find_notes with no results preserves message."""
         content = json.dumps({
             "success": True,
             "message": "No matching documents found",
             "results": [],
         })
-        stub = build_tool_stub(content, "search_vault")
+        stub = build_tool_stub(content, "find_notes")
         parsed = json.loads(stub)
         assert parsed["result_count"] == 0
         assert parsed["message"] == "No matching documents found"
@@ -156,8 +156,7 @@ class TestBuildToolStub:
             "results": ["file1.md", "file2.md", "file3.md"],
             "total": 25,
         })
-        for tool in ["find_links", "list_files",
-                      "search_by_date_range"]:
+        for tool in ["find_links", "find_notes"]:
             stub = build_tool_stub(content, tool)
             parsed = json.loads(stub)
             assert parsed["total"] == 25, f"Failed for {tool}"
@@ -233,7 +232,7 @@ class TestCompactToolMessages:
             {"role": "system", "content": "prompt"},
             {"role": "user", "content": "search for X"},
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+                {"id": "call_1", "function": {"name": "find_notes"}, "type": "function"}
             ]},
             {"role": "tool", "tool_call_id": "call_1",
              "content": json.dumps({"success": True, "results": [{"source": "a.md", "content": "..."}]})},
@@ -271,7 +270,7 @@ class TestCompactToolMessages:
         """compact_tool_messages uses tool name for tool-specific stubs."""
         messages = [
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"},
+                {"id": "call_1", "function": {"name": "find_notes"}, "type": "function"},
             ]},
             {"role": "tool", "tool_call_id": "call_1",
              "content": json.dumps({
@@ -281,7 +280,7 @@ class TestCompactToolMessages:
         ]
         compact_tool_messages(messages)
         parsed = json.loads(messages[1]["content"])
-        # search_vault stub has "results" list with heading/snippet, not generic "files"
+        # find_notes stub has "results" list with heading/snippet, not generic "files"
         assert "results" in parsed
         assert parsed["results"][0]["heading"] == "## Intro"
         assert "snippet" in parsed["results"][0]
@@ -300,7 +299,7 @@ class TestCompactToolMessages:
         """Multiple tool calls in one assistant message are all resolved."""
         messages = [
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"},
+                {"id": "call_1", "function": {"name": "find_notes"}, "type": "function"},
                 {"id": "call_2", "function": {"name": "read_file"}, "type": "function"},
             ]},
             {"role": "tool", "tool_call_id": "call_1",
@@ -638,7 +637,7 @@ class TestTrimMessages:
             {"role": "assistant", "content": "resp1"},
             # This is a tool call group that would be split by naive trimming
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+                {"id": "call_1", "function": {"name": "find_notes"}, "type": "function"}
             ]},
             {"role": "tool", "tool_call_id": "call_1", "content": "result"},
             {"role": "assistant", "content": "Found it."},
@@ -681,8 +680,8 @@ class TestStreamEndpoint:
         """Stream endpoint returns SSE-formatted events."""
         async def fake_agent_turn(client, session, messages, tools, on_event=None):
             if on_event:
-                await on_event("tool_call", {"tool": "search_vault", "args": {"query": "test"}})
-                await on_event("tool_result", {"tool": "search_vault", "success": True})
+                await on_event("tool_call", {"tool": "find_notes", "args": {"query": "test"}})
+                await on_event("tool_result", {"tool": "find_notes", "success": True})
                 await on_event("response", {"content": "Found results."})
             return "Found results."
 

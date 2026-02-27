@@ -213,7 +213,7 @@ async def test_agent_turn_max_iterations():
     """Agent turn stops after max_iterations and returns warning."""
     mock_tool_call = MagicMock()
     mock_tool_call.id = "call_1"
-    mock_tool_call.function.name = "search_vault"
+    mock_tool_call.function.name = "find_notes"
     mock_tool_call.function.arguments = '{"query": "test"}'
 
     mock_message = MagicMock()
@@ -222,7 +222,7 @@ async def test_agent_turn_max_iterations():
     mock_message.model_dump.return_value = {
         "role": "assistant",
         "content": "Searching...",
-        "tool_calls": [{"id": "call_1", "function": {"name": "search_vault", "arguments": '{"query": "test"}'}, "type": "function"}],
+        "tool_calls": [{"id": "call_1", "function": {"name": "find_notes", "arguments": '{"query": "test"}'}, "type": "function"}],
     }
 
     mock_usage = MagicMock()
@@ -500,7 +500,7 @@ async def test_agent_turn_on_event_tool_call():
 
     mock_tool_call = MagicMock()
     mock_tool_call.id = "call_1"
-    mock_tool_call.function.name = "search_vault"
+    mock_tool_call.function.name = "find_notes"
     mock_tool_call.function.arguments = '{"query": "test"}'
 
     mock_msg_with_tool = MagicMock()
@@ -508,7 +508,7 @@ async def test_agent_turn_on_event_tool_call():
     mock_msg_with_tool.content = None
     mock_msg_with_tool.model_dump.return_value = {
         "role": "assistant",
-        "tool_calls": [{"id": "call_1", "function": {"name": "search_vault", "arguments": '{"query": "test"}'}, "type": "function"}],
+        "tool_calls": [{"id": "call_1", "function": {"name": "find_notes", "arguments": '{"query": "test"}'}, "type": "function"}],
     }
 
     mock_msg_final = MagicMock()
@@ -545,11 +545,11 @@ async def test_agent_turn_on_event_tool_call():
 
     # Verify tool_call event data
     tool_call_event = next(e for e in events if e[0] == "tool_call")
-    assert tool_call_event[1]["tool"] == "search_vault"
+    assert tool_call_event[1]["tool"] == "find_notes"
 
     # Verify tool_result event data
     tool_result_event = next(e for e in events if e[0] == "tool_result")
-    assert tool_result_event[1]["tool"] == "search_vault"
+    assert tool_result_event[1]["tool"] == "find_notes"
     assert "success" in tool_result_event[1]
 
     # Verify response event data
@@ -1057,7 +1057,7 @@ class TestAgentCompaction:
             {"role": "system", "content": "prompt"},
             {"role": "user", "content": "search"},
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+                {"id": "call_1", "function": {"name": "find_notes"}, "type": "function"}
             ]},
             {"role": "tool", "tool_call_id": "call_1",
              "content": json.dumps({"success": True, "results": [{"source": "a.md", "content": "long..."}]})},
@@ -1083,7 +1083,7 @@ class TestAgentCompaction:
             {"role": "system", "content": "prompt"},
             {"role": "user", "content": "search for something"},
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_1", "function": {"name": "search_vault"}, "type": "function"}
+                {"id": "call_1", "function": {"name": "find_notes"}, "type": "function"}
             ]},
             {"role": "tool", "tool_call_id": "call_1", "content": search_result},
             {"role": "assistant", "content": "Found results."},
@@ -1102,7 +1102,7 @@ class TestAgentCompaction:
         tool_msg = messages[3]
         assert tool_msg["_compacted"] is True
         parsed = json.loads(tool_msg["content"])
-        assert "snippet" in parsed["results"][0]  # search_vault stub format
+        assert "snippet" in parsed["results"][0]  # find_notes stub format
         original_content = search_result
         assert len(tool_msg["content"]) < len(original_content)
 
@@ -1147,7 +1147,7 @@ class TestEnsureInteractionLogged:
             {"role": "system", "content": "prompt"},
             {"role": "user", "content": "find recipes"},
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+                {"id": "c1", "function": {"name": "find_notes", "arguments": "{}"}, "type": "function"},
             ]},
             {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
             {"role": "assistant", "content": None, "tool_calls": [
@@ -1173,7 +1173,7 @@ class TestEnsureInteractionLogged:
             {"role": "system", "content": "prompt"},
             {"role": "user", "content": "find recipes"},
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+                {"id": "c1", "function": {"name": "find_notes", "arguments": "{}"}, "type": "function"},
             ]},
             {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
             {"role": "assistant", "content": "Here are your recipes."},
@@ -1214,7 +1214,7 @@ class TestEnsureInteractionLogged:
             {"role": "system", "content": "prompt"},
             {"role": "user", "content": "query"},
             {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "c1", "function": {"name": "search_vault", "arguments": "{}"}, "type": "function"},
+                {"id": "c1", "function": {"name": "find_notes", "arguments": "{}"}, "type": "function"},
             ]},
             {"role": "tool", "tool_call_id": "c1", "content": '{"success": true}'},
             {"role": "assistant", "content": "Done."},
