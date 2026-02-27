@@ -1637,6 +1637,33 @@ class TestFindNotesFolderOnly:
         assert any("note1.md" in f for f in result["results"])
         assert not any("projects/" in f for f in result["results"])
 
+    def test_folder_empty_string_means_vault_root(self, vault_config):
+        """folder='' should restrict to vault root, same as folder='.'."""
+        result = json.loads(find_notes(folder="", recursive=False))
+        assert result["success"] is True
+        # Root files should be present
+        assert any("note1.md" in f for f in result["results"])
+        # Subfolder files should NOT be present (non-recursive)
+        assert not any("projects/" in f for f in result["results"])
+        assert not any("Daily Notes/" in f for f in result["results"])
+
+    def test_folder_empty_string_with_frontmatter(self, vault_config):
+        """folder='' + frontmatter filter should only match vault root files."""
+        # Add a root-level file with tags=project
+        # (note1.md already has tags: project at root)
+        # project1.md also has tags: project but is in projects/
+        result = json.loads(find_notes(
+            folder="",
+            recursive=False,
+            frontmatter=[FilterCondition(field="tags", value="project")],
+        ))
+        assert result["success"] is True
+        # note1.md (root, has tags: project) should be included
+        paths = result["results"]
+        assert any("note1.md" in p for p in paths)
+        # project1.md (projects/, has tags: project) should NOT be included
+        assert not any("projects/" in p for p in paths)
+
     def test_folder_not_found(self, vault_config):
         """Should return error for missing folder."""
         result = json.loads(find_notes(folder="nonexistent"))
