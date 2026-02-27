@@ -520,6 +520,52 @@ class TestFindNotesQueryPagination:
             call_args = mock_search.call_args
             assert call_args[0][1] >= 610
 
+    def test_unfiltered_query_total_not_capped_by_page(self, temp_vault, vault_config):
+        """Unfiltered query total reflects all fetched matches, not just the page."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        mock_results = [
+            {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
+            for i in range(200)
+        ]
+        with patch("tools.search.search_results", return_value=mock_results):
+            result = json.loads(find_notes(query="test", n_results=5))
+            assert result["total"] == 200
+            assert len(result["results"]) == 5
+
+    def test_has_more_when_total_hits_ceiling(self, temp_vault, vault_config):
+        """has_more=True signals total may undercount when fetch limit is reached."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        # Return exactly 500 results (the minimum fetch window)
+        mock_results = [
+            {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
+            for i in range(500)
+        ]
+        with patch("tools.search.search_results", return_value=mock_results):
+            result = json.loads(find_notes(query="test", n_results=5))
+            assert result["total"] == 500
+            assert result.get("has_more") is True
+
+    def test_no_has_more_when_below_ceiling(self, temp_vault, vault_config):
+        """has_more absent when all results fit within fetch window."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        mock_results = [
+            {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
+            for i in range(50)
+        ]
+        with patch("tools.search.search_results", return_value=mock_results):
+            result = json.loads(find_notes(query="test", n_results=5))
+            assert result["total"] == 50
+            assert "has_more" not in result
+
 
 class TestFindNotesQuerySort:
     """Tests for P2: sort applied in query mode."""
@@ -637,3 +683,20 @@ class TestFindNotesCompaction:
         # Should preserve as vault-scan (path+fields), not try to snippet
         assert stub["results"][0]["path"] == "note.md"
         assert stub["results"][0]["content"] == "Full note body here"
+
+    def test_stub_vault_scan_with_source_field(self):
+        """include_fields=["source"] should not be misclassified as semantic."""
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": [
+                {"path": "note.md", "source": "Wikipedia"},
+            ],
+            "total": 1,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert stub["result_count"] == 1
+        # Should preserve as vault-scan, not rewrite into snippet format
+        assert stub["results"][0]["path"] == "note.md"
+        assert stub["results"][0]["source"] == "Wikipedia"

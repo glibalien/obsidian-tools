@@ -90,8 +90,15 @@ def _build_find_notes_stub(data: dict) -> str:
     if "results" in data and isinstance(data["results"], list):
         results = data["results"]
         stub["result_count"] = len(results)
-        if results and isinstance(results[0], dict) and "source" in results[0]:
-            # Semantic results (identified by "source" key): snippet format
+        if (
+            results
+            and isinstance(results[0], dict)
+            and "source" in results[0]
+            and "path" not in results[0]
+        ):
+            # Semantic results: have "source" but not "path".  Vault-scan
+            # projections always include "path" and may also contain a
+            # frontmatter field called "source" via include_fields.
             stub["results"] = [
                 {
                     "source": r["source"],
