@@ -1,4 +1,7 @@
-"""Shared configuration for obsidian-tools."""
+"""Shared configuration for obsidian-tools.
+
+Environment variables and logging setup for all entry points.
+"""
 
 import logging
 import os
