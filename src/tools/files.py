@@ -955,7 +955,7 @@ def batch_move_files(
     # Query-based mode
     if destination_folder is None:
         return err("'destination_folder' is required when using query-based targeting")
-    if target_field is None and folder is None and target_filters is None:
+    if target_field is None and folder is None and not target_filters:
         return err(
             "Provide target_field, folder, or target_filters for query-based moves"
         )
