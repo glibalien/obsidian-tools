@@ -433,7 +433,7 @@ class TestFindNotesQueryMode:
 
 
 class TestFindNotesQueryPagination:
-    """Tests for P1: offset+limit respected in filtered query mode."""
+    """Tests for offset+limit and path normalization in filtered query mode."""
 
     def test_filtered_query_large_offset(self, temp_vault, vault_config):
         """Filtered query with offset > 500 still returns results."""
@@ -458,6 +458,28 @@ class TestFindNotesQueryPagination:
             assert result["success"]
             assert result["total"] == 600
             assert len(result["results"]) == 10
+
+    def test_filtered_query_absolute_source_paths(self, temp_vault, vault_config):
+        """Search results with absolute source paths still intersect correctly."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "notes").mkdir(exist_ok=True)
+        (temp_vault / "notes" / "meeting.md").write_text("---\nstatus: active\n---\nMeeting")
+
+        # ChromaDB stores absolute paths as source metadata
+        abs_path = str(temp_vault / "notes" / "meeting.md")
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": abs_path, "content": "Meeting notes", "heading": ""},
+            ]
+            result = json.loads(find_notes(
+                query="meeting", folder="notes",
+            ))
+            assert result["success"]
+            assert result["total"] == 1
+            assert len(result["results"]) == 1
 
     def test_filtered_query_search_limit_scales(self, temp_vault, vault_config):
         """search_results is called with at least offset+limit when filters active."""
@@ -574,3 +596,20 @@ class TestFindNotesCompaction:
         stub = json.loads(build_tool_stub(content, "find_notes"))
         assert stub["result_count"] == 1
         assert stub["results"][0]["path"] == "note.md"
+
+    def test_stub_vault_scan_with_content_field(self):
+        """include_fields=["content"] should not be misclassified as semantic."""
+        from services.compaction import build_tool_stub
+
+        content = json.dumps({
+            "success": True,
+            "results": [
+                {"path": "note.md", "content": "Full note body here"},
+            ],
+            "total": 1,
+        })
+        stub = json.loads(build_tool_stub(content, "find_notes"))
+        assert stub["result_count"] == 1
+        # Should preserve as vault-scan (path+fields), not try to snippet
+        assert stub["results"][0]["path"] == "note.md"
+        assert stub["results"][0]["content"] == "Full note body here"

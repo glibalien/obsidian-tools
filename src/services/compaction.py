@@ -90,8 +90,8 @@ def _build_find_notes_stub(data: dict) -> str:
     if "results" in data and isinstance(data["results"], list):
         results = data["results"]
         stub["result_count"] = len(results)
-        if results and isinstance(results[0], dict) and "content" in results[0]:
-            # Semantic results: snippet format
+        if results and isinstance(results[0], dict) and "source" in results[0]:
+            # Semantic results (identified by "source" key): snippet format
             stub["results"] = [
                 {
                     "source": r["source"],

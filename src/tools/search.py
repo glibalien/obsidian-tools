@@ -4,7 +4,10 @@ from datetime import datetime
 
 from ddgs import DDGS
 
+from pathlib import Path
+
 from search_vault import search_results
+import services.vault as vault_service
 from services.vault import err, ok, resolve_dir
 from tools._validation import validate_pagination
 from tools.frontmatter import (
@@ -15,6 +18,17 @@ from tools.frontmatter import (
 
 VALID_MODES = {"hybrid", "semantic", "keyword"}
 VALID_SORTS = {"relevance", "modified", "created", "name"}
+
+
+def _to_relative(source: str, vault_root: str) -> str:
+    """Normalize a source path to vault-relative form.
+
+    Handles both absolute paths (from ChromaDB metadata) and already-relative
+    paths, returning a consistent vault-relative string for set intersection.
+    """
+    if source.startswith(vault_root):
+        return str(Path(source).relative_to(vault_root))
+    return source
 
 
 def find_notes(
@@ -263,7 +277,7 @@ def _query_mode(
         return ok("No matching notes found", results=[], total=0)
 
     if has_filters:
-        # Build filter set from vault scan
+        # Build filter set from vault scan (returns vault-relative paths)
         filter_paths = set(
             _find_matching_files(
                 None, "", "contains", parsed_filters,
@@ -271,7 +285,14 @@ def _query_mode(
                 date_start=date_start, date_end=date_end, date_type=date_type,
             )
         )
-        results = [r for r in results if r["source"] in filter_paths]
+        # Normalize search sources to vault-relative paths for intersection.
+        # Index stores absolute paths as source metadata; _find_matching_files
+        # returns vault-relative paths.
+        vault_root = str(vault_service.VAULT_PATH.resolve())
+        results = [
+            r for r in results
+            if _to_relative(r["source"], vault_root) in filter_paths
+        ]
 
     if not results:
         return ok("No matching notes found", results=[], total=0)
