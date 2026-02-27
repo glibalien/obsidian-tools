@@ -203,6 +203,28 @@ class TestBuildToolStub:
         assert parsed["results"][0]["url"] == "https://example.com"
         assert "snippet" not in parsed["results"][0]
 
+    def test_build_get_note_info_stub(self):
+        """get_note_info stub keeps path and counts, drops frontmatter/headings detail."""
+        data = {
+            "success": True,
+            "path": "Meetings/standup.md",
+            "frontmatter": {"category": ["meeting"], "project": "archbrain", "people involved": ["Alice"]},
+            "headings": ["## Attendees", "## Agenda", "## Action Items"],
+            "size": 4521,
+            "modified": "2026-02-20T10:30:00",
+            "created": "2026-02-20T09:00:00",
+            "backlink_count": 3,
+            "outlink_count": 7,
+        }
+        stub = json.loads(build_tool_stub(json.dumps(data), "get_note_info"))
+        assert stub["status"] == "success"
+        assert stub["path"] == "Meetings/standup.md"
+        assert stub["size"] == 4521
+        assert stub["backlink_count"] == 3
+        assert stub["outlink_count"] == 7
+        assert "frontmatter" not in stub
+        assert "headings" not in stub
+
     def test_unknown_tool_falls_back_to_generic(self):
         """Unknown tool name uses generic stub builder."""
         content = json.dumps({"success": True, "path": "new/note.md"})
