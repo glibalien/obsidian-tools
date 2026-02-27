@@ -19,6 +19,7 @@ from tools.files import (
     batch_move_files,
     create_file,
     merge_files,
+    get_note_info,
     move_file,
     read_file,
 )
@@ -54,6 +55,7 @@ mcp.tool()(web_search)
 
 # File tools
 mcp.tool()(read_file)
+mcp.tool()(get_note_info)
 mcp.tool()(create_file)
 mcp.tool()(move_file)
 mcp.tool()(batch_move_files)

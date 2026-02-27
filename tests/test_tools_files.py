@@ -15,6 +15,7 @@ from tools.files import (
     _embed_cache,
     _expand_embeds,
     _extract_block,
+    _extract_headings,
     _merge_bodies,
     _merge_frontmatter,
     _split_blocks,
@@ -22,6 +23,7 @@ from tools.files import (
     batch_merge_files,
     batch_move_files,
     create_file,
+    get_note_info,
     merge_files,
     move_file,
     read_file,
@@ -545,7 +547,7 @@ class TestSplitFrontmatterBody:
         content = "---\ntitle: [invalid yaml\n---\n\nBody text."
         fm, body = _split_frontmatter_body(content)
         assert fm == {}
-        assert body == content
+        assert body == "\nBody text."
 
     def test_frontmatter_no_trailing_newline(self):
         """Frontmatter block ending at EOF without trailing newline."""
@@ -567,7 +569,7 @@ class TestSplitFrontmatterBody:
         content = "---\n- a\n- b\n---\n\nBody text."
         fm, body = _split_frontmatter_body(content)
         assert fm == {}
-        assert body == content
+        assert body == "\nBody text."
 
 
 class TestMergeFrontmatter:
@@ -1502,3 +1504,174 @@ class TestBinaryHandlerLogging:
         assert json.loads(result)["success"] is False
         assert any("corrupt.docx" in r.message and r.levelname == "WARNING"
                    for r in caplog.records)
+
+
+class TestExtractHeadings:
+    """Tests for _extract_headings helper."""
+
+    def test_basic_headings(self):
+        """Should extract headings from markdown content."""
+        content = "# Title\n\nSome text\n\n## Section 1\n\nMore text\n\n### Subsection\n\n## Section 2\n"
+        assert _extract_headings(content) == ["# Title", "## Section 1", "### Subsection", "## Section 2"]
+
+    def test_no_headings(self):
+        """Should return empty list for content without headings."""
+        assert _extract_headings("Just plain text\nwith lines\n") == []
+
+    def test_headings_inside_code_fence_skipped(self):
+        """Should skip headings inside code fences."""
+        content = "# Real Heading\n\n```\n# Not a heading\n## Also not\n```\n\n## Real Section\n"
+        assert _extract_headings(content) == ["# Real Heading", "## Real Section"]
+
+    def test_tilde_code_fence(self):
+        """Should skip headings inside tilde fences."""
+        content = "# Title\n\n~~~\n## Fake\n~~~\n\n## Real\n"
+        assert _extract_headings(content) == ["# Title", "## Real"]
+
+    def test_empty_content(self):
+        """Should return empty list for empty string."""
+        assert _extract_headings("") == []
+
+    def test_mismatched_fence_delimiters(self):
+        """~~~ inside a ``` block should not toggle fence state."""
+        content = "# Before\n\n```\n~~~\n## Fake\n~~~\n```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_backticks_inside_tilde_fence(self):
+        """``` inside a ~~~ block should not toggle fence state."""
+        content = "# Before\n\n~~~\n```\n## Fake\n```\n~~~\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_frontmatter_comments_excluded(self):
+        """YAML comments (# ...) in frontmatter should not appear as headings."""
+        content = "---\n# This is a YAML comment\ntags:\n  - test\n---\n\n## Real Heading\n"
+        assert _extract_headings(content) == ["## Real Heading"]
+
+    def test_non_dict_frontmatter_comments_excluded(self):
+        """YAML comments in non-dict frontmatter should not appear as headings."""
+        content = "---\n# A comment\n- item1\n- item2\n---\n\n## Real Heading\n"
+        assert _extract_headings(content) == ["## Real Heading"]
+
+    def test_longer_fence_not_closed_by_shorter(self):
+        """A ```` block should not be closed by ```."""
+        content = "# Before\n\n````\n```\n## Fake\n```\n````\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_longer_tilde_fence_not_closed_by_shorter(self):
+        """A ~~~~ block should not be closed by ~~~."""
+        content = "# Before\n\n~~~~\n~~~\n## Fake\n~~~\n~~~~\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_info_string_fence_does_not_close_block(self):
+        """A fence line with an info string (e.g. ```python) cannot close a block."""
+        content = "# Before\n\n```\n```python\n## Fake\n```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_indented_backticks_not_treated_as_fence(self):
+        """4+ spaces of indent makes backticks indented code, not a fence."""
+        content = "# Before\n\n    ```\n    ## Not suppressed\n    ```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_three_space_indent_is_valid_fence(self):
+        """0-3 spaces of indent is a valid fence per CommonMark."""
+        content = "# Before\n\n   ```\n## Fake\n   ```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+
+class TestGetNoteInfo:
+    """Tests for get_note_info tool."""
+
+    def test_basic_metadata(self, vault_config, temp_vault):
+        """Should return frontmatter, headings, size, timestamps."""
+        result = json.loads(get_note_info("note1.md"))
+        assert result["success"] is True
+        assert result["path"] == "note1.md"
+        assert result["frontmatter"]["tags"] == ["project", "work"]
+        assert "# Note 1" in result["headings"]
+        assert isinstance(result["size"], int)
+        assert result["size"] > 0
+        assert "modified" in result
+        assert "created" in result
+
+    def test_link_counts(self, vault_config, temp_vault):
+        """Should include backlink and outlink counts."""
+        result = json.loads(get_note_info("note1.md"))
+        assert "backlink_count" in result
+        assert "outlink_count" in result
+        assert isinstance(result["backlink_count"], int)
+        assert isinstance(result["outlink_count"], int)
+        # note1 has [[wikilink]] outlink
+        assert result["outlink_count"] >= 1
+
+    def test_no_frontmatter(self, vault_config, temp_vault):
+        """Should return empty frontmatter for files without it."""
+        (temp_vault / "plain.md").write_text("# Just a heading\n\nNo frontmatter here.\n")
+        result = json.loads(get_note_info("plain.md"))
+        assert result["success"] is True
+        assert result["frontmatter"] == {}
+        assert "# Just a heading" in result["headings"]
+
+    def test_nonexistent_file(self, vault_config):
+        """Should return error for missing file."""
+        result = json.loads(get_note_info("nonexistent.md"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_non_markdown_file(self, vault_config, temp_vault):
+        """Should return basic metadata for non-markdown files."""
+        csv_file = temp_vault / "data.csv"
+        csv_file.write_text("a,b,c\n1,2,3\n")
+        result = json.loads(get_note_info("data.csv"))
+        assert result["success"] is True
+        assert result["frontmatter"] == {}
+        assert result["headings"] == []
+        assert result["backlink_count"] == 0
+        assert result["outlink_count"] == 0
+        # Non-markdown uses stat byte size, not decoded char count
+        assert result["size"] == csv_file.stat().st_size
+
+    def test_headings_respect_code_fences(self, vault_config, temp_vault):
+        """Should skip headings inside code fences."""
+        (temp_vault / "fenced.md").write_text(
+            "# Real\n\n```\n## Fake\n```\n\n## Also Real\n"
+        )
+        result = json.loads(get_note_info("fenced.md"))
+        assert result["headings"] == ["# Real", "## Also Real"]
+
+    def test_created_from_frontmatter_date(self, vault_config, temp_vault):
+        """Should use frontmatter Date field for created timestamp."""
+        result = json.loads(get_note_info("note1.md"))
+        # note1.md has Date: 2024-01-15
+        assert result["created"].startswith("2024-01-15")
+
+    def test_nbs_in_path(self, vault_config, temp_vault):
+        """Should handle non-breaking spaces in path."""
+        (temp_vault / "test nbs.md").write_text("# Test\n")
+        result = json.loads(get_note_info("test\xa0nbs.md"))
+        assert result["success"] is True
+
+    def test_attachment_fallback(self, vault_config, temp_vault):
+        """Should resolve bare binary filenames via Attachments directory."""
+        att_dir = temp_vault / "Attachments"
+        att_dir.mkdir(exist_ok=True)
+        img = att_dir / "diagram.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        result = json.loads(get_note_info("diagram.png"))
+        assert result["success"] is True
+        assert result["size"] == img.stat().st_size
+
+    def test_non_dict_frontmatter(self, vault_config, temp_vault):
+        """Should return empty frontmatter when YAML parses to non-dict."""
+        (temp_vault / "bad_fm.md").write_text("---\n- item1\n- item2\n---\n\n# Heading\n")
+        result = json.loads(get_note_info("bad_fm.md"))
+        assert result["success"] is True
+        assert result["frontmatter"] == {}
+        assert result["headings"] == ["# Heading"]
+
+    def test_frontmatter_no_trailing_newline(self, vault_config, temp_vault):
+        """Should parse frontmatter when file ends without trailing newline after ---."""
+        (temp_vault / "no_nl.md").write_text("---\nDate: 2024-06-15\ntags:\n  - test\n---")
+        result = json.loads(get_note_info("no_nl.md"))
+        assert result["success"] is True
+        assert result["frontmatter"]["tags"] == ["test"]
+        assert result["created"].startswith("2024-06-15")
