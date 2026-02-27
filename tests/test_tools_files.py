@@ -1840,6 +1840,15 @@ class TestBatchMoveFilesQuery:
         assert result["success"] is False
         assert "target_field" in result["error"]
 
+    def test_empty_target_filters_treated_as_missing(self, vault_config):
+        """Empty target_filters list should be rejected like no targeting."""
+        result = json.loads(batch_move_files(
+            destination_folder="People",
+            target_filters=[],
+        ))
+        assert result["success"] is False
+        assert "target_field" in result["error"]
+
     def test_existing_moves_still_work(self, vault_config):
         """Explicit moves list should still work (backward compatibility)."""
         (vault_config / "compat_src.md").write_text("# Compat\n")
