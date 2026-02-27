@@ -432,6 +432,100 @@ class TestFindNotesQueryMode:
             assert "Search failed" in result["error"]
 
 
+class TestFindNotesQueryPagination:
+    """Tests for P1: offset+limit respected in filtered query mode."""
+
+    def test_filtered_query_large_offset(self, temp_vault, vault_config):
+        """Filtered query with offset > 500 still returns results."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "projects").mkdir(exist_ok=True)
+        for i in range(600):
+            (temp_vault / "projects" / f"n{i:04d}.md").write_text(f"Content {i}")
+
+        # Mock search returning 600 results, all in projects/
+        mock_results = [
+            {"source": f"projects/n{i:04d}.md", "content": f"Content {i}", "heading": ""}
+            for i in range(600)
+        ]
+        with patch("tools.search.search_results", return_value=mock_results):
+            result = json.loads(find_notes(
+                query="content", folder="projects", recursive=True,
+                n_results=10, offset=550,
+            ))
+            assert result["success"]
+            assert result["total"] == 600
+            assert len(result["results"]) == 10
+
+    def test_filtered_query_search_limit_scales(self, temp_vault, vault_config):
+        """search_results is called with at least offset+limit when filters active."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "sub").mkdir(exist_ok=True)
+        (temp_vault / "sub" / "a.md").write_text("A")
+
+        with patch("tools.search.search_results", return_value=[]) as mock_search:
+            find_notes(query="test", folder="sub", n_results=10, offset=600)
+            # Should request at least 610 (offset+limit), not capped at 500
+            call_args = mock_search.call_args
+            assert call_args[0][1] >= 610
+
+
+class TestFindNotesQuerySort:
+    """Tests for P2: sort applied in query mode."""
+
+    def test_query_sort_by_name(self, temp_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "zebra.md", "content": "Z", "heading": ""},
+                {"source": "alpha.md", "content": "A", "heading": ""},
+                {"source": "middle.md", "content": "M", "heading": ""},
+            ]
+            result = json.loads(find_notes(query="test", sort="name"))
+            sources = [r["source"] for r in result["results"]]
+            assert sources == sorted(sources)
+
+    def test_query_sort_by_modified(self, dated_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "old-note.md", "content": "Old", "heading": ""},
+                {"source": "future-note.md", "content": "Future", "heading": ""},
+                {"source": "recent-note.md", "content": "Recent", "heading": ""},
+            ]
+            result = json.loads(find_notes(query="test", sort="modified"))
+            sources = [r["source"] for r in result["results"]]
+            # Most recent first: future (Dec), recent (Jun), old (Jan)
+            assert sources[0] == "future-note.md"
+            assert sources[-1] == "old-note.md"
+
+    def test_query_sort_relevance_preserves_order(self, temp_vault, vault_config):
+        """sort='relevance' (default) keeps semantic ranking order."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "best.md", "content": "Best match", "heading": ""},
+                {"source": "okay.md", "content": "Okay match", "heading": ""},
+            ]
+            result = json.loads(find_notes(query="test"))
+            sources = [r["source"] for r in result["results"]]
+            assert sources == ["best.md", "okay.md"]
+
+
 class TestFindNotesCompaction:
     """Tests for find_notes compaction stub."""
 

@@ -136,6 +136,7 @@ def find_notes(
             parsed_start,
             parsed_end,
             date_type,
+            sort,
             include_fields,
             validated_offset,
             validated_limit,
@@ -194,8 +195,15 @@ def _scan_mode(
     return ok(results=page, total=total)
 
 
-def _sort_by_date(items: list, date_type: str) -> list:
-    """Sort results by file date (most recent first)."""
+def _sort_by_date(items: list, date_type: str, key_fn=None) -> list:
+    """Sort results by file date (most recent first).
+
+    Args:
+        items: List of results (strings, dicts with "path", or dicts with "source").
+        date_type: "modified" or "created".
+        key_fn: Optional function to extract path string from an item.
+            Defaults to checking "path" key for dicts, or using the string directly.
+    """
     from services.vault import (
         extract_frontmatter,
         get_file_creation_time,
@@ -204,7 +212,10 @@ def _sort_by_date(items: list, date_type: str) -> list:
     )
 
     def get_date(item):
-        path_str = item["path"] if isinstance(item, dict) else item
+        if key_fn:
+            path_str = key_fn(item)
+        else:
+            path_str = item["path"] if isinstance(item, dict) else item
         resolved, _ = resolve_file(path_str)
         if not resolved:
             return datetime.min
@@ -232,6 +243,7 @@ def _query_mode(
     date_start,
     date_end,
     date_type,
+    sort,
     include_fields,
     offset,
     limit,
@@ -240,9 +252,9 @@ def _query_mode(
     has_filters = folder_path or parsed_filters or date_start or date_end
 
     try:
-        # When intersecting, fetch more results so we don't miss matches
-        # that pass the vault-scan filter after intersection
-        search_limit = limit + offset if not has_filters else 500
+        # When intersecting, over-fetch to account for results lost to filtering.
+        # Ensure we always fetch enough to cover the requested page.
+        search_limit = max(offset + limit, 500) if has_filters else offset + limit
         results = search_results(query, search_limit, mode)
     except Exception as e:
         return err(f"Search failed: {e}. Is the vault indexed? Run: python src/index_vault.py")
@@ -263,6 +275,14 @@ def _query_mode(
 
     if not results:
         return ok("No matching notes found", results=[], total=0)
+
+    # Apply sort (relevance = semantic ranking order, already the default)
+    if sort in ("modified", "created"):
+        results = _sort_by_date(
+            results, sort, key_fn=lambda r: r["source"]
+        )
+    elif sort == "name":
+        results.sort(key=lambda r: r["source"])
 
     total = len(results)
     page = results[offset:offset + limit]
