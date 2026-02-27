@@ -1547,6 +1547,16 @@ class TestExtractHeadings:
         content = "---\n# This is a YAML comment\ntags:\n  - test\n---\n\n## Real Heading\n"
         assert _extract_headings(content) == ["## Real Heading"]
 
+    def test_longer_fence_not_closed_by_shorter(self):
+        """A ```` block should not be closed by ```."""
+        content = "# Before\n\n````\n```\n## Fake\n```\n````\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_longer_tilde_fence_not_closed_by_shorter(self):
+        """A ~~~~ block should not be closed by ~~~."""
+        content = "# Before\n\n~~~~\n~~~\n## Fake\n~~~\n~~~~\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
 
 class TestGetNoteInfo:
     """Tests for get_note_info tool."""
@@ -1619,3 +1629,13 @@ class TestGetNoteInfo:
         (temp_vault / "test nbs.md").write_text("# Test\n")
         result = json.loads(get_note_info("test\xa0nbs.md"))
         assert result["success"] is True
+
+    def test_attachment_fallback(self, vault_config, temp_vault):
+        """Should resolve bare binary filenames via Attachments directory."""
+        att_dir = temp_vault / "Attachments"
+        att_dir.mkdir(exist_ok=True)
+        img = att_dir / "diagram.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        result = json.loads(get_note_info("diagram.png"))
+        assert result["success"] is True
+        assert result["size"] == img.stat().st_size
