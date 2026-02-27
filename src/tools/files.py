@@ -989,8 +989,9 @@ _FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 def _extract_headings(content: str) -> list[str]:
     """Extract markdown headings from content, skipping frontmatter and code fences.
 
-    Tracks fence delimiters so ~~~ inside a ``` block (and vice versa) is not
-    treated as a close marker.
+    Tracks fence delimiter character and length so ~~~ inside a ``` block
+    (and vice versa) is not treated as a close marker, and a shorter fence
+    cannot close a longer one (e.g. ``` cannot close ````).
 
     Args:
         content: Raw markdown text (may include frontmatter).
@@ -1002,15 +1003,20 @@ def _extract_headings(content: str) -> list[str]:
     _, body = _split_frontmatter_body(content)
 
     headings = []
-    fence_char: str | None = None  # tracks which char (` or ~) opened the fence
+    fence_char: str | None = None
+    fence_len: int = 0
     for line in body.split("\n"):
         m = _FENCE_RE.match(line.strip())
         if m:
-            char = m.group(1)[0]
+            delimiter = m.group(1)
+            char = delimiter[0]
+            length = len(delimiter)
             if fence_char is None:
                 fence_char = char
-            elif char == fence_char:
+                fence_len = length
+            elif char == fence_char and length >= fence_len:
                 fence_char = None
+                fence_len = 0
             continue
         if fence_char is not None:
             continue
@@ -1036,7 +1042,14 @@ def get_note_info(path: str) -> str:
     path = path.replace("\xa0", " ")
     file_path, error = resolve_file(path)
     if error:
-        return err(error)
+        # Mirror read_file's attachment fallback for bare binary filenames
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if f".{ext}" in _BINARY_EXTENSIONS:
+            file_path, att_error = resolve_file(path, base_path=config.ATTACHMENTS_DIR)
+            if att_error:
+                return err(error)
+        else:
+            return err(error)
 
     rel_path = get_relative_path(file_path)
 
