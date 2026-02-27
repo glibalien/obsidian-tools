@@ -983,22 +983,36 @@ def _json_safe_frontmatter(fm: dict) -> dict:
     return {k: _json_safe_value(v) for k, v in fm.items()}
 
 
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+
+
 def _extract_headings(content: str) -> list[str]:
-    """Extract markdown headings from content, skipping code fences.
+    """Extract markdown headings from content, skipping frontmatter and code fences.
+
+    Tracks fence delimiters so ~~~ inside a ``` block (and vice versa) is not
+    treated as a close marker.
 
     Args:
-        content: Raw markdown text.
+        content: Raw markdown text (may include frontmatter).
 
     Returns:
         List of heading lines with # prefixes (e.g. ["## Section 1", "### Sub"]).
     """
+    # Strip frontmatter so YAML comments (# ...) aren't picked up as headings
+    _, body = _split_frontmatter_body(content)
+
     headings = []
-    in_fence = False
-    for line in content.split("\n"):
-        if is_fence_line(line):
-            in_fence = not in_fence
+    fence_char: str | None = None  # tracks which char (` or ~) opened the fence
+    for line in body.split("\n"):
+        m = _FENCE_RE.match(line.strip())
+        if m:
+            char = m.group(1)[0]
+            if fence_char is None:
+                fence_char = char
+            elif char == fence_char:
+                fence_char = None
             continue
-        if in_fence:
+        if fence_char is not None:
             continue
         m = HEADING_PATTERN.match(line)
         if m:
