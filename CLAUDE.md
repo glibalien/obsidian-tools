@@ -65,7 +65,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
 | `move_file` | Relocate vault file | `source`, `destination` |
-| `batch_move_files` | Move multiple files | `moves` (list of {source, destination}) |
+| `batch_move_files` | Move multiple files | `moves` (list of {source, destination}) OR `target_field`/`target_value`/`target_filters` + `destination_folder` (query-based) OR `folder` + `destination_folder`, `confirm` |
 | `merge_files` | Merge source into destination | `source`, `destination`, `strategy` ("smart"/"concat"), `delete_source` (bool) |
 | `batch_merge_files` | Batch merge duplicates across folders | `source_folder`, `destination_folder`, `recursive`, `strategy`, `delete_source`, `confirm` |
 | `create_file` | Create new note | `path`, `content`, `frontmatter` (JSON string) |
