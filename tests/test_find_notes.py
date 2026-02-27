@@ -481,6 +481,30 @@ class TestFindNotesQueryPagination:
             assert result["total"] == 1
             assert len(result["results"]) == 1
 
+    def test_filtered_query_sibling_path_prefix(self, temp_vault, vault_config):
+        """Sibling paths with shared prefix don't cause ValueError."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "notes").mkdir(exist_ok=True)
+        (temp_vault / "notes" / "real.md").write_text("Real note")
+
+        # Simulate a stale index entry from a sibling directory whose name
+        # shares a prefix with the vault path (e.g. /tmp/vault vs /tmp/vault-archive)
+        sibling_path = str(temp_vault) + "-archive/stale.md"
+        real_path = str(temp_vault / "notes" / "real.md")
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": sibling_path, "content": "Stale", "heading": ""},
+                {"source": real_path, "content": "Real", "heading": ""},
+            ]
+            result = json.loads(find_notes(query="test", folder="notes"))
+            assert result["success"]
+            # Only the real vault file should survive intersection
+            assert result["total"] == 1
+            assert len(result["results"]) == 1
+
     def test_filtered_query_search_limit_scales(self, temp_vault, vault_config):
         """search_results is called with at least offset+limit when filters active."""
         from unittest.mock import patch

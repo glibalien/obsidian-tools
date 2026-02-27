@@ -25,9 +25,13 @@ def _to_relative(source: str, vault_root: str) -> str:
 
     Handles both absolute paths (from ChromaDB metadata) and already-relative
     paths, returning a consistent vault-relative string for set intersection.
+    Uses Path.is_relative_to() to avoid prefix collisions (e.g. /vault vs
+    /vault-archive).
     """
-    if source.startswith(vault_root):
-        return str(Path(source).relative_to(vault_root))
+    source_path = Path(source)
+    vault_path = Path(vault_root)
+    if source_path.is_relative_to(vault_path):
+        return str(source_path.relative_to(vault_path))
     return source
 
 
