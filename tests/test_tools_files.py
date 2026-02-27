@@ -1532,6 +1532,21 @@ class TestExtractHeadings:
         """Should return empty list for empty string."""
         assert _extract_headings("") == []
 
+    def test_mismatched_fence_delimiters(self):
+        """~~~ inside a ``` block should not toggle fence state."""
+        content = "# Before\n\n```\n~~~\n## Fake\n~~~\n```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_backticks_inside_tilde_fence(self):
+        """``` inside a ~~~ block should not toggle fence state."""
+        content = "# Before\n\n~~~\n```\n## Fake\n```\n~~~\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_frontmatter_comments_excluded(self):
+        """YAML comments (# ...) in frontmatter should not appear as headings."""
+        content = "---\n# This is a YAML comment\ntags:\n  - test\n---\n\n## Real Heading\n"
+        assert _extract_headings(content) == ["## Real Heading"]
+
 
 class TestGetNoteInfo:
     """Tests for get_note_info tool."""
