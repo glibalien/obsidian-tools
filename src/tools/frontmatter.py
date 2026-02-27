@@ -165,6 +165,34 @@ def _validate_filters(
     return result, None
 
 
+def _get_file_date(
+    md_file: Path, date_type: str, frontmatter: dict | None = None,
+) -> datetime | None:
+    """Get the relevant date for a file based on date_type.
+
+    Args:
+        md_file: Path to the markdown file.
+        date_type: "created" (frontmatter Date, fallback to filesystem) or "modified".
+        frontmatter: Pre-parsed frontmatter dict, or None to parse on demand.
+
+    Returns:
+        datetime or None if date cannot be determined.
+    """
+    if date_type == "created":
+        if frontmatter is None:
+            frontmatter = extract_frontmatter(md_file)
+        file_date = parse_frontmatter_date(frontmatter.get("Date"))
+        if file_date is None:
+            file_date = get_file_creation_time(md_file)
+        return file_date
+    else:  # modified
+        try:
+            mtime = md_file.stat().st_mtime
+            return datetime.fromtimestamp(mtime)
+        except OSError:
+            return None
+
+
 def _find_matching_files(
     field: str | None,
     value: str,
@@ -173,6 +201,9 @@ def _find_matching_files(
     include_fields: list[str] | None = None,
     folder: Path | None = None,
     recursive: bool = False,
+    date_start: datetime | None = None,
+    date_end: datetime | None = None,
+    date_type: str = "modified",
 ) -> list[str | dict]:
     """Scan vault and return files matching all frontmatter conditions.
 
@@ -184,6 +215,9 @@ def _find_matching_files(
         include_fields: If provided, return dicts with path + these field values.
         folder: If provided, restrict scan to files within this directory.
         recursive: If False (default), only direct children. If True, include subfolders.
+        date_start: If provided, exclude files before this date (inclusive).
+        date_end: If provided, exclude files after this date (inclusive).
+        date_type: "created" or "modified" (default "modified").
 
     Returns:
         Sorted list of path strings or dicts (when include_fields is set).
@@ -200,26 +234,42 @@ def _find_matching_files(
 
     # Fast path: no frontmatter access needed, skip YAML parsing entirely
     needs_frontmatter = field is not None or parsed_filters or include_fields
+    needs_date = date_start is not None or date_end is not None
 
     for md_file in files:
-        if not needs_frontmatter:
-            matching.append(get_relative_path(md_file))
-            continue
+        frontmatter = None
 
-        frontmatter = extract_frontmatter(md_file)
+        if needs_frontmatter:
+            frontmatter = extract_frontmatter(md_file)
 
-        if field is not None:
-            if not _matches_field(frontmatter, field, value, match_type):
+            if field is not None:
+                if not _matches_field(frontmatter, field, value, match_type):
+                    continue
+
+            if not all(
+                _matches_field(
+                    frontmatter, f["field"], f["value"], f.get("match_type", "contains"),
+                )
+                for f in parsed_filters
+            ):
                 continue
 
-        if not all(
-            _matches_field(frontmatter, f["field"], f["value"], f.get("match_type", "contains"))
-            for f in parsed_filters
-        ):
-            continue
+        if needs_date:
+            file_date = _get_file_date(md_file, date_type, frontmatter)
+            if file_date is None:
+                continue
+            file_date_only = file_date.replace(
+                hour=0, minute=0, second=0, microsecond=0,
+            )
+            if date_start and file_date_only < date_start:
+                continue
+            if date_end and file_date_only > date_end:
+                continue
 
         rel_path = get_relative_path(md_file)
         if include_fields:
+            if frontmatter is None:
+                frontmatter = extract_frontmatter(md_file)
             result = {"path": rel_path}
             for inc_field in include_fields:
                 raw = _get_field_ci(frontmatter, inc_field)
