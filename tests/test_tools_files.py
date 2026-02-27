@@ -1562,6 +1562,16 @@ class TestExtractHeadings:
         content = "# Before\n\n```\n```python\n## Fake\n```\n\n## After\n"
         assert _extract_headings(content) == ["# Before", "## After"]
 
+    def test_indented_backticks_not_treated_as_fence(self):
+        """4+ spaces of indent makes backticks indented code, not a fence."""
+        content = "# Before\n\n    ```\n    ## Not suppressed\n    ```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
+    def test_three_space_indent_is_valid_fence(self):
+        """0-3 spaces of indent is a valid fence per CommonMark."""
+        content = "# Before\n\n   ```\n## Fake\n   ```\n\n## After\n"
+        assert _extract_headings(content) == ["# Before", "## After"]
+
 
 class TestGetNoteInfo:
     """Tests for get_note_info tool."""
