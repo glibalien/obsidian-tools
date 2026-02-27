@@ -143,3 +143,177 @@ class TestGetFileDate:
         result = _get_file_date(recent, "created")
         # Should return something (filesystem fallback), not None
         assert result is not None
+
+
+class TestFindNotesVaultScan:
+    """Tests for find_notes without semantic query (pure vault scan)."""
+
+    def test_folder_only(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        (temp_vault / "scandir").mkdir(exist_ok=True)
+        (temp_vault / "scandir" / "p1.md").write_text(
+            "---\nstatus: active\n---\nProject 1"
+        )
+        (temp_vault / "scandir" / "p2.md").write_text(
+            "---\nstatus: done\n---\nProject 2"
+        )
+
+        result = json.loads(find_notes(folder="scandir"))
+        assert result["success"]
+        assert len(result["results"]) == 2
+        assert result["total"] == 2
+
+    def test_frontmatter_only(self, temp_vault, vault_config):
+        from tools.frontmatter import FilterCondition
+        from tools.search import find_notes
+
+        (temp_vault / "a.md").write_text("---\nmystatus: unique123\n---\nA")
+        (temp_vault / "b.md").write_text("---\nmystatus: done\n---\nB")
+
+        result = json.loads(
+            find_notes(
+                frontmatter=[FilterCondition(field="mystatus", value="unique123")],
+            )
+        )
+        assert result["success"]
+        assert result["total"] == 1
+        assert "a.md" in result["results"][0]
+
+    def test_date_only(self, dated_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(
+            find_notes(
+                date_start="2025-06-01",
+                date_end="2025-06-30",
+            )
+        )
+        assert result["success"]
+        assert result["total"] == 1
+        assert "recent-note.md" in result["results"][0]
+
+    def test_folder_plus_frontmatter_plus_date(self, dated_vault, vault_config):
+        from tools.frontmatter import FilterCondition
+        from tools.search import find_notes
+
+        result = json.loads(
+            find_notes(
+                folder=".",
+                recursive=True,
+                frontmatter=[FilterCondition(field="tags", value="active")],
+                date_start="2025-01-01",
+                date_end="2025-12-31",
+            )
+        )
+        assert result["success"]
+        assert result["total"] == 1
+        assert "recent-note.md" in result["results"][0]
+
+    def test_include_fields(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        (temp_vault / "note.md").write_text(
+            "---\nstatus: active\ntags: [test]\n---\nContent"
+        )
+
+        result = json.loads(
+            find_notes(
+                folder=".",
+                include_fields=["status", "tags"],
+            )
+        )
+        assert result["success"]
+        # Find our specific note among any vault files
+        r = [
+            x
+            for x in result["results"]
+            if isinstance(x, dict) and x.get("path", "").endswith("note.md")
+        ][0]
+        assert r["status"] == "active"
+
+    def test_sort_by_name(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        (temp_vault / "beta.md").write_text("B")
+        (temp_vault / "alpha.md").write_text("A")
+
+        result = json.loads(find_notes(folder=".", sort="name"))
+        paths = result["results"]
+        assert paths == sorted(paths)
+
+    def test_sort_by_modified(self, dated_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(
+            find_notes(
+                folder=".",
+                recursive=True,
+                sort="modified",
+                date_start="2025-01-01",
+                date_end="2025-12-31",
+            )
+        )
+        assert result["success"]
+        assert result["total"] >= 2
+
+    def test_pagination(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        for i in range(5):
+            (temp_vault / f"note{i}.md").write_text(f"Note {i}")
+
+        result = json.loads(find_notes(folder=".", n_results=2, offset=0))
+        assert len(result["results"]) == 2
+        assert result["total"] >= 5
+
+        result2 = json.loads(find_notes(folder=".", n_results=2, offset=2))
+        assert len(result2["results"]) == 2
+
+    def test_no_filters_error(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(find_notes())
+        assert not result["success"]
+
+    def test_sort_relevance_without_query_error(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(find_notes(folder=".", sort="relevance"))
+        assert not result["success"]
+        assert "relevance" in result["error"].lower()
+
+    def test_invalid_sort_error(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(find_notes(folder=".", sort="invalid"))
+        assert not result["success"]
+
+    def test_invalid_date_format_error(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(find_notes(date_start="not-a-date"))
+        assert not result["success"]
+
+    def test_date_start_after_end_error(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(
+            find_notes(date_start="2025-12-01", date_end="2025-01-01")
+        )
+        assert not result["success"]
+
+    def test_invalid_date_type_error(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(
+            find_notes(date_start="2025-01-01", date_type="invalid")
+        )
+        assert not result["success"]
+
+    def test_query_mode_placeholder(self, temp_vault, vault_config):
+        from tools.search import find_notes
+
+        result = json.loads(find_notes(query="test query", folder="."))
+        assert not result["success"]
+        assert "not yet implemented" in result["error"].lower()
