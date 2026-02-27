@@ -942,7 +942,7 @@ def batch_move_files(
     """
     # Mutual exclusivity checks
     has_explicit = moves is not None
-    has_query = target_field is not None or folder is not None
+    has_query = target_field is not None or folder is not None or bool(target_filters)
 
     if has_explicit and has_query:
         return err("Cannot combine 'moves' with query-based targeting (target_field/folder)")

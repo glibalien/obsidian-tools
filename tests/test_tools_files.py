@@ -1794,6 +1794,16 @@ class TestBatchMoveFilesQuery:
         assert result["success"] is False
         assert "Cannot combine" in result["error"]
 
+    def test_moves_and_target_filters_mutual_exclusion(self, vault_config):
+        """Should error when both moves and target_filters are provided."""
+        result = json.loads(batch_move_files(
+            moves=[{"source": "a.md", "destination": "b.md"}],
+            target_filters=[FilterCondition(field="status", value="draft")],
+            destination_folder="People",
+        ))
+        assert result["success"] is False
+        assert "Cannot combine" in result["error"]
+
     def test_query_without_destination_folder(self, vault_config):
         """Should error when target_field given without destination_folder."""
         result = json.loads(batch_move_files(
