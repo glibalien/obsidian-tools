@@ -64,7 +64,7 @@ RRF_K = 60  # Reciprocal rank fusion constant
 KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 
 # Tool message compaction
-COMPACTION_SNIPPET_LENGTH = 80  # search_vault result snippet length
+COMPACTION_SNIPPET_LENGTH = 80  # find_notes semantic result snippet length
 COMPACTION_CONTENT_PREVIEW_LENGTH = 100  # generic tool content preview length
 
 # Logging configuration

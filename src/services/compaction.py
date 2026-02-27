@@ -47,23 +47,6 @@ def _build_generic_stub(data: dict) -> str:
     return json.dumps(stub)
 
 
-def _build_search_vault_stub(data: dict) -> str:
-    """Compact search_vault: keep source, heading, and content snippet per result."""
-    stub = _base_stub(data)
-    if "results" in data and isinstance(data["results"], list):
-        stub["result_count"] = len(data["results"])
-        stub["results"] = [
-            {
-                "source": r["source"],
-                "heading": r.get("heading", ""),
-                "snippet": r.get("content", "")[:COMPACTION_SNIPPET_LENGTH],
-            }
-            for r in data["results"]
-            if isinstance(r, dict) and "source" in r
-        ]
-    return json.dumps(stub)
-
-
 def _build_read_file_stub(data: dict) -> str:
     """Compact read_file: keep content preview and pagination markers.
 
