@@ -24,8 +24,6 @@ from tools.files import (
 )
 from tools.frontmatter import (
     batch_update_frontmatter,
-    list_files,
-    search_by_date_range,
     update_frontmatter,
 )
 from tools.links import (
@@ -36,7 +34,7 @@ from tools.preferences import (
     manage_preferences,
 )
 from tools.search import (
-    search_vault,
+    find_notes,
     web_search,
 )
 from tools.editing import edit_file
@@ -51,7 +49,7 @@ mcp = FastMCP("obsidian-tools")
 # Each tool function is wrapped with @mcp.tool() decorator
 
 # Search tools
-mcp.tool()(search_vault)
+mcp.tool()(find_notes)
 mcp.tool()(web_search)
 
 # File tools
@@ -63,10 +61,8 @@ mcp.tool()(merge_files)
 mcp.tool()(batch_merge_files)
 
 # Frontmatter tools
-mcp.tool()(list_files)
 mcp.tool()(update_frontmatter)
 mcp.tool()(batch_update_frontmatter)
-mcp.tool()(search_by_date_range)
 
 # Link tools
 mcp.tool()(compare_folders)

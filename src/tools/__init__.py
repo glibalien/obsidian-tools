@@ -8,8 +8,6 @@ from tools.files import (
 )
 from tools.frontmatter import (
     batch_update_frontmatter,
-    list_files,
-    search_by_date_range,
     update_frontmatter,
 )
 from tools.links import (
@@ -19,7 +17,7 @@ from tools.preferences import (
     manage_preferences,
 )
 from tools.search import (
-    search_vault,
+    find_notes,
     web_search,
 )
 from tools.editing import edit_file
@@ -35,15 +33,13 @@ __all__ = [
     "read_file",
     # frontmatter
     "batch_update_frontmatter",
-    "list_files",
-    "search_by_date_range",
     "update_frontmatter",
     # links
     "find_links",
     # preferences
     "manage_preferences",
     # search
-    "search_vault",
+    "find_notes",
     "web_search",
     # editing
     "edit_file",
