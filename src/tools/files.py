@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -23,9 +24,11 @@ from services.vault import (
     do_move_file,
     err,
     format_batch_result,
+    get_file_creation_time,
     get_relative_path,
     is_fence_line,
     ok,
+    parse_frontmatter_date,
     resolve_file,
     resolve_vault_path,
     store_preview,
@@ -499,17 +502,18 @@ def _split_frontmatter_body(content: str) -> tuple[dict, str]:
     if not match:
         return {}, content
 
+    body = content[match.end():]
+
     try:
         fm = yaml.safe_load(match.group(1))
     except yaml.YAMLError:
-        return {}, content
+        return {}, body
 
     if fm is None:
         fm = {}
     if not isinstance(fm, dict):
-        return {}, content
+        return {}, body
 
-    body = content[match.end():]
     return fm, body
 
 
@@ -955,4 +959,156 @@ def batch_move_files(
         results.append((success, message))
 
     return ok(format_batch_result("move", results))
+
+
+def _json_safe_value(val):
+    """Convert a value to a JSON-serializable form.
+
+    YAML auto-parses date-like strings (e.g. 2024-01-15) into datetime.date
+    objects, which are not JSON serializable. Convert them to ISO strings.
+    """
+    if isinstance(val, datetime):
+        return val.isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    if isinstance(val, list):
+        return [_json_safe_value(v) for v in val]
+    if isinstance(val, dict):
+        return {k: _json_safe_value(v) for k, v in val.items()}
+    return val
+
+
+def _json_safe_frontmatter(fm: dict) -> dict:
+    """Make a frontmatter dict JSON-serializable."""
+    return {k: _json_safe_value(v) for k, v in fm.items()}
+
+
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)")
+
+
+def _extract_headings(content: str) -> list[str]:
+    """Extract markdown headings from content, skipping frontmatter and code fences.
+
+    Tracks fence delimiter character and length so ~~~ inside a ``` block
+    (and vice versa) is not treated as a close marker, and a shorter fence
+    cannot close a longer one (e.g. ``` cannot close ````).
+
+    Args:
+        content: Raw markdown text (may include frontmatter).
+
+    Returns:
+        List of heading lines with # prefixes (e.g. ["## Section 1", "### Sub"]).
+    """
+    # Strip frontmatter so YAML comments (# ...) aren't picked up as headings
+    _, body = _split_frontmatter_body(content)
+
+    headings = []
+    fence_char: str | None = None
+    fence_len: int = 0
+    for line in body.split("\n"):
+        m = _FENCE_RE.match(line)
+        if m:
+            delimiter = m.group(1)
+            rest = m.group(2)
+            char = delimiter[0]
+            length = len(delimiter)
+            if fence_char is None:
+                fence_char = char
+                fence_len = length
+            elif char == fence_char and length >= fence_len and not rest.strip():
+                # Closing fence: must match char/length and have no info string
+                fence_char = None
+                fence_len = 0
+            continue
+        if fence_char is not None:
+            continue
+        m = HEADING_PATTERN.match(line)
+        if m:
+            headings.append(line.rstrip())
+    return headings
+
+
+def get_note_info(path: str) -> str:
+    """Get structured metadata about a vault note without returning content.
+
+    Returns frontmatter, headings, file size, timestamps, and link counts.
+    Useful for triaging notes before deciding whether to read them.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+
+    Returns:
+        JSON with path, frontmatter, headings, size, modified, created,
+        backlink_count, and outlink_count.
+    """
+    path = path.replace("\xa0", " ")
+    file_path, error = resolve_file(path)
+    if error:
+        # Mirror read_file's attachment fallback for bare binary filenames
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if f".{ext}" in _BINARY_EXTENSIONS:
+            file_path, att_error = resolve_file(path, base_path=config.ATTACHMENTS_DIR)
+            if att_error:
+                return err(error)
+        else:
+            return err(error)
+
+    rel_path = get_relative_path(file_path)
+
+    # File stats
+    try:
+        stat = file_path.stat()
+    except OSError as e:
+        return err(f"Cannot stat file: {e}")
+
+    modified = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+    is_md = file_path.suffix.lower() == ".md"
+
+    if is_md:
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception as e:
+            return err(f"Error reading file: {e}")
+
+        # Parse frontmatter from content (not file) — handles EOF without
+        # trailing newline and guards against non-dict YAML values
+        frontmatter, _ = _split_frontmatter_body(content)
+        frontmatter = _json_safe_frontmatter(frontmatter)
+        created_dt = parse_frontmatter_date(frontmatter.get("Date"))
+        if not created_dt:
+            created_dt = get_file_creation_time(file_path)
+        headings = _extract_headings(content)
+        size = len(content)
+    else:
+        frontmatter = {}
+        created_dt = get_file_creation_time(file_path)
+        headings = []
+        size = stat.st_size
+
+    created = created_dt.isoformat() if created_dt else modified
+
+    # Link counts
+    if is_md:
+        from tools.links import _extract_outlinks, _scan_backlinks
+
+        note_name = file_path.stem
+        backlinks = _scan_backlinks(note_name, rel_path)
+        outlinks = _extract_outlinks(file_path)
+        backlink_count = len(backlinks)
+        outlink_count = len(outlinks) if outlinks is not None else 0
+    else:
+        backlink_count = 0
+        outlink_count = 0
+
+    return ok(
+        path=rel_path,
+        frontmatter=_json_safe_frontmatter(frontmatter),
+        headings=headings,
+        size=size,
+        modified=modified,
+        created=created,
+        backlink_count=backlink_count,
+        outlink_count=outlink_count,
+    )
 
