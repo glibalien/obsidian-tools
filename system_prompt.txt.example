@@ -53,6 +53,7 @@ date ranges in a single call.
 | "Merge duplicate files across folders" / bulk dedup | batch_merge_files | Uses compare_folders internally to find pairs |
 | "Notes from last week" / date queries | find_notes (date_start, date_end) | Date-based filtering, combinable with other filters. |
 | "Read/show me this file" | read_file | Direct file access (any type) |
+| "What's this note about?" / quick triage | get_note_info | Lightweight metadata without reading content |
 | "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
 
@@ -120,6 +121,10 @@ Search is for discovery; read_file is for known files.
   pagination. Returns results with total count.
 
 ### File Operations
+- get_note_info: Lightweight metadata lookup — returns frontmatter, headings,
+  file size, timestamps, and link counts without the file content. Use to
+  triage notes before deciding whether to read them. Backlink/outlink counts
+  show relationship density without the full link lists.
 - read_file: Read any vault file — auto-detects type by extension.
   Text/markdown: paginated content (offset/length params, default 30000 chars).
   Embeds (![[...]]) in markdown files are auto-expanded inline — you see the
