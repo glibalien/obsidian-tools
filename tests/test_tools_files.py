@@ -1639,3 +1639,19 @@ class TestGetNoteInfo:
         result = json.loads(get_note_info("diagram.png"))
         assert result["success"] is True
         assert result["size"] == img.stat().st_size
+
+    def test_non_dict_frontmatter(self, vault_config, temp_vault):
+        """Should return empty frontmatter when YAML parses to non-dict."""
+        (temp_vault / "bad_fm.md").write_text("---\n- item1\n- item2\n---\n\n# Heading\n")
+        result = json.loads(get_note_info("bad_fm.md"))
+        assert result["success"] is True
+        assert result["frontmatter"] == {}
+        assert result["headings"] == ["# Heading"]
+
+    def test_frontmatter_no_trailing_newline(self, vault_config, temp_vault):
+        """Should parse frontmatter when file ends without trailing newline after ---."""
+        (temp_vault / "no_nl.md").write_text("---\nDate: 2024-06-15\ntags:\n  - test\n---")
+        result = json.loads(get_note_info("no_nl.md"))
+        assert result["success"] is True
+        assert result["frontmatter"]["tags"] == ["test"]
+        assert result["created"].startswith("2024-06-15")

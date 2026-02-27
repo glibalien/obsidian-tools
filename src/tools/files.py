@@ -23,7 +23,6 @@ from services.vault import (
     consume_preview,
     do_move_file,
     err,
-    extract_frontmatter,
     format_batch_result,
     get_file_creation_time,
     get_relative_path,
@@ -1063,29 +1062,28 @@ def get_note_info(path: str) -> str:
 
     is_md = file_path.suffix.lower() == ".md"
 
-    # Frontmatter + created date
-    if is_md:
-        frontmatter = extract_frontmatter(file_path)
-        created_dt = parse_frontmatter_date(frontmatter.get("Date"))
-        if not created_dt:
-            created_dt = get_file_creation_time(file_path)
-    else:
-        frontmatter = {}
-        created_dt = get_file_creation_time(file_path)
-
-    created = created_dt.isoformat() if created_dt else modified
-
-    # Content-based metadata (headings, size)
     if is_md:
         try:
             content = file_path.read_text(encoding="utf-8", errors="ignore")
         except Exception as e:
             return err(f"Error reading file: {e}")
+
+        # Parse frontmatter from content (not file) — handles EOF without
+        # trailing newline and guards against non-dict YAML values
+        frontmatter, _ = _split_frontmatter_body(content)
+        frontmatter = _json_safe_frontmatter(frontmatter)
+        created_dt = parse_frontmatter_date(frontmatter.get("Date"))
+        if not created_dt:
+            created_dt = get_file_creation_time(file_path)
         headings = _extract_headings(content)
         size = len(content)
     else:
+        frontmatter = {}
+        created_dt = get_file_creation_time(file_path)
         headings = []
         size = stat.st_size
+
+    created = created_dt.isoformat() if created_dt else modified
 
     # Link counts
     if is_md:
