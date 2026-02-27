@@ -236,11 +236,37 @@ def _query_mode(
     offset,
     limit,
 ) -> str:
-    """Semantic/keyword search with optional vault-scan post-filtering.
+    """Semantic/keyword search with optional vault-scan post-filtering."""
+    has_filters = folder_path or parsed_filters or date_start or date_end
 
-    Placeholder -- implemented in Task 3.
-    """
-    return err("Query mode not yet implemented")
+    try:
+        # When intersecting, fetch more results so we don't miss matches
+        # that pass the vault-scan filter after intersection
+        search_limit = limit + offset if not has_filters else 500
+        results = search_results(query, search_limit, mode)
+    except Exception as e:
+        return err(f"Search failed: {e}. Is the vault indexed? Run: python src/index_vault.py")
+
+    if not results:
+        return ok("No matching notes found", results=[], total=0)
+
+    if has_filters:
+        # Build filter set from vault scan
+        filter_paths = set(
+            _find_matching_files(
+                None, "", "contains", parsed_filters,
+                folder=folder_path, recursive=recursive,
+                date_start=date_start, date_end=date_end, date_type=date_type,
+            )
+        )
+        results = [r for r in results if r["source"] in filter_paths]
+
+    if not results:
+        return ok("No matching notes found", results=[], total=0)
+
+    total = len(results)
+    page = results[offset:offset + limit]
+    return ok(results=page, total=total)
 
 
 def search_vault(
