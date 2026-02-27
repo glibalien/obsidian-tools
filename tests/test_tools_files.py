@@ -547,7 +547,7 @@ class TestSplitFrontmatterBody:
         content = "---\ntitle: [invalid yaml\n---\n\nBody text."
         fm, body = _split_frontmatter_body(content)
         assert fm == {}
-        assert body == content
+        assert body == "\nBody text."
 
     def test_frontmatter_no_trailing_newline(self):
         """Frontmatter block ending at EOF without trailing newline."""
@@ -569,7 +569,7 @@ class TestSplitFrontmatterBody:
         content = "---\n- a\n- b\n---\n\nBody text."
         fm, body = _split_frontmatter_body(content)
         assert fm == {}
-        assert body == content
+        assert body == "\nBody text."
 
 
 class TestMergeFrontmatter:
@@ -1545,6 +1545,11 @@ class TestExtractHeadings:
     def test_frontmatter_comments_excluded(self):
         """YAML comments (# ...) in frontmatter should not appear as headings."""
         content = "---\n# This is a YAML comment\ntags:\n  - test\n---\n\n## Real Heading\n"
+        assert _extract_headings(content) == ["## Real Heading"]
+
+    def test_non_dict_frontmatter_comments_excluded(self):
+        """YAML comments in non-dict frontmatter should not appear as headings."""
+        content = "---\n# A comment\n- item1\n- item2\n---\n\n## Real Heading\n"
         assert _extract_headings(content) == ["## Real Heading"]
 
     def test_longer_fence_not_closed_by_shorter(self):
