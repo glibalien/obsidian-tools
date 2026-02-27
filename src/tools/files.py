@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -22,10 +23,13 @@ from services.vault import (
     consume_preview,
     do_move_file,
     err,
+    extract_frontmatter,
     format_batch_result,
+    get_file_creation_time,
     get_relative_path,
     is_fence_line,
     ok,
+    parse_frontmatter_date,
     resolve_file,
     resolve_vault_path,
     store_preview,
@@ -955,4 +959,125 @@ def batch_move_files(
         results.append((success, message))
 
     return ok(format_batch_result("move", results))
+
+
+def _json_safe_value(val):
+    """Convert a value to a JSON-serializable form.
+
+    YAML auto-parses date-like strings (e.g. 2024-01-15) into datetime.date
+    objects, which are not JSON serializable. Convert them to ISO strings.
+    """
+    if isinstance(val, datetime):
+        return val.isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    if isinstance(val, list):
+        return [_json_safe_value(v) for v in val]
+    if isinstance(val, dict):
+        return {k: _json_safe_value(v) for k, v in val.items()}
+    return val
+
+
+def _json_safe_frontmatter(fm: dict) -> dict:
+    """Make a frontmatter dict JSON-serializable."""
+    return {k: _json_safe_value(v) for k, v in fm.items()}
+
+
+def _extract_headings(content: str) -> list[str]:
+    """Extract markdown headings from content, skipping code fences.
+
+    Args:
+        content: Raw markdown text.
+
+    Returns:
+        List of heading lines with # prefixes (e.g. ["## Section 1", "### Sub"]).
+    """
+    headings = []
+    in_fence = False
+    for line in content.split("\n"):
+        if is_fence_line(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = HEADING_PATTERN.match(line)
+        if m:
+            headings.append(line.rstrip())
+    return headings
+
+
+def get_note_info(path: str) -> str:
+    """Get structured metadata about a vault note without returning content.
+
+    Returns frontmatter, headings, file size, timestamps, and link counts.
+    Useful for triaging notes before deciding whether to read them.
+
+    Args:
+        path: Path to the note (relative to vault or absolute).
+
+    Returns:
+        JSON with path, frontmatter, headings, size, modified, created,
+        backlink_count, and outlink_count.
+    """
+    path = path.replace("\xa0", " ")
+    file_path, error = resolve_file(path)
+    if error:
+        return err(error)
+
+    rel_path = get_relative_path(file_path)
+
+    # File stats
+    try:
+        stat = file_path.stat()
+    except OSError as e:
+        return err(f"Cannot stat file: {e}")
+
+    modified = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+    is_md = file_path.suffix.lower() == ".md"
+
+    # Frontmatter + created date
+    if is_md:
+        frontmatter = extract_frontmatter(file_path)
+        created_dt = parse_frontmatter_date(frontmatter.get("Date"))
+        if not created_dt:
+            created_dt = get_file_creation_time(file_path)
+    else:
+        frontmatter = {}
+        created_dt = get_file_creation_time(file_path)
+
+    created = created_dt.isoformat() if created_dt else modified
+
+    # Content-based metadata (headings, size)
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        return err(f"Error reading file: {e}")
+
+    headings = _extract_headings(content) if is_md else []
+    size = len(content)
+
+    # Link counts
+    if is_md:
+        from tools.links import _extract_outlinks, _scan_backlinks
+
+        note_name = file_path.stem
+        backlinks = _scan_backlinks(note_name, rel_path)
+        outlinks = _extract_outlinks(file_path)
+        backlink_count = len(backlinks)
+        outlink_count = len(outlinks) if outlinks is not None else 0
+    else:
+        backlink_count = 0
+        outlink_count = 0
+
+    return ok(
+        path=rel_path,
+        frontmatter=_json_safe_frontmatter(frontmatter),
+        headings=headings,
+        size=size,
+        modified=modified,
+        created=created,
+        backlink_count=backlink_count,
+        outlink_count=outlink_count,
+    )
 
