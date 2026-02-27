@@ -311,9 +311,122 @@ class TestFindNotesVaultScan:
         )
         assert not result["success"]
 
-    def test_query_mode_placeholder(self, temp_vault, vault_config):
+    def test_query_mode_dispatches(self, temp_vault, vault_config):
+        """Verify that query mode is dispatched (no longer a placeholder)."""
+        from unittest.mock import patch
+
         from tools.search import find_notes
 
-        result = json.loads(find_notes(query="test query", folder="."))
-        assert not result["success"]
-        assert "not yet implemented" in result["error"].lower()
+        with patch("tools.search.search_results", return_value=[]):
+            result = json.loads(find_notes(query="test query", folder="."))
+            assert result["success"]
+            assert result["total"] == 0
+
+
+class TestFindNotesQueryMode:
+    """Tests for find_notes with semantic query."""
+
+    def test_query_only(self, temp_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "note.md", "content": "some content", "heading": "Section"},
+            ]
+            result = json.loads(find_notes(query="test query"))
+            assert result["success"]
+            assert len(result["results"]) == 1
+            assert result["results"][0]["source"] == "note.md"
+            mock_search.assert_called_once()
+
+    def test_query_with_folder_filter(self, temp_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "projects").mkdir(exist_ok=True)
+        (temp_vault / "projects" / "p1.md").write_text("Project content")
+        (temp_vault / "other.md").write_text("Other content")
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "projects/p1.md", "content": "Project content", "heading": ""},
+                {"source": "other.md", "content": "Other content", "heading": ""},
+            ]
+            result = json.loads(find_notes(query="content", folder="projects"))
+            assert result["success"]
+            sources = [r["source"] for r in result["results"]]
+            assert "projects/p1.md" in sources
+            assert "other.md" not in sources
+
+    def test_query_with_frontmatter_filter(self, temp_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.frontmatter import FilterCondition
+        from tools.search import find_notes
+
+        (temp_vault / "active.md").write_text("---\nstatus: active\n---\nActive note")
+        (temp_vault / "done.md").write_text("---\nstatus: done\n---\nDone note")
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "active.md", "content": "Active note", "heading": ""},
+                {"source": "done.md", "content": "Done note", "heading": ""},
+            ]
+            result = json.loads(find_notes(
+                query="note",
+                frontmatter=[FilterCondition(field="status", value="active")],
+            ))
+            assert result["success"]
+            sources = [r["source"] for r in result["results"]]
+            assert "active.md" in sources
+            assert "done.md" not in sources
+
+    def test_query_with_date_filter(self, dated_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": "old-note.md", "content": "Old", "heading": ""},
+                {"source": "recent-note.md", "content": "Recent", "heading": ""},
+            ]
+            result = json.loads(find_notes(
+                query="content",
+                date_start="2025-06-01",
+                date_end="2025-06-30",
+            ))
+            assert result["success"]
+            sources = [r["source"] for r in result["results"]]
+            assert "recent-note.md" in sources
+            assert "old-note.md" not in sources
+
+    def test_query_mode_pagination(self, temp_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results") as mock_search:
+            mock_search.return_value = [
+                {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
+                for i in range(10)
+            ]
+            result = json.loads(find_notes(query="test", n_results=3, offset=0))
+            assert len(result["results"]) == 3
+            assert result["total"] == 10
+
+            result2 = json.loads(find_notes(query="test", n_results=3, offset=3))
+            assert len(result2["results"]) == 3
+
+    def test_query_search_failure(self, temp_vault, vault_config):
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results", side_effect=Exception("DB error")):
+            result = json.loads(find_notes(query="test"))
+            assert not result["success"]
+            assert "Search failed" in result["error"]
