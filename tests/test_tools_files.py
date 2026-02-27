@@ -1832,6 +1832,14 @@ class TestBatchMoveFilesQuery:
         # Draft person should not have moved
         assert (src / "draft_person.md").exists()
 
+    def test_destination_folder_only_without_targeting(self, vault_config):
+        """Should error when destination_folder given without any targeting params."""
+        result = json.loads(batch_move_files(
+            destination_folder="People",
+        ))
+        assert result["success"] is False
+        assert "target_field" in result["error"]
+
     def test_existing_moves_still_work(self, vault_config):
         """Explicit moves list should still work (backward compatibility)."""
         (vault_config / "compat_src.md").write_text("# Compat\n")
