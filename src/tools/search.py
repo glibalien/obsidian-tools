@@ -270,10 +270,14 @@ def _query_mode(
     has_filters = folder_path or parsed_filters or date_start or date_end
 
     try:
-        # Always over-fetch so total reflects the real result count (up to the
-        # fetch window).  Without this, find_notes(query="x", n_results=5)
-        # would report total=5 even when hundreds of notes match.
-        search_limit = max(offset + limit, 500)
+        # Only over-fetch when filters are active — intersection can discard
+        # many semantic hits, so we need a wider window.  For unfiltered
+        # queries, fetch just what's needed (offset + limit) and rely on
+        # has_more to signal that additional pages exist.
+        if has_filters:
+            search_limit = max(offset + limit, 500)
+        else:
+            search_limit = offset + limit
         results = search_results(query, search_limit, mode)
     except Exception as e:
         return err(f"Search failed: {e}. Is the vault indexed? Run: python src/index_vault.py")
@@ -306,7 +310,10 @@ def _query_mode(
         ]
 
     if not results:
-        return ok("No matching notes found", results=[], total=0)
+        kwargs = {}
+        if hit_ceiling:
+            kwargs["has_more"] = True
+        return ok("No matching notes found", results=[], total=0, **kwargs)
 
     # Apply sort (relevance = semantic ranking order, already the default)
     if sort in ("modified", "created"):

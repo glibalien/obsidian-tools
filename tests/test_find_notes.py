@@ -520,53 +520,50 @@ class TestFindNotesQueryPagination:
             call_args = mock_search.call_args
             assert call_args[0][1] >= 610
 
-    def test_unfiltered_query_total_not_capped_by_page(self, temp_vault, vault_config):
-        """Unfiltered query total reflects all fetched matches, not just the page."""
+    def test_unfiltered_query_has_more_signals_pagination(self, temp_vault, vault_config):
+        """Unfiltered query sets has_more when results fill the fetch window."""
         from unittest.mock import patch
 
         from tools.search import find_notes
 
+        # n_results=5 → search_limit=5.  Return exactly 5 → hits ceiling.
         mock_results = [
             {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
-            for i in range(200)
+            for i in range(5)
         ]
         with patch("tools.search.search_results", return_value=mock_results):
             result = json.loads(find_notes(query="test", n_results=5))
-            assert result["total"] == 200
+            assert result["total"] == 5
             assert len(result["results"]) == 5
-
-    def test_has_more_when_total_hits_ceiling(self, temp_vault, vault_config):
-        """has_more=True signals total may undercount when fetch limit is reached."""
-        from unittest.mock import patch
-
-        from tools.search import find_notes
-
-        # Return exactly 500 results (the minimum fetch window)
-        mock_results = [
-            {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
-            for i in range(500)
-        ]
-        with patch("tools.search.search_results", return_value=mock_results):
-            result = json.loads(find_notes(query="test", n_results=5))
-            assert result["total"] == 500
             assert result.get("has_more") is True
 
-    def test_no_has_more_when_below_ceiling(self, temp_vault, vault_config):
-        """has_more absent when all results fit within fetch window."""
+    def test_unfiltered_query_no_has_more_when_fewer(self, temp_vault, vault_config):
+        """Unfiltered query omits has_more when results are below fetch window."""
         from unittest.mock import patch
 
         from tools.search import find_notes
 
+        # n_results=10 → search_limit=10.  Return only 3 → below ceiling.
         mock_results = [
             {"source": f"note{i}.md", "content": f"Content {i}", "heading": ""}
-            for i in range(50)
+            for i in range(3)
         ]
         with patch("tools.search.search_results", return_value=mock_results):
-            result = json.loads(find_notes(query="test", n_results=5))
-            assert result["total"] == 50
+            result = json.loads(find_notes(query="test", n_results=10))
+            assert result["total"] == 3
             assert "has_more" not in result
 
-    def test_has_more_survives_filtering(self, temp_vault, vault_config):
+    def test_unfiltered_query_fetch_size_matches_request(self, temp_vault, vault_config):
+        """Unfiltered queries fetch only offset+limit, not a fixed 500."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        with patch("tools.search.search_results", return_value=[]) as mock_search:
+            find_notes(query="test", n_results=5)
+            assert mock_search.call_args[0][1] == 5
+
+    def test_filtered_query_has_more_survives_filtering(self, temp_vault, vault_config):
         """has_more computed from pre-filter count, not post-filter."""
         from unittest.mock import patch
 
@@ -589,6 +586,30 @@ class TestFindNotesQueryPagination:
             assert result["success"]
             assert result["total"] == 1
             # Ceiling was hit pre-filter, so has_more must be set
+            assert result.get("has_more") is True
+
+    def test_filtered_query_has_more_when_all_filtered_out(self, temp_vault, vault_config):
+        """Empty results after filtering still report has_more if ceiling was hit."""
+        from unittest.mock import patch
+
+        from tools.search import find_notes
+
+        (temp_vault / "narrow").mkdir(exist_ok=True)
+        # No files match the folder filter
+
+        # Return 500 results (hits ceiling), none in the target folder
+        mock_results = [
+            {"source": f"other{i}.md", "content": f"C {i}", "heading": ""}
+            for i in range(500)
+        ]
+        with patch("tools.search.search_results", return_value=mock_results):
+            result = json.loads(find_notes(
+                query="test", folder="narrow",
+            ))
+            assert result["success"]
+            assert result["total"] == 0
+            assert len(result["results"]) == 0
+            # Ceiling hit → matches may exist beyond the window
             assert result.get("has_more") is True
 
 
