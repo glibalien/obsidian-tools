@@ -9,7 +9,7 @@ from docx import Document as DocxDocument
 from openpyxl import Workbook
 from pptx import Presentation
 
-from services.vault import clear_pending_previews
+from services.vault import FilterCondition, clear_pending_previews
 from tools.readers import handle_audio, handle_image, handle_office
 from tools.files import (
     _embed_cache,
@@ -1675,3 +1675,197 @@ class TestGetNoteInfo:
         assert result["success"] is True
         assert result["frontmatter"]["tags"] == ["test"]
         assert result["created"].startswith("2024-06-15")
+
+
+class TestBatchMoveFilesQuery:
+    """Tests for query-based batch_move_files targeting."""
+
+    def test_query_move_by_frontmatter(self, vault_config):
+        """Should move files matching frontmatter criteria to destination folder."""
+        clear_pending_previews()
+        src = vault_config / "src"
+        src.mkdir(exist_ok=True)
+        for i in range(3):
+            (src / f"person_{i}.md").write_text(
+                f"---\ncategory: person\n---\n# Person {i}\n"
+            )
+        (src / "other.md").write_text("---\ncategory: place\n---\n# Place\n")
+
+        result = json.loads(batch_move_files(
+            target_field="category",
+            target_value="person",
+            target_match_type="equals",
+            destination_folder="People",
+            folder="src",
+            confirm=True,
+        ))
+        assert result["success"] is True
+        assert "3 succeeded" in result["message"]
+
+        people = vault_config / "People"
+        for i in range(3):
+            assert (people / f"person_{i}.md").exists()
+        # Non-matching file untouched
+        assert (src / "other.md").exists()
+
+    def test_query_move_folder_only(self, vault_config):
+        """Should move all files in a folder when no frontmatter targeting specified."""
+        clear_pending_previews()
+        inbox = vault_config / "inbox"
+        inbox.mkdir(exist_ok=True)
+        (inbox / "a.md").write_text("---\ntitle: A\n---\n# A\n")
+        (inbox / "b.md").write_text("---\ntitle: B\n---\n# B\n")
+
+        result = json.loads(batch_move_files(
+            folder="inbox",
+            destination_folder="archive",
+            confirm=True,
+        ))
+        assert result["success"] is True
+        assert "2 succeeded" in result["message"]
+
+        archive = vault_config / "archive"
+        assert (archive / "a.md").exists()
+        assert (archive / "b.md").exists()
+
+    def test_query_move_confirmation_flow(self, vault_config):
+        """Should require confirmation for large query-based batches."""
+        clear_pending_previews()
+        bulk = vault_config / "bulk"
+        bulk.mkdir(exist_ok=True)
+        for i in range(8):
+            (bulk / f"draft_{i}.md").write_text(
+                f"---\nstatus: draft\n---\n# Draft {i}\n"
+            )
+
+        # First call: no confirm → preview
+        result = json.loads(batch_move_files(
+            target_field="status",
+            target_value="draft",
+            target_match_type="equals",
+            destination_folder="Published",
+            folder="bulk",
+        ))
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert len(result["files"]) == 8
+
+        # Second call: confirm → execute
+        result = json.loads(batch_move_files(
+            target_field="status",
+            target_value="draft",
+            target_match_type="equals",
+            destination_folder="Published",
+            folder="bulk",
+            confirm=True,
+        ))
+        assert result["success"] is True
+        assert "8 succeeded" in result["message"]
+
+    def test_query_move_no_matches(self, vault_config):
+        """Should return success with 'No files matched' when nothing matches."""
+        clear_pending_previews()
+        result = json.loads(batch_move_files(
+            target_field="category",
+            target_value="nonexistent_value_xyz",
+            target_match_type="equals",
+            destination_folder="Nowhere",
+        ))
+        assert result["success"] is True
+        assert "No files matched" in result["message"]
+
+    def test_moves_and_target_field_mutual_exclusion(self, vault_config):
+        """Should error when both moves and target_field are provided."""
+        result = json.loads(batch_move_files(
+            moves=[{"source": "a.md", "destination": "b.md"}],
+            target_field="category",
+            target_value="person",
+            destination_folder="People",
+        ))
+        assert result["success"] is False
+        assert "Cannot combine" in result["error"]
+
+    def test_moves_and_destination_folder_mutual_exclusion(self, vault_config):
+        """Should error when both moves and destination_folder are provided."""
+        result = json.loads(batch_move_files(
+            moves=[{"source": "a.md", "destination": "b.md"}],
+            destination_folder="People",
+        ))
+        assert result["success"] is False
+        assert "Cannot combine" in result["error"]
+
+    def test_moves_and_target_filters_mutual_exclusion(self, vault_config):
+        """Should error when both moves and target_filters are provided."""
+        result = json.loads(batch_move_files(
+            moves=[{"source": "a.md", "destination": "b.md"}],
+            target_filters=[FilterCondition(field="status", value="draft")],
+            destination_folder="People",
+        ))
+        assert result["success"] is False
+        assert "Cannot combine" in result["error"]
+
+    def test_query_without_destination_folder(self, vault_config):
+        """Should error when target_field given without destination_folder."""
+        result = json.loads(batch_move_files(
+            target_field="category",
+            target_value="person",
+        ))
+        assert result["success"] is False
+        assert "destination_folder" in result["error"]
+
+    def test_query_move_with_target_filters(self, vault_config):
+        """Should respect additional target_filters for narrowing results."""
+        clear_pending_previews()
+        src = vault_config / "mixed"
+        src.mkdir(exist_ok=True)
+        (src / "active_person.md").write_text(
+            "---\ncategory: person\nstatus: active\n---\n# Active\n"
+        )
+        (src / "draft_person.md").write_text(
+            "---\ncategory: person\nstatus: draft\n---\n# Draft\n"
+        )
+
+        result = json.loads(batch_move_files(
+            target_field="category",
+            target_value="person",
+            target_match_type="equals",
+            target_filters=[
+                FilterCondition(field="status", value="active", match_type="equals"),
+            ],
+            destination_folder="ActivePeople",
+            folder="mixed",
+            confirm=True,
+        ))
+        assert result["success"] is True
+        assert "1 succeeded" in result["message"]
+        assert (vault_config / "ActivePeople" / "active_person.md").exists()
+        # Draft person should not have moved
+        assert (src / "draft_person.md").exists()
+
+    def test_destination_folder_only_without_targeting(self, vault_config):
+        """Should error when destination_folder given without any targeting params."""
+        result = json.loads(batch_move_files(
+            destination_folder="People",
+        ))
+        assert result["success"] is False
+        assert "target_field" in result["error"]
+
+    def test_empty_target_filters_treated_as_missing(self, vault_config):
+        """Empty target_filters list should be rejected like no targeting."""
+        result = json.loads(batch_move_files(
+            destination_folder="People",
+            target_filters=[],
+        ))
+        assert result["success"] is False
+        assert "target_field" in result["error"]
+
+    def test_existing_moves_still_work(self, vault_config):
+        """Explicit moves list should still work (backward compatibility)."""
+        (vault_config / "compat_src.md").write_text("# Compat\n")
+        result = json.loads(batch_move_files(
+            moves=[{"source": "compat_src.md", "destination": "compat_dest.md"}],
+        ))
+        assert result["success"] is True
+        assert "1 succeeded" in result["message"]
+        assert (vault_config / "compat_dest.md").exists()
+        assert not (vault_config / "compat_src.md").exists()
