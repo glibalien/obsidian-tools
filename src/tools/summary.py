@@ -25,8 +25,10 @@ covers multiple topics or themes.
 - Use tables when data is naturally tabular.
 - Be thorough — capture key points, decisions, context, and nuance. Do not \
 reduce the content to a few generic sentences.
-- End with a "### Action Items" section containing checkboxes (- [ ]) for \
+- End with a "### Action Items" section containing checkboxes for \
 any tasks, follow-ups, commitments, or next steps identified in the content.
+- Checkboxes MUST be plain "- [ ] text" with no bold wrapping. \
+"**- [ ] item**" breaks Obsidian's checkbox parser. Never bold a checkbox line.
 - If there are no action items, omit the Action Items section entirely.
 - Use markdown formatting appropriate for Obsidian (wikilinks, callouts, etc. \
 where helpful).
