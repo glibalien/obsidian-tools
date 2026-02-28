@@ -225,6 +225,18 @@ class TestBuildToolStub:
         assert "frontmatter" not in stub
         assert "headings" not in stub
 
+    def test_build_summarize_file_stub(self):
+        """Stub for summarize_file keeps path and summary_length."""
+        content = json.dumps({
+            "success": True,
+            "path": "notes/meeting.md",
+            "summary_length": 1234,
+        })
+        result = json.loads(build_tool_stub(content, "summarize_file"))
+        assert result["status"] == "success"
+        assert result["path"] == "notes/meeting.md"
+        assert result["summary_length"] == 1234
+
     def test_unknown_tool_falls_back_to_generic(self):
         """Unknown tool name uses generic stub builder."""
         content = json.dumps({"success": True, "path": "new/note.md"})
