@@ -12,7 +12,7 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 
 **Vault Management** — Read, create, move files; edit specific markdown sections by heading; update frontmatter fields; batch operations for bulk changes
 
-**File Readers** — Audio transcription via Whisper, image description via vision model, Office document extraction (.docx, .xlsx, .pptx), all auto-dispatched through `read_file`
+**File Readers** — Audio transcription via Whisper, image description via vision model, Office document extraction (.docx, .xlsx, .pptx), PDF text extraction, all auto-dispatched through `read_file`
 
 **Integrations** — Web search via DuckDuckGo, interaction logging to daily notes, persistent user preferences
 
@@ -199,7 +199,7 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 | Tool | Description |
 |------|-------------|
 | `find_notes` | Unified discovery — hybrid/semantic/keyword search, frontmatter filters, date ranges, folder browsing |
-| `read_file` | Read any vault file — markdown (with embed expansion), audio (Whisper), images (vision), Office docs |
+| `read_file` | Read any vault file — markdown (with embed expansion), audio (Whisper), images (vision), Office docs, PDFs |
 | `get_note_info` | Lightweight metadata — frontmatter, headings, size, timestamps, link counts |
 | `create_file` | Create a new note with optional YAML frontmatter |
 | `edit_file` | Edit file content — prepend, append, or target a specific section by heading |
@@ -336,7 +336,7 @@ src/
     ├── search.py        # Vault search, web search
     ├── editing.py       # Section and position-based editing
     ├── utility.py       # Interaction logging
-    └── readers.py       # File type handlers (audio, image, Office docs)
+    └── readers.py       # File type handlers (audio, image, Office docs, PDF)
 
 plugin/                  # Obsidian chat sidebar (optional)
 services/                # Service templates (systemd, launchd, Task Scheduler)

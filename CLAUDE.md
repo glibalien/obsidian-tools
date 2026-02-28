@@ -26,7 +26,7 @@ src/
 │   ├── search.py        # find_notes, web_search
 │   ├── editing.py       # edit_file
 │   ├── utility.py       # log_interaction
-│   ├── readers.py       # File type handlers (audio, image, office) for read_file dispatch
+│   ├── readers.py       # File type handlers (audio, image, office, PDF) for read_file dispatch
 │   └── summary.py       # summarize_file (LLM-powered summarization)
 ├── config.py            # Env config + setup_logging(name)
 ├── api_server.py        # FastAPI HTTP wrapper with session management
@@ -61,7 +61,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | MCP Tool | Purpose | Key Parameters |
 |----------|---------|----------------|
 | `find_notes` | Unified discovery (search + filter + date) | `query`, `mode` ("hybrid"/"semantic"/"keyword"), `folder`, `recursive` (false), `frontmatter` (array of FilterCondition, AND), `date_start`/`date_end` (YYYY-MM-DD), `date_type` ("modified"/"created"), `sort` ("relevance"/"name"/"modified"/"created"), `include_fields`, `n_results` (20), `offset` |
-| `read_file` | Read any vault file (text, audio, image, Office) | `path`, `offset` (0), `length` (30000). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction. Markdown files auto-expand `![[...]]` embeds inline (1 level deep, binary results cached by mtime). |
+| `read_file` | Read any vault file (text, audio, image, Office, PDF) | `path`, `offset` (0), `length` (30000). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction, .pdf→PyMuPDF page-delimited extraction. Markdown files auto-expand `![[...]]` embeds inline (1 level deep, binary results cached by mtime). |
 | `get_note_info` | Lightweight metadata (frontmatter, headings, size, timestamps, link counts) | `path` |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |
