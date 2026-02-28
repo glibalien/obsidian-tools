@@ -13,9 +13,11 @@ from tools.readers import (
     AUDIO_EXTENSIONS,
     IMAGE_EXTENSIONS,
     OFFICE_EXTENSIONS,
+    PDF_EXTENSIONS,
     handle_audio,
     handle_image,
     handle_office,
+    handle_pdf,
 )
 from services.vault import (
     BATCH_CONFIRM_THRESHOLD,
@@ -42,7 +44,7 @@ from services.vault import (
 
 logger = logging.getLogger(__name__)
 
-_BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS
+_BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS | PDF_EXTENSIONS
 
 _BLOCK_ID_RE = re.compile(r"\s\^(\S+)\s*$")
 
@@ -230,6 +232,9 @@ def _expand_binary(file_path: Path, reference: str) -> str:
         elif ext in OFFICE_EXTENSIONS:
             logger.debug("Cache miss: %s — calling office handler", file_path.name)
             raw = handle_office(file_path)
+        elif ext in PDF_EXTENSIONS:
+            logger.debug("Cache miss: %s — calling pdf handler", file_path.name)
+            raw = handle_pdf(file_path)
         else:
             return f"> [Embed error: {reference} — Unsupported binary type]"
 
@@ -378,6 +383,9 @@ def read_file(path: str, offset: int = 0, length: int = 30000) -> str:
 
     if ext in OFFICE_EXTENSIONS:
         return handle_office(file_path)
+
+    if ext in PDF_EXTENSIONS:
+        return handle_pdf(file_path)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")

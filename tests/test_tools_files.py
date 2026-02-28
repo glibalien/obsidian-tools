@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from pptx import Presentation
 
 from services.vault import FilterCondition, clear_pending_previews
-from tools.readers import handle_audio, handle_image, handle_office
+from tools.readers import handle_audio, handle_image, handle_office, handle_pdf
 from tools.files import (
     _embed_cache,
     _expand_embeds,
@@ -240,6 +240,21 @@ class TestReadFileAttachmentsFallback:
         result = json.loads(read_file("photo.png"))
         assert result["success"] is False
         assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_bare_pdf_name_resolves_to_attachments(self, vault_config):
+        """Bare PDF filename resolves to Attachments directory."""
+        import pymupdf
+
+        pdf = vault_config / "Attachments" / "doc.pdf"
+        doc = pymupdf.Document()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Attachment content.")
+        doc.save(str(pdf))
+        doc.close()
+
+        result = json.loads(read_file("doc.pdf"))
+        assert result["success"] is True
+        assert "Attachment content." in result["content"]
 
     def test_explicit_attachments_path_still_works(self, vault_config, monkeypatch):
         """Explicit Attachments/ prefix still resolves directly."""
@@ -1155,6 +1170,84 @@ class TestReadFileOffice:
         assert result["success"] is True
 
 
+class TestPdfReading:
+    """Tests for PDF file reading via read_file."""
+
+    def test_pdf_basic(self, vault_config):
+        """Should extract text from a PDF with page headings."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Hello from page one.")
+        doc.save(str(vault_config / "test.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("test.pdf"))
+        assert result["success"] is True
+        assert "## Page 1" in result["content"]
+        assert "Hello from page one." in result["content"]
+
+    def test_pdf_multiple_pages(self, vault_config):
+        """Multiple pages each get their own heading."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        for i, text in enumerate(["First page.", "Second page."], 1):
+            page = doc.new_page()
+            page.insert_text((72, 72), text)
+        doc.save(str(vault_config / "multi.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("multi.pdf"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Page 1" in content
+        assert "## Page 2" in content
+        assert "First page." in content
+        assert "Second page." in content
+
+    def test_pdf_empty(self, vault_config):
+        """Empty PDF should return ok with empty content."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        doc.new_page()  # blank page
+        doc.save(str(vault_config / "empty.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("empty.pdf"))
+        assert result["success"] is True
+
+    def test_pdf_skip_blank_pages(self, vault_config):
+        """Pages with no text content should be skipped."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        doc.new_page()  # blank
+        page2 = doc.new_page()
+        page2.insert_text((72, 72), "Only content page.")
+        doc.new_page()  # blank
+        doc.save(str(vault_config / "sparse.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("sparse.pdf"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Page 2" in content
+        assert "Only content page." in content
+        assert "## Page 1" not in content
+        assert "## Page 3" not in content
+
+    def test_pdf_corrupt_file(self, vault_config):
+        """Corrupt PDF should return error."""
+        (vault_config / "corrupt.pdf").write_bytes(b"not a real pdf")
+
+        result = json.loads(read_file("corrupt.pdf"))
+        assert result["success"] is False
+        assert "error" in result
+
+
 class TestExtractBlock:
     """Tests for _extract_block helper."""
 
@@ -1345,6 +1438,21 @@ class TestExpandEmbeds:
             assert "> [Embedded: rec.m4a]" in result
             assert "> Hello world" in result
 
+    def test_binary_embed_pdf(self, vault_config):
+        """PDF embeds call handle_pdf and format the result."""
+        pdf = vault_config / "Attachments" / "doc.pdf"
+        pdf.write_bytes(b"fake pdf")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_pdf") as mock_pdf:
+            mock_pdf.return_value = '{"success": true, "content": "## Page 1\\n\\nHello"}'
+            content = "![[doc.pdf]]"
+            source = vault_config / "parent.md"
+            _embed_cache.clear()
+            result = _expand_embeds(content, source)
+            assert "> [Embedded: doc.pdf]" in result
+            assert "> ## Page 1" in result or "> Hello" in result
+
     def test_binary_embed_cache_hit(self, vault_config, monkeypatch):
         """Second expansion of same binary embed uses cache."""
         monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
@@ -1503,6 +1611,40 @@ class TestBinaryHandlerLogging:
 
         assert json.loads(result)["success"] is False
         assert any("corrupt.docx" in r.message and r.levelname == "WARNING"
+                   for r in caplog.records)
+
+    def test_handle_pdf_logs_entry_and_success(self, tmp_path, caplog):
+        """handle_pdf logs file name, size, and duration on success."""
+        import pymupdf
+
+        pdf = tmp_path / "report.pdf"
+        doc = pymupdf.Document()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Hello")
+        doc.save(str(pdf))
+        doc.close()
+        size = pdf.stat().st_size
+
+        with caplog.at_level(logging.INFO, logger="tools.readers"):
+            result = handle_pdf(pdf)
+
+        assert json.loads(result)["success"] is True
+        messages = [r.message for r in caplog.records]
+        assert any("report.pdf" in m and str(size) in m for m in messages), \
+            f"Expected entry log with filename and size, got: {messages}"
+        assert any("Extracted" in m and "report.pdf" in m for m in messages), \
+            f"Expected success log with 'Extracted' and filename, got: {messages}"
+
+    def test_handle_pdf_logs_warning_on_failure(self, tmp_path, caplog):
+        """handle_pdf logs a WARNING when extraction fails."""
+        bad = tmp_path / "corrupt.pdf"
+        bad.write_bytes(b"not a real pdf")
+
+        with caplog.at_level(logging.WARNING, logger="tools.readers"):
+            result = handle_pdf(bad)
+
+        assert json.loads(result)["success"] is False
+        assert any("corrupt.pdf" in r.message and r.levelname == "WARNING"
                    for r in caplog.records)
 
 
