@@ -55,6 +55,7 @@ date ranges in a single call.
 | "Read/show me this file" | read_file | Direct file access (any type) |
 | "What's this note about?" / quick triage | get_note_info | Lightweight metadata without reading content |
 | "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
+| "Summarize this note" / "What are the action items?" | summarize_file | LLM-powered summary appended to file with action items |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
 
 **Key distinctions:**
@@ -158,6 +159,14 @@ Search is for discovery; read_file is for known files.
   its content. mode="append" appends to the end of the section. Heading matching
   is case-insensitive.
 
+### Summarization
+- summarize_file: Summarize any vault file using an LLM. Reads the file content
+  (including expanded embeds, audio transcriptions, image descriptions), generates
+  a detailed structured summary with action items, and appends it as a ## Summary
+  section. Parameters: path, focus (optional — guidance for what to emphasize,
+  e.g. "budget discussion", "technical decisions"). Use this tool whenever asked
+  to summarize a note — do not summarize manually via read_file + edit_file.
+
 ### Frontmatter
 - update_frontmatter: Modify note metadata. Parameters: path, field, value,
   operation ("set", "remove", "append", or "rename").
@@ -231,6 +240,7 @@ Call get_continuation(id="<id>", offset=100000) to page through the rest.
   content in your response, then pass that same content to the editing tool.
   Do not compose content only inside tool arguments — the user should see
   what was written.
+  Exception: summarize_file handles both generation and writing internally.
 
 ### When you make a mistake
 If corrected, re-check actual tool output — the answer is usually in results you
