@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 AUDIO_EXTENSIONS = {".m4a", ".mp3", ".wav", ".ogg", ".webm"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 OFFICE_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
+PDF_EXTENSIONS = {".pdf"}
 
 
 def handle_audio(file_path: Path) -> str:
@@ -120,6 +121,34 @@ def handle_office(file_path: Path) -> str:
         return result
     except Exception as e:
         logger.warning("Office extraction failed for %s: %s", file_path.name, e)
+        return err(f"Failed to read {file_path.name}: {e}")
+
+
+def handle_pdf(file_path: Path) -> str:
+    """Extract text content from a PDF file, page by page."""
+    import pymupdf
+
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        size = 0
+
+    logger.info("Extracting PDF: %s (%d bytes)", file_path.name, size)
+    start = time.perf_counter()
+    try:
+        doc = pymupdf.Document(str(file_path))
+        parts = []
+        for i, page in enumerate(doc, 1):
+            text = page.get_text().strip()
+            if text:
+                parts.append(f"## Page {i}\n\n{text}")
+        doc.close()
+        elapsed = time.perf_counter() - start
+        logger.info("Extracted %s in %.2fs", file_path.name, elapsed)
+        content = "\n\n".join(parts)
+        return ok(content=content)
+    except Exception as e:
+        logger.warning("PDF extraction failed for %s: %s", file_path.name, e)
         return err(f"Failed to read {file_path.name}: {e}")
 
 

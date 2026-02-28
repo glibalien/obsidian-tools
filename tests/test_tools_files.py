@@ -1155,6 +1155,84 @@ class TestReadFileOffice:
         assert result["success"] is True
 
 
+class TestPdfReading:
+    """Tests for PDF file reading via read_file."""
+
+    def test_pdf_basic(self, vault_config):
+        """Should extract text from a PDF with page headings."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Hello from page one.")
+        doc.save(str(vault_config / "test.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("test.pdf"))
+        assert result["success"] is True
+        assert "## Page 1" in result["content"]
+        assert "Hello from page one." in result["content"]
+
+    def test_pdf_multiple_pages(self, vault_config):
+        """Multiple pages each get their own heading."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        for i, text in enumerate(["First page.", "Second page."], 1):
+            page = doc.new_page()
+            page.insert_text((72, 72), text)
+        doc.save(str(vault_config / "multi.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("multi.pdf"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Page 1" in content
+        assert "## Page 2" in content
+        assert "First page." in content
+        assert "Second page." in content
+
+    def test_pdf_empty(self, vault_config):
+        """Empty PDF should return ok with empty content."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        doc.new_page()  # blank page
+        doc.save(str(vault_config / "empty.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("empty.pdf"))
+        assert result["success"] is True
+
+    def test_pdf_skip_blank_pages(self, vault_config):
+        """Pages with no text content should be skipped."""
+        import pymupdf
+
+        doc = pymupdf.Document()
+        doc.new_page()  # blank
+        page2 = doc.new_page()
+        page2.insert_text((72, 72), "Only content page.")
+        doc.new_page()  # blank
+        doc.save(str(vault_config / "sparse.pdf"))
+        doc.close()
+
+        result = json.loads(read_file("sparse.pdf"))
+        assert result["success"] is True
+        content = result["content"]
+        assert "## Page 2" in content
+        assert "Only content page." in content
+        assert "## Page 1" not in content
+        assert "## Page 3" not in content
+
+    def test_pdf_corrupt_file(self, vault_config):
+        """Corrupt PDF should return error."""
+        (vault_config / "corrupt.pdf").write_bytes(b"not a real pdf")
+
+        result = json.loads(read_file("corrupt.pdf"))
+        assert result["success"] is False
+        assert "error" in result
+
+
 class TestExtractBlock:
     """Tests for _extract_block helper."""
 
