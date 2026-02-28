@@ -32,6 +32,7 @@ class TestSummarizeFile:
         assert result["success"] is True
         assert result["path"]
         assert result["summary_length"] > 0
+        assert "project planning" in result["preview"]
 
         content = (vault_config / "note1.md").read_text()
         assert "## Summary" in content

@@ -127,4 +127,7 @@ def summarize_file(
         return err(append_result.get("error", "Failed to append summary"))
 
     rel_path = get_relative_path(file_path)
-    return ok(path=rel_path, summary_length=len(summary))
+    preview = summary[:500]
+    if len(summary) > 500:
+        preview += "…"
+    return ok(path=rel_path, summary_length=len(summary), preview=preview)

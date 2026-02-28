@@ -165,8 +165,10 @@ Search is for discovery; read_file is for known files.
   with action items, and appends it as a ## Summary section. Only works on
   markdown/text files — binary files (audio, images, PDFs, office docs) are
   rejected. Parameters: path, focus (optional — guidance for what to emphasize,
-  e.g. "budget discussion", "technical decisions"). Use this tool whenever asked
-  to summarize a note — do not summarize manually via read_file + edit_file.
+  e.g. "budget discussion", "technical decisions"). Returns a preview of the
+  summary — relay it to the user. Do NOT call read_file afterward; the summary
+  is already written to the file. Use this tool whenever asked to summarize a
+  note — do not summarize manually via read_file + edit_file.
 
 ### Frontmatter
 - update_frontmatter: Modify note metadata. Parameters: path, field, value,
