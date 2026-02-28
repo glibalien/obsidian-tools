@@ -126,8 +126,6 @@ def handle_office(file_path: Path) -> str:
 
 def handle_pdf(file_path: Path) -> str:
     """Extract text content from a PDF file, page by page."""
-    import pymupdf
-
     try:
         size = file_path.stat().st_size
     except OSError:
@@ -136,6 +134,8 @@ def handle_pdf(file_path: Path) -> str:
     logger.info("Extracting PDF: %s (%d bytes)", file_path.name, size)
     start = time.perf_counter()
     try:
+        import pymupdf
+
         with pymupdf.Document(str(file_path)) as doc:
             parts = []
             for i, page in enumerate(doc, 1):
