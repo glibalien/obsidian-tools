@@ -7,10 +7,15 @@ import time
 
 from openai import OpenAI
 
+from pathlib import Path
+
 from config import FIREWORKS_BASE_URL, MAX_SUMMARIZE_CHARS, SUMMARIZE_MODEL
 from services.vault import err, get_relative_path, ok, resolve_file
 from tools.editing import edit_file
 from tools.files import read_file
+from tools.readers import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, OFFICE_EXTENSIONS
+
+_BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +60,16 @@ def summarize_file(
     if not api_key:
         return err("FIREWORKS_API_KEY not set")
 
+    # Reject binary files — appending markdown would corrupt them
+    file_path, resolve_err = resolve_file(path)
+    if resolve_err:
+        return err(resolve_err)
+    if file_path.suffix.lower() in _BINARY_EXTENSIONS:
+        return err(
+            f"Cannot summarize binary file ({file_path.suffix}). "
+            "Only text/markdown files are supported."
+        )
+
     # Read file content via read_file (handles embeds, audio, images, office)
     raw = read_file(path, offset=0, length=MAX_SUMMARIZE_CHARS)
     data = json.loads(raw)
@@ -71,9 +86,9 @@ def summarize_file(
     if not content.strip():
         return err("File has no content to summarize")
 
-    # Check for truncation and note it
-    truncated = len(content) >= MAX_SUMMARIZE_CHARS
-    if truncated:
+    # Enforce safety cap — slice then append notice
+    if len(content) > MAX_SUMMARIZE_CHARS:
+        content = content[:MAX_SUMMARIZE_CHARS]
         content += (
             f"\n\n[Content truncated at {MAX_SUMMARIZE_CHARS:,} characters. "
             "Summarize what is available.]"
@@ -102,6 +117,8 @@ def summarize_file(
         return err(f"Summarization failed: {e}")
 
     summary = response.choices[0].message.content
+    if not summary:
+        return err("LLM returned empty summary")
     elapsed = time.perf_counter() - start
     logger.info("Summarized %s in %.2fs (%d chars)", path, elapsed, len(summary))
 
@@ -111,8 +128,5 @@ def summarize_file(
     if not append_result.get("success"):
         return err(append_result.get("error", "Failed to append summary"))
 
-    # Resolve path for response
-    file_path, _ = resolve_file(path)
-    rel_path = get_relative_path(file_path) if file_path else path
-
+    rel_path = get_relative_path(file_path)
     return ok(path=rel_path, summary_length=len(summary))

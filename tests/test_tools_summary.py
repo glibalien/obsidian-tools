@@ -86,7 +86,7 @@ class TestSummarizeFile:
         assert "FIREWORKS_API_KEY" in result["error"]
 
     def test_large_content_truncated(self, vault_config):
-        """Should truncate content exceeding MAX_SUMMARIZE_CHARS."""
+        """Should slice content exceeding MAX_SUMMARIZE_CHARS before sending."""
         # Create a file with content larger than limit
         large_content = "# Big Note\n\n" + "x" * 300_000
         (vault_config / "large.md").write_text(large_content)
@@ -95,19 +95,50 @@ class TestSummarizeFile:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Summary of large file."
 
+        with patch("tools.summary.MAX_SUMMARIZE_CHARS", 1000):
+            with patch("tools.summary.OpenAI") as mock_openai:
+                mock_client = MagicMock()
+                mock_openai.return_value = mock_client
+                mock_client.chat.completions.create.return_value = mock_response
+
+                result = json.loads(summarize_file("large.md"))
+
+        assert result["success"] is True
+        # Verify the content sent to LLM was actually sliced
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        user_msg = next(m for m in messages if m["role"] == "user")
+        assert "truncated" in user_msg["content"].lower()
+        # Full user message should be much shorter than the 300K original
+        assert len(user_msg["content"]) < 2000
+
+    def test_llm_returns_none(self, vault_config):
+        """Should return error when LLM response content is None."""
+        original = (vault_config / "note1.md").read_text()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+
         with patch("tools.summary.OpenAI") as mock_openai:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
-            result = json.loads(summarize_file("large.md"))
+            result = json.loads(summarize_file("note1.md"))
 
-        assert result["success"] is True
-        # Verify the content sent to LLM was truncated
-        call_args = mock_client.chat.completions.create.call_args
-        messages = call_args.kwargs["messages"]
-        user_msg = next(m for m in messages if m["role"] == "user")
-        assert "truncated" in user_msg["content"].lower()
+        assert result["success"] is False
+        assert "empty" in result["error"].lower()
+        assert (vault_config / "note1.md").read_text() == original
+
+    def test_binary_file_rejected(self, vault_config):
+        """Should reject binary files to prevent corruption."""
+        attachments = vault_config / "Attachments"
+        (attachments / "recording.m4a").write_bytes(b"fake audio")
+
+        result = json.loads(summarize_file("Attachments/recording.m4a"))
+        assert result["success"] is False
+        assert "binary" in result["error"].lower()
 
     def test_append_preserves_existing(self, vault_config):
         """Appending a second summary doesn't corrupt existing content."""
