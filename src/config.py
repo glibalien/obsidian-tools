@@ -42,6 +42,7 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-v3")
 VISION_MODEL = os.getenv(
     "VISION_MODEL", "accounts/fireworks/models/qwen3-vl-30b-a3b-instruct"
 )
+SUMMARIZE_MODEL = os.getenv("SUMMARIZE_MODEL", FIREWORKS_MODEL)
 
 # Server configuration
 API_PORT = int(os.getenv("API_PORT", "8000"))
@@ -66,6 +67,7 @@ KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 # Tool message compaction
 COMPACTION_SNIPPET_LENGTH = 80  # find_notes semantic result snippet length
 COMPACTION_CONTENT_PREVIEW_LENGTH = 100  # generic tool content preview length
+MAX_SUMMARIZE_CHARS = 200_000  # Safety cap for content sent to summarize LLM
 
 # Logging configuration
 LOG_DIR = Path(os.getenv("LOG_DIR", str(VAULT_PATH / "logs"))).expanduser()

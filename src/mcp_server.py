@@ -39,6 +39,7 @@ from tools.search import (
     web_search,
 )
 from tools.editing import edit_file
+from tools.summary import summarize_file
 from tools.utility import (
     log_interaction,
 )
@@ -73,6 +74,9 @@ mcp.tool()(find_links)
 
 # Editing tools
 mcp.tool()(edit_file)
+
+# Summarization tools
+mcp.tool()(summarize_file)
 
 # Preference tools
 mcp.tool()(manage_preferences)

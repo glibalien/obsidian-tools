@@ -26,7 +26,8 @@ src/
 │   ├── search.py        # find_notes, web_search
 │   ├── editing.py       # edit_file
 │   ├── utility.py       # log_interaction
-│   └── readers.py       # File type handlers (audio, image, office) for read_file dispatch
+│   ├── readers.py       # File type handlers (audio, image, office) for read_file dispatch
+│   └── summary.py       # summarize_file (LLM-powered summarization)
 ├── config.py            # Env config + setup_logging(name)
 ├── api_server.py        # FastAPI HTTP wrapper with session management
 ├── agent.py             # CLI chat client
@@ -44,7 +45,7 @@ services/                # systemd/launchd/taskscheduler templates
 ### Key Components
 
 - **services/vault.py**: `ok()`/`err()` response helpers, `resolve_file()`/`resolve_dir()` path validation, `find_section()` for heading lookup, `get_vault_files()`/`get_vault_note_names()` for scanning, `is_fence_line()` for code fence detection.
-- **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for find_notes (detects semantic vs vault-scan result shape), read_file, find_links, web_search, get_note_info; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
+- **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for find_notes (detects semantic vs vault-scan result shape), read_file, find_links, web_search, get_note_info, summarize_file; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
 - **agent.py**: Connects LLM (Fireworks) to MCP server. Loads system prompt from `system_prompt.txt` (falls back to `.example`). Features: agent loop cap (20 iterations), 100K-char tool result truncation with `get_continuation`, compaction between turns, `on_event` callback for SSE streaming, preferences reload per turn, `ensure_interaction_logged` auto-calls `log_interaction` when agent forgets, `force_text_only` code-level enforcement (strips tool calls if model ignores `tool_choice="none"`, capped at 3 retries with preview message fallback). Confirmation preview SSE events are emitted after the response event to guarantee correct rendering order in the plugin.
 - **api_server.py**: FastAPI on 127.0.0.1. File-keyed sessions (LRU eviction, message trimming). CORS enabled. `/chat` and `/chat/stream` share `_prepare_turn`/`_restore_compacted_flags`.
 - **hybrid_search.py**: Semantic (ChromaDB) + keyword search merged via RRF. Keyword: single `$or` query, term frequency ranking, `_case_variants()` for case-insensitive matching. Returns `heading` metadata.
@@ -74,6 +75,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `log_interaction` | Log to daily note | `task_description`, `query`, `summary`, `files`, `full_response` |
 | `manage_preferences` | List/add/remove preferences | `operation` ("list"/"add"/"remove"), `preference`, `line_number` |
 | `edit_file` | Edit file content (prepend/append/section) | `path`, `content`, `position` ("prepend"/"append"/"section"), `heading` (for section), `mode` ("replace"/"append" for section) |
+| `summarize_file` | LLM-powered summary appended to file | `path`, `focus` (optional) |
 | `web_search` | DuckDuckGo search | `query` |
 
 ### Tool Parameter Types and LLM Efficiency
@@ -125,6 +127,7 @@ All paths configured via `.env`:
 | `MAX_SESSION_MESSAGES` | `50` | Max messages per session (trimming) |
 | `WHISPER_MODEL` | `whisper-v3` | Audio transcription model |
 | `VISION_MODEL` | `accounts/fireworks/models/qwen3-vl-30b-a3b-instruct` | Image description model |
+| `SUMMARIZE_MODEL` | `FIREWORKS_MODEL` | Summarization model (defaults to main LLM) |
 
 `config.py` also provides: `setup_logging(name)` (rotating file handler + stderr), `EXCLUDED_DIRS`, `PREFERENCES_FILE`, `ATTACHMENTS_DIR`. Entry points that call `setup_logging`: `api_server.py` ("api"), `agent.py` ("agent"), `mcp_server.py` ("mcp"), `index_vault.py` ("index_vault"). Note: the MCP server runs as a **subprocess** of the API server, so it needs its own `setup_logging` call — logs from tool handlers (e.g. `readers.py`) only appear in `mcp.log.md`, not `api.log.md`.
 
