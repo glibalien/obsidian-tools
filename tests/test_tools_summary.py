@@ -138,7 +138,15 @@ class TestSummarizeFile:
 
         result = json.loads(summarize_file("Attachments/recording.m4a"))
         assert result["success"] is False
-        assert "binary" in result["error"].lower()
+        assert "markdown/text" in result["error"].lower()
+
+    def test_pdf_file_rejected(self, vault_config):
+        """Should reject PDFs and other non-text files not in blocklist."""
+        (vault_config / "report.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        result = json.loads(summarize_file("report.pdf"))
+        assert result["success"] is False
+        assert ".pdf" in result["error"]
 
     def test_append_preserves_existing(self, vault_config):
         """Appending a second summary doesn't corrupt existing content."""

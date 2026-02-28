@@ -7,15 +7,11 @@ import time
 
 from openai import OpenAI
 
-from pathlib import Path
-
 from config import FIREWORKS_BASE_URL, MAX_SUMMARIZE_CHARS, SUMMARIZE_MODEL
 from services.vault import err, get_relative_path, ok, resolve_file
 from tools.editing import edit_file
 from tools.files import read_file
-from tools.readers import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, OFFICE_EXTENSIONS
-
-_BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS
+_TEXT_SAFE_EXTENSIONS = {".md", ".txt", ".markdown"}
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +56,14 @@ def summarize_file(
     if not api_key:
         return err("FIREWORKS_API_KEY not set")
 
-    # Reject binary files — appending markdown would corrupt them
+    # Only allow text-safe files — appending markdown to anything else corrupts it
     file_path, resolve_err = resolve_file(path)
     if resolve_err:
         return err(resolve_err)
-    if file_path.suffix.lower() in _BINARY_EXTENSIONS:
+    if file_path.suffix.lower() not in _TEXT_SAFE_EXTENSIONS:
         return err(
-            f"Cannot summarize binary file ({file_path.suffix}). "
-            "Only text/markdown files are supported."
+            f"Cannot summarize {file_path.suffix or 'extensionless'} file. "
+            "Only markdown/text files are supported."
         )
 
     # Read file content via read_file (handles embeds, audio, images, office)
