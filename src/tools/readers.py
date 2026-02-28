@@ -136,13 +136,12 @@ def handle_pdf(file_path: Path) -> str:
     logger.info("Extracting PDF: %s (%d bytes)", file_path.name, size)
     start = time.perf_counter()
     try:
-        doc = pymupdf.Document(str(file_path))
-        parts = []
-        for i, page in enumerate(doc, 1):
-            text = page.get_text().strip()
-            if text:
-                parts.append(f"## Page {i}\n\n{text}")
-        doc.close()
+        with pymupdf.Document(str(file_path)) as doc:
+            parts = []
+            for i, page in enumerate(doc, 1):
+                text = page.get_text().strip()
+                if text:
+                    parts.append(f"## Page {i}\n\n{text}")
         elapsed = time.perf_counter() - start
         logger.info("Extracted %s in %.2fs", file_path.name, elapsed)
         content = "\n\n".join(parts)
