@@ -192,35 +192,45 @@ class TestGetCompletionContent:
 class TestSSRFProtection:
     """Tests for DNS-pinned URL validation and SSRF prevention."""
 
-    def test_public_host_returns_ip(self):
-        """_resolve_public_host should return the first IP for a public host."""
+    def test_public_host_returns_ips(self):
+        """_resolve_public_host should return all IPs for a public host."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("93.184.216.34", 0))]
-            assert _resolve_public_host("example.com") == "93.184.216.34"
+            assert _resolve_public_host("example.com") == ["93.184.216.34"]
+
+    def test_public_host_deduplicates(self):
+        """_resolve_public_host should deduplicate IPs preserving order."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [
+                (None, None, None, None, ("93.184.216.34", 0)),
+                (None, None, None, None, ("93.184.216.34", 0)),
+                (None, None, None, None, ("1.2.3.4", 0)),
+            ]
+            assert _resolve_public_host("example.com") == ["93.184.216.34", "1.2.3.4"]
 
     def test_localhost_blocked(self):
         """Loopback addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("127.0.0.1", 0))]
-            assert _resolve_public_host("localhost") is None
+            assert _resolve_public_host("localhost") == []
 
     def test_private_ip_blocked(self):
         """Private network addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("192.168.1.1", 0))]
-            assert _resolve_public_host("internal.corp") is None
+            assert _resolve_public_host("internal.corp") == []
 
     def test_link_local_blocked(self):
         """Link-local addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("169.254.169.254", 0))]
-            assert _resolve_public_host("metadata.internal") is None
+            assert _resolve_public_host("metadata.internal") == []
 
     def test_dns_failure_blocked(self):
         """DNS resolution failure should be treated as blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.side_effect = socket.gaierror("Name resolution failed")
-            assert _resolve_public_host("nonexistent.invalid") is None
+            assert _resolve_public_host("nonexistent.invalid") == []
 
     def test_mixed_ips_blocked_if_any_non_global(self):
         """If any resolved IP is non-global, the host should be blocked."""
@@ -229,23 +239,23 @@ class TestSSRFProtection:
                 (None, None, None, None, ("93.184.216.34", 0)),
                 (None, None, None, None, ("10.0.0.1", 0)),
             ]
-            assert _resolve_public_host("dual-homed.example") is None
+            assert _resolve_public_host("dual-homed.example") == []
 
     def test_carrier_grade_nat_blocked(self):
         """Carrier-grade NAT (100.64.0.0/10) should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("100.64.0.1", 0))]
-            assert _resolve_public_host("cgnat.internal") is None
+            assert _resolve_public_host("cgnat.internal") == []
 
     def test_multicast_blocked(self):
         """Multicast addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("224.0.0.1", 0))]
-            assert _resolve_public_host("multicast.local") is None
+            assert _resolve_public_host("multicast.local") == []
 
     def test_pinned_get_connects_to_resolved_ip(self):
         """_pinned_get should connect to the validated IP, not re-resolve."""
-        with patch("tools.research._resolve_public_host", return_value="93.184.216.34"), \
+        with patch("tools.research._resolve_public_host", return_value=["93.184.216.34"]), \
              patch("tools.research.http.client.HTTPConnection") as mock_conn_cls:
             mock_response = MagicMock()
             mock_response.status = 200
@@ -258,7 +268,7 @@ class TestSSRFProtection:
 
     def test_pinned_get_uses_tls_sni_for_https(self):
         """HTTPS requests should use original hostname for TLS SNI."""
-        with patch("tools.research._resolve_public_host", return_value="93.184.216.34"), \
+        with patch("tools.research._resolve_public_host", return_value=["93.184.216.34"]), \
              patch("tools.research._PinnedHTTPSConnection") as mock_conn_cls:
             mock_response = MagicMock()
             mock_response.status = 200
@@ -270,9 +280,28 @@ class TestSSRFProtection:
             "93.184.216.34", 443, sni_hostname="example.com", timeout=10,
         )
 
+    def test_pinned_get_tries_next_ip_on_failure(self):
+        """_pinned_get should fall back to the next IP if the first fails."""
+        with patch("tools.research._resolve_public_host", return_value=["fd00::1", "93.184.216.34"]), \
+             patch("tools.research.http.client.HTTPConnection") as mock_conn_cls:
+            first_conn = MagicMock()
+            first_conn.request.side_effect = OSError("Network unreachable")
+            second_conn = MagicMock()
+            mock_response = MagicMock()
+            mock_response.status = 200
+            second_conn.getresponse.return_value = mock_response
+            mock_conn_cls.side_effect = [first_conn, second_conn]
+
+            result = _pinned_get("http://example.com/page", timeout=10)
+
+        assert result == (200, mock_response)
+        assert mock_conn_cls.call_count == 2
+        mock_conn_cls.assert_any_call("fd00::1", 80, timeout=10)
+        mock_conn_cls.assert_any_call("93.184.216.34", 80, timeout=10)
+
     def test_pinned_get_blocks_non_public_host(self):
         """_pinned_get returns None when host resolves to non-public IP."""
-        with patch("tools.research._resolve_public_host", return_value=None):
+        with patch("tools.research._resolve_public_host", return_value=[]):
             assert _pinned_get("http://127.0.0.1:8080/admin", timeout=10) is None
 
     def test_fetch_page_blocks_non_public_host(self):

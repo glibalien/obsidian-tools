@@ -30,30 +30,37 @@ from tools.search import find_notes, web_search
 logger = logging.getLogger(__name__)
 
 
-def _resolve_public_host(hostname: str) -> str | None:
+def _resolve_public_host(hostname: str) -> list[str]:
     """Resolve a hostname and validate all IPs are globally routable.
 
     Uses is_global (rejects loopback, private, link-local, reserved,
     carrier-grade NAT, documentation ranges, etc.) plus an explicit
     is_multicast check (Python 3.12's is_global doesn't exclude it).
 
-    Returns the first validated IP address string, or None if any
-    resolved IP is non-global or resolution fails.
+    Returns deduplicated validated IP addresses in resolution order,
+    or an empty list if any resolved IP is non-global or resolution fails.
     """
     try:
         infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, OSError):
-        return None
+        return []
 
     if not infos:
-        return None
+        return []
 
     for info in infos:
         addr = ipaddress.ip_address(info[4][0])
         if not addr.is_global or addr.is_multicast:
-            return None
+            return []
 
-    return infos[0][4][0]
+    seen: set[str] = set()
+    result: list[str] = []
+    for info in infos:
+        ip = info[4][0]
+        if ip not in seen:
+            seen.add(ip)
+            result.append(ip)
+    return result
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -169,8 +176,9 @@ def _pinned_get(
     """HTTP GET with DNS pinning to prevent DNS rebinding.
 
     Resolves DNS once, validates all IPs are globally routable, then
-    connects directly to the validated IP with proper Host header and
-    TLS SNI so no second DNS lookup can yield a different address.
+    tries each validated IP in order until one connects.  Uses proper
+    Host header and TLS SNI so no second DNS lookup can yield a
+    different address.
 
     Args:
         url: The URL to fetch.
@@ -178,7 +186,7 @@ def _pinned_get(
 
     Returns:
         Tuple of (status_code, response) on success, or None if the
-        host fails validation or the connection fails.
+        host fails validation or all connection attempts fail.
     """
     parsed = urlparse(url)
     hostname = parsed.hostname
@@ -191,34 +199,39 @@ def _pinned_get(
     if parsed.query:
         path += "?" + parsed.query
 
-    validated_ip = _resolve_public_host(hostname)
-    if not validated_ip:
+    validated_ips = _resolve_public_host(hostname)
+    if not validated_ips:
         logger.warning("Blocked request to non-public host: %s", hostname)
         return None
 
-    try:
-        if use_tls:
-            conn = _PinnedHTTPSConnection(
-                validated_ip, port,
-                sni_hostname=hostname,
-                timeout=timeout,
+    last_exc: Exception | None = None
+    for ip in validated_ips:
+        try:
+            if use_tls:
+                conn = _PinnedHTTPSConnection(
+                    ip, port,
+                    sni_hostname=hostname,
+                    timeout=timeout,
+                )
+            else:
+                conn = http.client.HTTPConnection(
+                    ip, port,
+                    timeout=timeout,
+                )
+            conn.request("GET", path, headers={
+                "Host": hostname,
+                "User-Agent": "obsidian-tools/1.0",
+            })
+            response = conn.getresponse()
+            return response.status, response
+        except Exception as exc:
+            last_exc = exc
+            logger.debug(
+                "Connection to %s (%s) failed, trying next", url, ip, exc_info=True,
             )
-        else:
-            conn = http.client.HTTPConnection(
-                validated_ip, port,
-                timeout=timeout,
-            )
-        conn.request("GET", path, headers={
-            "Host": hostname,
-            "User-Agent": "obsidian-tools/1.0",
-        })
-        response = conn.getresponse()
-        return response.status, response
-    except Exception:
-        logger.warning(
-            "Failed to fetch %s (pinned to %s)", url, validated_ip, exc_info=True,
-        )
-        return None
+
+    logger.warning("Failed to fetch %s (tried %s)", url, validated_ips, exc_info=last_exc)
+    return None
 
 
 def _fetch_page(url: str) -> str | None:
@@ -259,7 +272,9 @@ def _fetch_page(url: str) -> str | None:
                 logger.warning("HTTP %d from %s", status, current_url)
                 return None
 
-            body = response.read().decode("utf-8", errors="replace")
+            # Cap read size — HTML is typically larger than the markdown
+            # output, so allow headroom above MAX_PAGE_CHARS.
+            body = response.read(MAX_PAGE_CHARS * 5).decode("utf-8", errors="replace")
             break
         else:
             logger.warning("Too many redirects from %s", url)
