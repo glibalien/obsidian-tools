@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from services.compaction import build_tool_stub
 from tools.research import (
     _extract_topics,
     _gather_research,
@@ -509,3 +510,21 @@ class TestResearchNote:
         result = json.loads(research_note("note1.md", depth="extreme"))
         assert result["success"] is False
         assert "depth" in result["error"].lower()
+
+
+class TestResearchNoteCompaction:
+    """Tests for research_note compaction stub."""
+
+    def test_stub_keeps_path_and_topics(self):
+        """Should keep path and topics_researched, drop preview."""
+        content = json.dumps({
+            "success": True,
+            "path": "notes/test.md",
+            "topics_researched": 3,
+            "preview": "Long preview text that should be dropped...",
+        })
+
+        stub = json.loads(build_tool_stub(content, "research_note"))
+        assert stub["path"] == "notes/test.md"
+        assert stub["topics_researched"] == 3
+        assert "preview" not in stub
