@@ -68,6 +68,10 @@ KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 COMPACTION_SNIPPET_LENGTH = 80  # find_notes semantic result snippet length
 COMPACTION_CONTENT_PREVIEW_LENGTH = 100  # generic tool content preview length
 MAX_SUMMARIZE_CHARS = 200_000  # Safety cap for content sent to summarize LLM
+RESEARCH_MODEL = os.getenv("RESEARCH_MODEL", FIREWORKS_MODEL)
+MAX_RESEARCH_TOPICS = 10  # Max topics to extract from a note
+MAX_PAGE_CHARS = 50_000  # Safety cap for fetched web page content
+PAGE_FETCH_TIMEOUT = 10  # Seconds per web page fetch
 
 # Logging configuration
 LOG_DIR = Path(os.getenv("LOG_DIR", str(VAULT_PATH / "logs"))).expanduser()
