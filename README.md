@@ -14,6 +14,8 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 
 **File Readers** — Audio transcription via Whisper, image description via vision model, Office document extraction (.docx, .xlsx, .pptx), PDF text extraction, all auto-dispatched through `read_file`
 
+**AI-Powered Analysis** — Summarize notes via LLM, research topics found in a note (web + vault search, page extraction, synthesized findings appended as a `## Research` section)
+
 **Integrations** — Web search via DuckDuckGo, interaction logging to daily notes, persistent user preferences
 
 ## How It Works
@@ -21,7 +23,7 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 ![Architecture diagram](obsidian-tools-architecture.svg)
 
 1. **Indexer** scans your vault and creates embeddings in ChromaDB, splitting notes by headings, paragraphs, and sentences for precise retrieval
-2. **MCP Server** exposes 16 tools for searching, reading, and modifying vault content
+2. **MCP Server** exposes 18 tools for searching, reading, and modifying vault content
 3. **LLM Agent** (powered by [Fireworks AI](https://fireworks.ai/)) orchestrates the tools to answer your questions
 4. **Interfaces** — chat in Obsidian via the sidebar plugin, from the terminal via the CLI agent, or programmatically via the HTTP API
 
@@ -212,6 +214,8 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 | `find_links` | Find backlinks, outlinks, or both for a note |
 | `compare_folders` | Compare two folders by filename — find duplicates and unique files |
 | `log_interaction` | Log interactions to daily notes |
+| `summarize_file` | LLM-powered summarization — appends a `## Summary` section to the note |
+| `research_note` | Research topics in a note — web search, vault search, page extraction, LLM synthesis into `## Research` |
 | `manage_preferences` | List, add, or remove persistent user preferences |
 | `web_search` | Search the web via DuckDuckGo |
 
@@ -336,7 +340,9 @@ src/
     ├── search.py        # Vault search, web search
     ├── editing.py       # Section and position-based editing
     ├── utility.py       # Interaction logging
-    └── readers.py       # File type handlers (audio, image, Office docs, PDF)
+    ├── readers.py       # File type handlers (audio, image, Office docs, PDF)
+    ├── summary.py       # LLM-powered file summarization
+    └── research.py      # Agentic research pipeline (extract → search → synthesize)
 
 plugin/                  # Obsidian chat sidebar (optional)
 services/                # Service templates (systemd, launchd, Task Scheduler)
