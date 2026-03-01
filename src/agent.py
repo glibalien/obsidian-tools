@@ -31,6 +31,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 MAX_TOOL_RESULT_CHARS = 100_000
 TOOL_TIMEOUT = 60  # seconds
+_TOOL_TIMEOUT_OVERRIDES = {
+    "research_note": 300,  # 5 minutes — multi-step LLM pipeline
+}
 
 
 SYSTEM_PROMPT_FILE = PROJECT_ROOT / "system_prompt.txt"
@@ -221,15 +224,16 @@ async def execute_tool_call(
     session: ClientSession, tool_name: str, arguments: dict
 ) -> str:
     """Execute a tool call via MCP and return the result."""
+    timeout = _TOOL_TIMEOUT_OVERRIDES.get(tool_name, TOOL_TIMEOUT)
     try:
-        with anyio.fail_after(TOOL_TIMEOUT):
+        with anyio.fail_after(timeout):
             result = await session.call_tool(tool_name, arguments)
         if result.isError:
             return f"Tool error: {extract_text_content(result.content)}"
         return extract_text_content(result.content)
     except TimeoutError:
-        logger.warning("Tool '%s' timed out after %ds", tool_name, TOOL_TIMEOUT)
-        return f"Tool error: '{tool_name}' timed out after {TOOL_TIMEOUT}s"
+        logger.warning("Tool '%s' timed out after %ds", tool_name, timeout)
+        return f"Tool error: '{tool_name}' timed out after {timeout}s"
     except Exception as e:
         return f"Failed to execute tool {tool_name}: {e}"
 

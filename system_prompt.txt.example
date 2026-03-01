@@ -56,6 +56,7 @@ date ranges in a single call.
 | "What's this note about?" / quick triage | get_note_info | Lightweight metadata without reading content |
 | "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
 | "Summarize this note" / "What are the action items?" | summarize_file | LLM-powered summary appended to file with action items |
+| "Research this note" / "What does the web say about this?" | research_note | Agentic research — extracts topics, searches web + vault, appends ## Research |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
 
 **Key distinctions:**
@@ -169,6 +170,16 @@ Search is for discovery; read_file is for known files.
   summary — relay it to the user. Do NOT call read_file afterward; the summary
   is already written to the file. Use this tool whenever asked to summarize a
   note — do not summarize manually via read_file + edit_file.
+
+### Research
+- research_note: Research topics in a vault note. Reads the note, extracts key
+  topics/claims/questions, searches the web and vault for each, and appends a
+  ## Research section with synthesized findings and citations. Parameters: path,
+  depth ("shallow" for search snippets, "deep" to fetch and read web pages),
+  focus (optional — narrow to specific topic). Returns a preview of the research
+  — relay it to the user. Do NOT call read_file afterward; the research is
+  already written to the file. This tool takes longer than others (especially
+  in deep mode) — let the user know it's working.
 
 ### Frontmatter
 - update_frontmatter: Modify note metadata. Parameters: path, field, value,
