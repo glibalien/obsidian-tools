@@ -1,11 +1,18 @@
-"""Tests for tools/research.py - topic extraction and research gathering."""
+"""Tests for tools/research.py - topic extraction, research gathering, and synthesis."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.research import _extract_topics, _gather_research, _research_topic
+from tools.research import (
+    _extract_topics,
+    _gather_research,
+    _research_topic,
+    _synthesize_research,
+    research_note,
+)
 
 
 class TestExtractTopics:
@@ -278,12 +285,227 @@ class TestGatherResearch:
         assert len(r["web_results"]) == 1
 
 
+class TestSynthesizeResearch:
+    """Tests for _synthesize_research function."""
+
+    def test_sends_all_material_to_llm(self):
+        """Should include note content, web results, vault results, and page extracts in prompt."""
+        research_results = [
+            {
+                "topic": "Machine learning",
+                "context": "ML discussion",
+                "type": "concept",
+                "web_results": [
+                    {"title": "ML Guide", "url": "https://example.com/ml", "snippet": "ML overview"},
+                ],
+                "vault_results": [
+                    {"path": "notes/ml-basics.md", "content": "ML fundamentals explained"},
+                ],
+                "page_extracts": [
+                    {"url": "https://example.com/ml", "content": "Deep learning is a subset of ML."},
+                ],
+            },
+        ]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "### Machine Learning\nSynthesized research."
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _synthesize_research(mock_client, "Note about ML topics", research_results)
+
+        assert result == "### Machine Learning\nSynthesized research."
+
+        # Verify the LLM prompt includes all material
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        user_msg = next(m for m in messages if m["role"] == "user")
+        content = user_msg["content"]
+
+        # Note content should be present
+        assert "Note about ML topics" in content
+        # Web results should be present
+        assert "ML Guide" in content
+        assert "https://example.com/ml" in content
+        # Vault results should reference note name as wikilink-friendly
+        assert "ml-basics" in content
+        # Page extracts should be present
+        assert "Deep learning is a subset of ML" in content
+
+    def test_llm_returns_none(self):
+        """Should return None when LLM returns empty response."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _synthesize_research(mock_client, "Some content", [])
+
+        assert result is None
+
+
 class TestResearchNote:
-    """Tests for research_note placeholder."""
+    """Tests for research_note main function."""
 
-    def test_raises_not_implemented(self):
-        """research_note should raise NotImplementedError."""
-        from tools.research import research_note
+    def _make_mock_response(self, content):
+        """Helper to create a mock LLM response."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = content
+        return mock_response
 
-        with pytest.raises(NotImplementedError):
-            research_note("some/path.md")
+    def _make_web_search_ok(self, results):
+        """Helper to create web_search ok() JSON response."""
+        return json.dumps({"success": True, "results": results})
+
+    def _make_find_notes_ok(self, results):
+        """Helper to create find_notes ok() JSON response."""
+        return json.dumps({"success": True, "results": results, "total": len(results)})
+
+    def test_happy_path(self, vault_config):
+        """Full pipeline: read, extract topics, research, synthesize, append ## Research."""
+        topics = [
+            {"topic": "Project planning", "context": "Q1 roadmap", "type": "theme"},
+        ]
+
+        # LLM call 1: topic extraction, call 2: synthesis
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response(
+            "### Project Planning\nResearch findings about project planning."
+        )
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note("note1.md"))
+
+        assert result["success"] is True
+        assert result["path"]
+        assert result["topics_researched"] == 1
+        assert "Project Planning" in result["preview"]
+
+        # Verify file was modified
+        content = (vault_config / "note1.md").read_text()
+        assert "## Research" in content
+        assert "### Project Planning" in content
+        assert "Research findings about project planning." in content
+
+    def test_replaces_existing_research_section(self, vault_config):
+        """When ## Research already exists, should replace it instead of duplicating."""
+        # Write a file with an existing ## Research section
+        note_path = vault_config / "note1.md"
+        original = note_path.read_text()
+        note_path.write_text(original + "\n## Research\n\nOld research content.\n")
+
+        topics = [
+            {"topic": "Budget review", "context": "Finance", "type": "task"},
+        ]
+
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### Budget\nNew research content.")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note("note1.md"))
+
+        assert result["success"] is True
+        content = note_path.read_text()
+        # Old content should be replaced
+        assert "Old research content." not in content
+        # New content should be present
+        assert "New research content." in content
+        # Only one ## Research heading
+        assert content.count("## Research") == 1
+
+    def test_file_not_found(self, vault_config):
+        """Should return error for missing file."""
+        result = json.loads(research_note("nonexistent.md"))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_binary_file_rejected(self, vault_config):
+        """Should reject non-text files to prevent corruption."""
+        attachments = vault_config / "Attachments"
+        (attachments / "recording.m4a").write_bytes(b"fake audio")
+
+        result = json.loads(research_note("Attachments/recording.m4a"))
+        assert result["success"] is False
+        assert "markdown/text" in result["error"].lower()
+
+    def test_no_api_key(self, vault_config):
+        """Should return error when FIREWORKS_API_KEY is not set."""
+        with patch("os.getenv", return_value=None):
+            result = json.loads(research_note("note1.md"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_no_topics_extracted(self, vault_config):
+        """Should return error when no topics found."""
+        # LLM returns empty list for topic extraction
+        topic_response = self._make_mock_response("[]")
+
+        with patch("tools.research.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.return_value = topic_response
+
+            result = json.loads(research_note("note1.md"))
+
+        assert result["success"] is False
+        assert "topic" in result["error"].lower()
+
+    def test_synthesis_failure(self, vault_config):
+        """Should return error when synthesis fails; file should be unchanged."""
+        original = (vault_config / "note1.md").read_text()
+
+        topics = [
+            {"topic": "AI safety", "context": "Discussion", "type": "concept"},
+        ]
+        topic_response = self._make_mock_response(json.dumps(topics))
+        # Synthesis returns None (LLM failure)
+        synthesis_response = self._make_mock_response(None)
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note("note1.md"))
+
+        assert result["success"] is False
+        assert "synth" in result["error"].lower()
+        # File should be unchanged
+        assert (vault_config / "note1.md").read_text() == original
+
+    def test_invalid_depth(self, vault_config):
+        """Should return error for invalid depth value."""
+        result = json.loads(research_note("note1.md", depth="extreme"))
+        assert result["success"] is False
+        assert "depth" in result["error"].lower()

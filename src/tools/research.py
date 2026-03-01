@@ -2,18 +2,33 @@
 
 import json
 import logging
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import html2text
 import httpx
 from openai import OpenAI
 
-from config import MAX_PAGE_CHARS, MAX_RESEARCH_TOPICS, PAGE_FETCH_TIMEOUT, RESEARCH_MODEL
+from config import (
+    FIREWORKS_BASE_URL,
+    MAX_PAGE_CHARS,
+    MAX_RESEARCH_TOPICS,
+    MAX_SUMMARIZE_CHARS,
+    PAGE_FETCH_TIMEOUT,
+    RESEARCH_MODEL,
+)
+from services.vault import err, get_relative_path, ok, resolve_file
+from tools.editing import edit_file
+from tools.files import read_file
 from tools.search import find_notes, web_search
 
 logger = logging.getLogger(__name__)
 
 _MAX_URLS_PER_TOPIC = 2
+_TEXT_SAFE_EXTENSIONS = {".md", ".txt", ".markdown"}
+_VALID_DEPTHS = {"shallow", "deep"}
 
 _TOPIC_EXTRACTION_PROMPT = """\
 You are a topic extraction assistant. Given the contents of a note, extract \
@@ -266,6 +281,100 @@ def _gather_research(
     return results
 
 
+_SYNTHESIS_PROMPT = """\
+You are a research synthesis assistant. Given the contents of a note and \
+research findings gathered from web searches and vault notes, produce a \
+structured research supplement in markdown.
+
+Guidelines:
+- Organize findings by topic using ### headings.
+- Cite web sources as markdown links: [Title](URL)
+- Reference vault notes as Obsidian wikilinks: [[Note Name]]
+- Flag contradictions between the note and external sources.
+- Highlight related vault content the user may not know about.
+- Be concise — this is a research supplement, not a thesis.
+- Do NOT include a top-level heading (the caller adds "## Research").
+- Use markdown formatting appropriate for Obsidian."""
+
+
+def _synthesize_research(
+    client: OpenAI,
+    note_content: str,
+    research_results: list[dict],
+) -> str | None:
+    """Synthesize research results into a markdown summary.
+
+    Args:
+        client: OpenAI-compatible API client.
+        note_content: The original note content for context.
+        research_results: List of per-topic research result dicts.
+
+    Returns:
+        Markdown string with synthesized research, or None on failure.
+    """
+    # Build research context string
+    parts = []
+    for result in research_results:
+        topic = result.get("topic", "")
+        parts.append(f"### Topic: {topic}")
+
+        # Web results
+        web_results = result.get("web_results", [])
+        if web_results:
+            parts.append("Web results:")
+            for wr in web_results:
+                title = wr.get("title", "")
+                url = wr.get("url", "")
+                snippet = wr.get("snippet", "")
+                parts.append(f"- [{title}]({url}): {snippet}")
+
+        # Vault results
+        vault_results = result.get("vault_results", [])
+        if vault_results:
+            parts.append("Vault notes:")
+            for vr in vault_results:
+                vr_path = vr.get("path", "")
+                note_name = Path(vr_path).stem if vr_path else ""
+                content = vr.get("content", "")
+                parts.append(f"- [[{note_name}]]: {content}")
+
+        # Page extracts (deep mode)
+        page_extracts = result.get("page_extracts", [])
+        if page_extracts:
+            parts.append("Page extracts:")
+            for pe in page_extracts:
+                url = pe.get("url", "")
+                content = pe.get("content", "")
+                parts.append(f"- {url}: {content}")
+
+        parts.append("")
+
+    research_context = "\n".join(parts)
+
+    user_content = (
+        f"Note content:\n{note_content}\n\n"
+        f"Research findings:\n{research_context}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=RESEARCH_MODEL,
+            messages=[
+                {"role": "system", "content": _SYNTHESIS_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+    except Exception:
+        logger.warning("Research synthesis failed", exc_info=True)
+        return None
+
+    content = response.choices[0].message.content
+    if not content:
+        logger.warning("LLM returned empty response for research synthesis")
+        return None
+    return content
+
+
 def research_note(
     path: str,
     depth: str = "shallow",
@@ -273,12 +382,99 @@ def research_note(
 ) -> str:
     """Research topics found in a vault note.
 
+    Reads the note, extracts topics via LLM, gathers research from web
+    and vault searches, synthesizes findings, and appends a ## Research
+    section to the file.
+
     Args:
-        path: Path to the note file.
+        path: Path to the note file (relative to vault or absolute).
         depth: Research depth - "shallow" or "deep".
         focus: Optional focus area for topic extraction.
 
-    Raises:
-        NotImplementedError: This is a placeholder for Stage 2.
+    Returns:
+        JSON confirmation with path, topics_researched, and preview on
+        success, or error on failure.
     """
-    raise NotImplementedError("research_note will be implemented in Stage 2")
+    # Validate depth
+    if depth not in _VALID_DEPTHS:
+        return err(
+            f"Invalid depth: {depth!r}. Must be one of: {', '.join(sorted(_VALID_DEPTHS))}"
+        )
+
+    # Check API key
+    api_key = os.getenv("FIREWORKS_API_KEY")
+    if not api_key:
+        return err("FIREWORKS_API_KEY not set")
+
+    # Resolve file and check extension
+    file_path, resolve_err = resolve_file(path)
+    if resolve_err:
+        return err(resolve_err)
+    if file_path.suffix.lower() not in _TEXT_SAFE_EXTENSIONS:
+        return err(
+            f"Cannot research {file_path.suffix or 'extensionless'} file. "
+            "Only markdown/text files are supported."
+        )
+
+    # Read note content via read_file (handles embeds)
+    raw = read_file(path, offset=0, length=MAX_SUMMARIZE_CHARS)
+    data = json.loads(raw)
+    if not data.get("success"):
+        return err(data.get("error", "Failed to read file"))
+
+    content = (
+        data.get("content")
+        or data.get("transcript")
+        or data.get("description")
+        or ""
+    )
+    if not content.strip():
+        return err("File has no content to research")
+
+    # Cap content for LLM
+    if len(content) > MAX_SUMMARIZE_CHARS:
+        content = content[:MAX_SUMMARIZE_CHARS]
+
+    # Create OpenAI client
+    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
+
+    # Stage 1: Extract topics
+    logger.info("Extracting topics from %s", path)
+    topics = _extract_topics(client, content, focus=focus)
+    if not topics:
+        return err("No topics could be extracted from the note")
+
+    # Stage 2: Gather research
+    logger.info("Researching %d topics from %s (depth=%s)", len(topics), path, depth)
+    start = time.perf_counter()
+    research_results = _gather_research(topics, depth=depth, client=client)
+    elapsed_gather = time.perf_counter() - start
+    logger.info("Research gathering completed in %.2fs", elapsed_gather)
+
+    # Stage 3: Synthesize
+    logger.info("Synthesizing research for %s", path)
+    synthesis = _synthesize_research(client, content, research_results)
+    if not synthesis:
+        return err("Research synthesis failed — LLM returned empty result")
+
+    # Write to file
+    file_content = file_path.read_text(encoding="utf-8")
+    if "## Research" in file_content:
+        # Replace existing section
+        formatted = f"## Research\n\n{synthesis}"
+        write_result = json.loads(
+            edit_file(path, formatted, "section", heading="## Research", mode="replace")
+        )
+    else:
+        # Append new section
+        formatted = f"\n## Research\n\n{synthesis}"
+        write_result = json.loads(edit_file(path, formatted, "append"))
+
+    if not write_result.get("success"):
+        return err(write_result.get("error", "Failed to write research section"))
+
+    rel_path = get_relative_path(file_path)
+    preview = synthesis[:500]
+    if len(synthesis) > 500:
+        preview += "…"
+    return ok(path=rel_path, topics_researched=len(topics), preview=preview)
