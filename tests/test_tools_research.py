@@ -245,20 +245,61 @@ class TestSSRFProtection:
         mock_httpx.get.assert_not_called()
 
     def test_fetch_page_blocks_redirect_to_private(self):
-        """_fetch_page should block after redirect to a non-public target."""
-        mock_response = MagicMock()
-        mock_response.url = "http://169.254.169.254/latest/meta-data"
-        mock_response.status_code = 200
-        mock_response.text = "<html>secret</html>"
-        mock_response.raise_for_status = MagicMock()
+        """_fetch_page should validate redirect Location before following it."""
+        redirect_response = MagicMock()
+        redirect_response.is_redirect = True
+        redirect_response.headers = {"location": "http://169.254.169.254/latest/meta-data"}
 
         with patch("tools.research._is_public_url") as mock_validate, \
              patch("tools.research.httpx") as mock_httpx:
             # First call (initial URL) passes, second call (redirect target) fails
             mock_validate.side_effect = [True, False]
-            mock_httpx.get.return_value = mock_response
+            mock_httpx.get.return_value = redirect_response
 
             result = _fetch_page("https://evil.com/redirect")
+
+        assert result is None
+        # Only one request made — the redirect was NOT followed
+        assert mock_httpx.get.call_count == 1
+
+    def test_fetch_page_follows_safe_redirects(self):
+        """_fetch_page should follow redirects when all targets are public."""
+        redirect_response = MagicMock()
+        redirect_response.is_redirect = True
+        redirect_response.headers = {"location": "https://safe.example.com/page"}
+
+        final_response = MagicMock()
+        final_response.is_redirect = False
+        final_response.text = "<html><body>Content</body></html>"
+        final_response.raise_for_status = MagicMock()
+
+        import html2text as h2t_mod
+
+        with patch("tools.research._is_public_url", return_value=True), \
+             patch("tools.research.httpx") as mock_httpx, \
+             patch.dict("sys.modules", {"html2text": h2t_mod}), \
+             patch.object(h2t_mod, "HTML2Text") as mock_h2t_cls:
+            mock_httpx.get.side_effect = [redirect_response, final_response]
+            mock_converter = MagicMock()
+            mock_converter.handle.return_value = "Content"
+            mock_h2t_cls.return_value = mock_converter
+
+            result = _fetch_page("https://example.com/old")
+
+        assert result == "Content"
+        assert mock_httpx.get.call_count == 2
+
+    def test_fetch_page_too_many_redirects(self):
+        """_fetch_page should abort after too many redirects."""
+        redirect_response = MagicMock()
+        redirect_response.is_redirect = True
+        redirect_response.headers = {"location": "https://example.com/loop"}
+
+        with patch("tools.research._is_public_url", return_value=True), \
+             patch("tools.research.httpx") as mock_httpx:
+            mock_httpx.get.return_value = redirect_response
+
+            result = _fetch_page("https://example.com/loop")
 
         assert result is None
 
@@ -324,6 +365,7 @@ class TestGatherResearch:
         vault_results = []
 
         mock_response = MagicMock()
+        mock_response.is_redirect = False
         mock_response.status_code = 200
         mock_response.text = "<html><body><p>Rust ownership explained</p></body></html>"
         mock_response.raise_for_status = MagicMock()

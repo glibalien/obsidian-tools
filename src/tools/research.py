@@ -8,7 +8,7 @@ import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from openai import OpenAI
@@ -142,11 +142,15 @@ def _extract_topics(
     return valid[:MAX_RESEARCH_TOPICS]
 
 
+_MAX_REDIRECTS = 10
+
+
 def _fetch_page(url: str) -> str | None:
     """Fetch a web page and convert HTML to markdown.
 
-    Validates that both the initial URL and final redirect target resolve to
-    public IP addresses to prevent SSRF against internal services.
+    Validates that the initial URL and every redirect target resolve to
+    public IP addresses before issuing any request, preventing SSRF
+    against internal services.
 
     Args:
         url: The URL to fetch.
@@ -158,24 +162,36 @@ def _fetch_page(url: str) -> str | None:
         logger.warning("Blocked fetch to non-public URL: %s", url)
         return None
 
+    current_url = url
     try:
-        response = httpx.get(
-            url,
-            timeout=PAGE_FETCH_TIMEOUT,
-            follow_redirects=True,
-            headers={"User-Agent": "obsidian-tools/1.0"},
-        )
-        response.raise_for_status()
+        for _ in range(_MAX_REDIRECTS):
+            response = httpx.get(
+                current_url,
+                timeout=PAGE_FETCH_TIMEOUT,
+                follow_redirects=False,
+                headers={"User-Agent": "obsidian-tools/1.0"},
+            )
+            if response.is_redirect:
+                location = response.headers.get("location")
+                if not location:
+                    logger.warning("Redirect with no Location header from %s", current_url)
+                    return None
+                next_url = urljoin(current_url, location)
+                if not _is_public_url(next_url):
+                    logger.warning(
+                        "Blocked redirect to non-public URL: %s -> %s",
+                        current_url, next_url,
+                    )
+                    return None
+                current_url = next_url
+                continue
+            response.raise_for_status()
+            break
+        else:
+            logger.warning("Too many redirects from %s", url)
+            return None
     except Exception:
         logger.warning("Failed to fetch page: %s", url, exc_info=True)
-        return None
-
-    # Validate redirect target — response.url is the final URL after redirects
-    if not _is_public_url(str(response.url)):
-        logger.warning(
-            "Blocked fetch after redirect to non-public URL: %s -> %s",
-            url, response.url,
-        )
         return None
 
     try:
