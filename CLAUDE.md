@@ -54,7 +54,7 @@ services/                # systemd/launchd/taskscheduler templates
 - **index_vault.py**: Indexing orchestration. Batch upserts per file. Incremental indexing uses scan-start time. `--full` for full reindex; `--reset` deletes the database and rebuilds from scratch (needed when HNSW index is corrupt or cross-platform-incompatible). Parallel file reading/chunking via `ThreadPoolExecutor` (`INDEX_WORKERS`) with `_prepare_file_chunks` (pure Python, thread-safe); all ChromaDB operations run on the main thread (ChromaDB is not thread-safe). Failures skip `mark_run` so next run retries; `FileNotFoundError` removes source from `valid_sources` so pruning cleans up.
 - **services/chroma.py**: Lazy singletons with `threading.RLock()` for thread-safe init. `purge_database()` for full DB wipe. Monkey-patches ChromaDB's Posthog `capture()` to no-op (thread-unsafe race in `batched_events` dict). `reset()` for tests.
 - **log_chat.py**: `add_wikilinks` uses strip-and-restore to protect code blocks, inline code, URLs, existing wikilinks.
-- **tools/research.py**: `research_note` — agentic three-stage pipeline (extract topics → gather research via web + vault → synthesize). `_extract_topics` uses LLM to identify research topics from note content. `_gather_research` runs web search + page fetch + vault search per topic. `_synthesize_research` merges findings into a `## Research` section appended to the file. Depth param controls page fetching ("shallow" = search snippets only, "deep" = also fetches and LLM-extracts top web pages per topic).
+- **tools/research.py**: `research_note` — agentic three-stage pipeline (extract topics → gather research via web + vault → synthesize). `_extract_topics` uses LLM to identify research topics from note content; `_strip_json_fences` handles models that wrap JSON in markdown fences. `_gather_research` runs web search + page fetch + vault search per topic concurrently via `ThreadPoolExecutor`. `_synthesize_research` merges findings into a `## Research` section (replace existing or append). Depth param controls page fetching ("shallow" = search snippets only, "deep" = also fetches and LLM-extracts top web pages per topic). SSRF protection: `_resolve_public_host` validates all DNS results are `is_global` (blocks private, loopback, link-local, CGN, multicast); `_pinned_get` connects directly to validated IPs via stdlib `http.client`, trying each in order; `_PinnedHTTPSConnection` separates TCP target from TLS SNI hostname to prevent DNS rebinding. Page reads capped at `MAX_PAGE_CHARS * 5`.
 
 ## MCP Tools
 
@@ -131,6 +131,10 @@ All paths configured via `.env`:
 | `WHISPER_MODEL` | `whisper-v3` | Audio transcription model |
 | `VISION_MODEL` | `accounts/fireworks/models/qwen3-vl-30b-a3b-instruct` | Image description model |
 | `SUMMARIZE_MODEL` | `FIREWORKS_MODEL` | Summarization model (defaults to main LLM) |
+| `RESEARCH_MODEL` | `FIREWORKS_MODEL` | Research pipeline model (defaults to main LLM) |
+| `MAX_RESEARCH_TOPICS` | `10` | Max topics extracted per note |
+| `MAX_PAGE_CHARS` | `50000` | Safety cap for fetched web page content |
+| `PAGE_FETCH_TIMEOUT` | `10` | Seconds per web page fetch |
 
 `config.py` also provides: `setup_logging(name)` (rotating file handler + stderr), `EXCLUDED_DIRS`, `PREFERENCES_FILE`, `ATTACHMENTS_DIR`. Entry points that call `setup_logging`: `api_server.py` ("api"), `agent.py` ("agent"), `mcp_server.py` ("mcp"), `index_vault.py` ("index_vault"). Note: the MCP server runs as a **subprocess** of the API server, so it needs its own `setup_logging` call — logs from tool handlers (e.g. `readers.py`) only appear in `mcp.log.md`, not `api.log.md`.
 
