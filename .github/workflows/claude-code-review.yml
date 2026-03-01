@@ -1,23 +1,20 @@
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull request number to review'
+        required: true
+        type: number
 
 jobs:
   claude-review:
-    if: github.event.pull_request.user.login == 'glibalien'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
 
@@ -34,6 +31,15 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          claude_args: '--model claude-opus-4-6 --verbose'
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ inputs.pr_number }}
 
+            Run the code review plugin on this PR:
+            /code-review:code-review ${{ github.repository }}/pull/${{ inputs.pr_number }}
+
+            After completing the review, post your findings as a comment on the PR using:
+              gh pr comment ${{ inputs.pr_number }} --body "<your findings>"
+
+            The comment should contain only the issues/bugs identified, or a brief note that no issues were found. Keep it concise.
+          claude_args: '--model claude-opus-4-6 --verbose --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"'
