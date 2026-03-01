@@ -13,8 +13,8 @@ from tools.research import (
     _fetch_page,
     _gather_research,
     _get_completion_content,
-    _is_public_ip,
-    _is_public_url,
+    _pinned_get,
+    _resolve_public_host,
     _research_topic,
     _synthesize_research,
     research_note,
@@ -190,37 +190,37 @@ class TestGetCompletionContent:
 
 
 class TestSSRFProtection:
-    """Tests for URL validation and SSRF prevention."""
+    """Tests for DNS-pinned URL validation and SSRF prevention."""
 
-    def test_public_ip_allowed(self):
-        """Public IPs should pass validation."""
+    def test_public_host_returns_ip(self):
+        """_resolve_public_host should return the first IP for a public host."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("93.184.216.34", 0))]
-            assert _is_public_ip("example.com") is True
+            assert _resolve_public_host("example.com") == "93.184.216.34"
 
     def test_localhost_blocked(self):
         """Loopback addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("127.0.0.1", 0))]
-            assert _is_public_ip("localhost") is False
+            assert _resolve_public_host("localhost") is None
 
     def test_private_ip_blocked(self):
         """Private network addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("192.168.1.1", 0))]
-            assert _is_public_ip("internal.corp") is False
+            assert _resolve_public_host("internal.corp") is None
 
     def test_link_local_blocked(self):
         """Link-local addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("169.254.169.254", 0))]
-            assert _is_public_ip("metadata.internal") is False
+            assert _resolve_public_host("metadata.internal") is None
 
     def test_dns_failure_blocked(self):
         """DNS resolution failure should be treated as blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.side_effect = socket.gaierror("Name resolution failed")
-            assert _is_public_ip("nonexistent.invalid") is False
+            assert _resolve_public_host("nonexistent.invalid") is None
 
     def test_mixed_ips_blocked_if_any_non_global(self):
         """If any resolved IP is non-global, the host should be blocked."""
@@ -229,88 +229,101 @@ class TestSSRFProtection:
                 (None, None, None, None, ("93.184.216.34", 0)),
                 (None, None, None, None, ("10.0.0.1", 0)),
             ]
-            assert _is_public_ip("dual-homed.example") is False
+            assert _resolve_public_host("dual-homed.example") is None
 
     def test_carrier_grade_nat_blocked(self):
         """Carrier-grade NAT (100.64.0.0/10) should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("100.64.0.1", 0))]
-            assert _is_public_ip("cgnat.internal") is False
+            assert _resolve_public_host("cgnat.internal") is None
 
     def test_multicast_blocked(self):
         """Multicast addresses should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [(None, None, None, None, ("224.0.0.1", 0))]
-            assert _is_public_ip("multicast.local") is False
+            assert _resolve_public_host("multicast.local") is None
 
-    def test_is_public_url_rejects_no_host(self):
-        """URLs without a hostname should be rejected."""
-        assert _is_public_url("not-a-url") is False
+    def test_pinned_get_connects_to_resolved_ip(self):
+        """_pinned_get should connect to the validated IP, not re-resolve."""
+        with patch("tools.research._resolve_public_host", return_value="93.184.216.34"), \
+             patch("tools.research.http.client.HTTPConnection") as mock_conn_cls:
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_conn_cls.return_value.getresponse.return_value = mock_response
 
-    def test_fetch_page_blocks_private_url(self):
-        """_fetch_page should return None for private URLs without making a request."""
-        with patch("tools.research._is_public_url", return_value=False), \
-             patch("tools.research.httpx") as mock_httpx:
+            result = _pinned_get("http://example.com/page", timeout=10)
+
+        assert result == (200, mock_response)
+        mock_conn_cls.assert_called_once_with("93.184.216.34", 80, timeout=10)
+
+    def test_pinned_get_uses_tls_sni_for_https(self):
+        """HTTPS requests should use original hostname for TLS SNI."""
+        with patch("tools.research._resolve_public_host", return_value="93.184.216.34"), \
+             patch("tools.research._PinnedHTTPSConnection") as mock_conn_cls:
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_conn_cls.return_value.getresponse.return_value = mock_response
+
+            _pinned_get("https://example.com/page", timeout=10)
+
+        mock_conn_cls.assert_called_once_with(
+            "93.184.216.34", 443, sni_hostname="example.com", timeout=10,
+        )
+
+    def test_pinned_get_blocks_non_public_host(self):
+        """_pinned_get returns None when host resolves to non-public IP."""
+        with patch("tools.research._resolve_public_host", return_value=None):
+            assert _pinned_get("http://127.0.0.1:8080/admin", timeout=10) is None
+
+    def test_fetch_page_blocks_non_public_host(self):
+        """_fetch_page returns None for non-public URLs without connecting."""
+        with patch("tools.research._pinned_get", return_value=None):
             result = _fetch_page("http://127.0.0.1:8080/admin")
-
         assert result is None
-        mock_httpx.get.assert_not_called()
 
-    def test_fetch_page_blocks_redirect_to_private(self):
-        """_fetch_page should validate redirect Location before following it."""
+    def test_fetch_page_blocks_redirect_to_non_public(self):
+        """_fetch_page blocks when redirect target resolves to non-public IP."""
         redirect_response = MagicMock()
-        redirect_response.is_redirect = True
-        redirect_response.headers = {"location": "http://169.254.169.254/latest/meta-data"}
+        redirect_response.status = 302
+        redirect_response.getheader.return_value = "http://169.254.169.254/latest/meta-data"
+        redirect_response.read.return_value = b""
 
-        with patch("tools.research._is_public_url") as mock_validate, \
-             patch("tools.research.httpx") as mock_httpx:
-            # First call (initial URL) passes, second call (redirect target) fails
-            mock_validate.side_effect = [True, False]
-            mock_httpx.get.return_value = redirect_response
-
+        with patch("tools.research._pinned_get") as mock_get:
+            # First call succeeds with redirect, second call blocked
+            mock_get.side_effect = [(302, redirect_response), None]
             result = _fetch_page("https://evil.com/redirect")
 
         assert result is None
-        # Only one request made — the redirect was NOT followed
-        assert mock_httpx.get.call_count == 1
+        assert mock_get.call_count == 2
 
     def test_fetch_page_follows_safe_redirects(self):
         """_fetch_page should follow redirects when all targets are public."""
         redirect_response = MagicMock()
-        redirect_response.is_redirect = True
-        redirect_response.headers = {"location": "https://safe.example.com/page"}
+        redirect_response.status = 301
+        redirect_response.getheader.return_value = "https://safe.example.com/page"
+        redirect_response.read.return_value = b""
 
         final_response = MagicMock()
-        final_response.is_redirect = False
-        final_response.text = "<html><body>Content</body></html>"
-        final_response.raise_for_status = MagicMock()
+        final_response.status = 200
+        final_response.read.return_value = b"<html><body>Content</body></html>"
 
-        import html2text as h2t_mod
-
-        with patch("tools.research._is_public_url", return_value=True), \
-             patch("tools.research.httpx") as mock_httpx, \
-             patch.dict("sys.modules", {"html2text": h2t_mod}), \
-             patch.object(h2t_mod, "HTML2Text") as mock_h2t_cls:
-            mock_httpx.get.side_effect = [redirect_response, final_response]
-            mock_converter = MagicMock()
-            mock_converter.handle.return_value = "Content"
-            mock_h2t_cls.return_value = mock_converter
-
+        with patch("tools.research._pinned_get") as mock_get:
+            mock_get.side_effect = [(301, redirect_response), (200, final_response)]
             result = _fetch_page("https://example.com/old")
 
-        assert result == "Content"
-        assert mock_httpx.get.call_count == 2
+        assert result is not None
+        assert "Content" in result
+        assert mock_get.call_count == 2
 
     def test_fetch_page_too_many_redirects(self):
         """_fetch_page should abort after too many redirects."""
         redirect_response = MagicMock()
-        redirect_response.is_redirect = True
-        redirect_response.headers = {"location": "https://example.com/loop"}
+        redirect_response.status = 301
+        redirect_response.getheader.return_value = "https://example.com/loop"
+        redirect_response.read.return_value = b""
 
-        with patch("tools.research._is_public_url", return_value=True), \
-             patch("tools.research.httpx") as mock_httpx:
-            mock_httpx.get.return_value = redirect_response
-
+        with patch("tools.research._pinned_get") as mock_get:
+            mock_get.return_value = (301, redirect_response)
             result = _fetch_page("https://example.com/loop")
 
         assert result is None
@@ -376,22 +389,15 @@ class TestGatherResearch:
         ]
         vault_results = []
 
-        mock_response = MagicMock()
-        mock_response.is_redirect = False
-        mock_response.status_code = 200
-        mock_response.text = "<html><body><p>Rust ownership explained</p></body></html>"
-        mock_response.raise_for_status = MagicMock()
-
         mock_client = MagicMock()
 
         with patch("tools.research.web_search") as mock_web, \
              patch("tools.research.find_notes") as mock_vault, \
-             patch("tools.research.httpx") as mock_httpx, \
-             patch("tools.research._extract_page_content") as mock_extract, \
-             patch("tools.research._is_public_url", return_value=True):
+             patch("tools.research._fetch_page") as mock_fetch, \
+             patch("tools.research._extract_page_content") as mock_extract:
             mock_web.return_value = self._make_web_search_ok(web_results)
             mock_vault.return_value = self._make_find_notes_ok(vault_results)
-            mock_httpx.get.return_value = mock_response
+            mock_fetch.return_value = "Rust ownership explained in markdown"
             mock_extract.return_value = "Ownership means each value has one owner."
 
             results = _gather_research(topics, depth="deep", client=mock_client)
@@ -402,8 +408,8 @@ class TestGatherResearch:
         assert len(r["page_extracts"]) == 2  # Only top 2 URLs fetched
         assert r["page_extracts"][0]["content"] == "Ownership means each value has one owner."
         assert "url" in r["page_extracts"][0]
-        # httpx.get called for top 2 URLs only
-        assert mock_httpx.get.call_count == 2
+        # _fetch_page called for top 2 URLs only
+        assert mock_fetch.call_count == 2
         assert mock_extract.call_count == 2
 
     def test_web_search_failure_skipped(self):
@@ -430,7 +436,7 @@ class TestGatherResearch:
         assert len(r["vault_results"]) == 1
 
     def test_page_fetch_failure_skipped(self):
-        """When httpx.get raises an exception, page_extracts is empty but topic still in results."""
+        """When page fetch fails, page_extracts is empty but topic still in results."""
         topics = [
             {"topic": "GraphQL", "context": "API design", "type": "concept"},
         ]
@@ -444,10 +450,9 @@ class TestGatherResearch:
 
         with patch("tools.research.web_search") as mock_web, \
              patch("tools.research.find_notes") as mock_vault, \
-             patch("tools.research.httpx") as mock_httpx:
+             patch("tools.research._fetch_page", return_value=None):
             mock_web.return_value = self._make_web_search_ok(web_results)
             mock_vault.return_value = self._make_find_notes_ok(vault_results)
-            mock_httpx.get.side_effect = Exception("Connection timeout")
 
             results = _gather_research(topics, depth="deep", client=mock_client)
 

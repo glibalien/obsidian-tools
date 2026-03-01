@@ -1,16 +1,17 @@
 """Research tool - LLM-powered topic extraction and research."""
 
+import http.client
 import ipaddress
 import json
 import logging
 import os
 import socket
+import ssl
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-import httpx
 from openai import OpenAI
 
 from config import (
@@ -29,36 +30,51 @@ from tools.search import find_notes, web_search
 logger = logging.getLogger(__name__)
 
 
-def _is_public_ip(host: str) -> bool:
-    """Check whether all resolved IPs for a hostname are globally routable.
+def _resolve_public_host(hostname: str) -> str | None:
+    """Resolve a hostname and validate all IPs are globally routable.
 
-    Uses is_global which rejects loopback, private, link-local, reserved,
-    multicast, carrier-grade NAT (100.64/10), documentation, and other
-    non-globally-routable ranges.  Returns False if DNS resolution fails.
+    Uses is_global (rejects loopback, private, link-local, reserved,
+    carrier-grade NAT, documentation ranges, etc.) plus an explicit
+    is_multicast check (Python 3.12's is_global doesn't exclude it).
+
+    Returns the first validated IP address string, or None if any
+    resolved IP is non-global or resolution fails.
     """
     try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, OSError):
-        return False
+        return None
 
     if not infos:
-        return False
+        return None
 
     for info in infos:
         addr = ipaddress.ip_address(info[4][0])
         if not addr.is_global or addr.is_multicast:
-            return False
+            return None
 
-    return True
+    return infos[0][4][0]
 
 
-def _is_public_url(url: str) -> bool:
-    """Validate that a URL targets a public host."""
-    parsed = urlparse(str(url))
-    host = parsed.hostname
-    if not host:
-        return False
-    return _is_public_ip(host)
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection that pins to a specific IP with correct TLS SNI.
+
+    Connects TCP to the provided IP address but uses the original hostname
+    for the TLS Server Name Indication extension and certificate validation,
+    preventing DNS rebinding attacks.
+    """
+
+    def __init__(self, ip: str, port: int, *, sni_hostname: str, **kwargs):
+        super().__init__(ip, port, **kwargs)
+        self._sni_hostname = sni_hostname
+
+    def connect(self):
+        """Connect TCP to the IP, then wrap with TLS using the real hostname."""
+        http.client.HTTPConnection.connect(self)
+        self.sock = self._context.wrap_socket(
+            self.sock,
+            server_hostname=self._sni_hostname,
+        )
 
 
 def _get_completion_content(response) -> str | None:
@@ -146,12 +162,71 @@ def _extract_topics(
 _MAX_REDIRECTS = 10
 
 
+def _pinned_get(
+    url: str,
+    timeout: float,
+) -> tuple[int, http.client.HTTPResponse] | None:
+    """HTTP GET with DNS pinning to prevent DNS rebinding.
+
+    Resolves DNS once, validates all IPs are globally routable, then
+    connects directly to the validated IP with proper Host header and
+    TLS SNI so no second DNS lookup can yield a different address.
+
+    Args:
+        url: The URL to fetch.
+        timeout: Connection/read timeout in seconds.
+
+    Returns:
+        Tuple of (status_code, response) on success, or None if the
+        host fails validation or the connection fails.
+    """
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        return None
+
+    use_tls = parsed.scheme == "https"
+    port = parsed.port or (443 if use_tls else 80)
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+
+    validated_ip = _resolve_public_host(hostname)
+    if not validated_ip:
+        logger.warning("Blocked request to non-public host: %s", hostname)
+        return None
+
+    try:
+        if use_tls:
+            conn = _PinnedHTTPSConnection(
+                validated_ip, port,
+                sni_hostname=hostname,
+                timeout=timeout,
+            )
+        else:
+            conn = http.client.HTTPConnection(
+                validated_ip, port,
+                timeout=timeout,
+            )
+        conn.request("GET", path, headers={
+            "Host": hostname,
+            "User-Agent": "obsidian-tools/1.0",
+        })
+        response = conn.getresponse()
+        return response.status, response
+    except Exception:
+        logger.warning(
+            "Failed to fetch %s (pinned to %s)", url, validated_ip, exc_info=True,
+        )
+        return None
+
+
 def _fetch_page(url: str) -> str | None:
     """Fetch a web page and convert HTML to markdown.
 
-    Validates that the initial URL and every redirect target resolve to
-    public IP addresses before issuing any request, preventing SSRF
-    against internal services.
+    Uses DNS-pinned connections to prevent DNS rebinding SSRF attacks.
+    Each URL (including redirect targets) is resolved and validated
+    before a connection is made to the validated IP.
 
     Args:
         url: The URL to fetch.
@@ -159,34 +234,32 @@ def _fetch_page(url: str) -> str | None:
     Returns:
         Markdown text of the page content, or None on any failure.
     """
-    if not _is_public_url(url):
-        logger.warning("Blocked fetch to non-public URL: %s", url)
-        return None
-
     current_url = url
     try:
         for _ in range(_MAX_REDIRECTS):
-            response = httpx.get(
-                current_url,
-                timeout=PAGE_FETCH_TIMEOUT,
-                follow_redirects=False,
-                headers={"User-Agent": "obsidian-tools/1.0"},
-            )
-            if response.is_redirect:
-                location = response.headers.get("location")
+            result = _pinned_get(current_url, PAGE_FETCH_TIMEOUT)
+            if result is None:
+                return None
+
+            status, response = result
+
+            if 300 <= status < 400:
+                location = response.getheader("location")
+                response.read()  # consume redirect body
                 if not location:
-                    logger.warning("Redirect with no Location header from %s", current_url)
-                    return None
-                next_url = urljoin(current_url, location)
-                if not _is_public_url(next_url):
                     logger.warning(
-                        "Blocked redirect to non-public URL: %s -> %s",
-                        current_url, next_url,
+                        "Redirect with no Location header from %s", current_url,
                     )
                     return None
-                current_url = next_url
+                current_url = urljoin(current_url, location)
                 continue
-            response.raise_for_status()
+
+            if status >= 400:
+                response.read()
+                logger.warning("HTTP %d from %s", status, current_url)
+                return None
+
+            body = response.read().decode("utf-8", errors="replace")
             break
         else:
             logger.warning("Too many redirects from %s", url)
@@ -206,7 +279,7 @@ def _fetch_page(url: str) -> str | None:
     converter.ignore_images = True
     converter.body_width = 0
 
-    text = converter.handle(response.text)
+    text = converter.handle(body)
     return text[:MAX_PAGE_CHARS]
 
 
