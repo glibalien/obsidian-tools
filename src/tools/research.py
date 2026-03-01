@@ -457,16 +457,13 @@ def research_note(
     if not synthesis:
         return err("Research synthesis failed — LLM returned empty result")
 
-    # Write to file
-    file_content = file_path.read_text(encoding="utf-8")
-    if "## Research" in file_content:
-        # Replace existing section
-        formatted = f"## Research\n\n{synthesis}"
-        write_result = json.loads(
-            edit_file(path, formatted, "section", heading="## Research", mode="replace")
-        )
-    else:
-        # Append new section
+    # Write to file — try section replace first, fall back to append
+    formatted = f"## Research\n\n{synthesis}"
+    write_result = json.loads(
+        edit_file(path, formatted, "section", heading="## Research", mode="replace")
+    )
+    if not write_result.get("success"):
+        # Section not found — append instead
         formatted = f"\n## Research\n\n{synthesis}"
         write_result = json.loads(edit_file(path, formatted, "append"))
 
