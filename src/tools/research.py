@@ -73,7 +73,8 @@ def _extract_topics(
         logger.warning("LLM returned non-list JSON for topic extraction")
         return []
 
-    return topics[:MAX_RESEARCH_TOPICS]
+    valid = [t for t in topics if isinstance(t, dict) and "topic" in t]
+    return valid[:MAX_RESEARCH_TOPICS]
 
 
 def research_note(
