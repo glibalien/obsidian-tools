@@ -214,7 +214,7 @@ def _research_topic(
                 if text:
                     extracted = _extract_page_content(client, text, label)
                     if extracted:
-                        page_extracts.append(extracted)
+                        page_extracts.append({"url": url, "content": extracted})
             except Exception:
                 logger.warning("Page processing failed for URL: %s", url, exc_info=True)
         result["page_extracts"] = page_extracts

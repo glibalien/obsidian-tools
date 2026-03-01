@@ -219,7 +219,8 @@ class TestGatherResearch:
         r = results[0]
         assert "page_extracts" in r
         assert len(r["page_extracts"]) == 2  # Only top 2 URLs fetched
-        assert r["page_extracts"][0] == "Ownership means each value has one owner."
+        assert r["page_extracts"][0]["content"] == "Ownership means each value has one owner."
+        assert "url" in r["page_extracts"][0]
         # httpx.get called for top 2 URLs only
         assert mock_httpx.get.call_count == 2
         assert mock_extract.call_count == 2
