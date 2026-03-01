@@ -166,6 +166,16 @@ def _build_summarize_file_stub(data: dict) -> str:
     return json.dumps(stub)
 
 
+def _build_research_note_stub(data: dict) -> str:
+    """Compact research_note: keep path and topics_researched."""
+    stub = _base_stub(data)
+    if "path" in data:
+        stub["path"] = data["path"]
+    if "topics_researched" in data:
+        stub["topics_researched"] = data["topics_researched"]
+    return json.dumps(stub)
+
+
 _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
     "find_notes": _build_find_notes_stub,
     "read_file": _build_read_file_stub,
@@ -173,6 +183,7 @@ _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
     "find_links": _build_find_links_stub,
     "get_note_info": _build_get_note_info_stub,
     "summarize_file": _build_summarize_file_stub,
+    "research_note": _build_research_note_stub,
 }
 
 
