@@ -335,6 +335,41 @@ class TestSynthesizeResearch:
         # Page extracts should be present
         assert "Deep learning is a subset of ML" in content
 
+    def test_vault_results_with_source_key(self):
+        """Semantic search results use 'source' not 'path'; wikilinks should still resolve."""
+        research_results = [
+            {
+                "topic": "Rust ownership",
+                "context": "Language study",
+                "type": "concept",
+                "web_results": [],
+                "vault_results": [
+                    {"source": "/vault/notes/rust-guide.md", "content": "Ownership rules"},
+                    {"source": "/vault/daily/2026-01-15.md", "content": "Studied Rust today"},
+                ],
+                "page_extracts": [],
+            },
+        ]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "### Rust Ownership\nSynthesized."
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        _synthesize_research(mock_client, "Note about Rust", research_results)
+
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        user_msg = next(m for m in messages if m["role"] == "user")
+        content = user_msg["content"]
+
+        # Should produce wikilinks from source paths, not empty [[]]
+        assert "[[rust-guide]]" in content
+        assert "[[2026-01-15]]" in content
+        assert "[[]]" not in content
+
     def test_llm_returns_none(self):
         """Should return None when LLM returns empty response."""
         mock_response = MagicMock()
@@ -504,6 +539,41 @@ class TestResearchNote:
         assert "synth" in result["error"].lower()
         # File should be unchanged
         assert (vault_config / "note1.md").read_text() == original
+
+    def test_duplicate_research_headings_returns_error(self, vault_config):
+        """When file has multiple ## Research headings, should error not append another."""
+        note_path = vault_config / "note1.md"
+        original = note_path.read_text()
+        # Create a file with two ## Research sections (e.g. from a prior bug)
+        note_path.write_text(
+            original
+            + "\n## Research\n\nFirst block.\n\n## Research\n\nSecond block.\n"
+        )
+
+        topics = [
+            {"topic": "Testing", "context": "QA notes", "type": "task"},
+        ]
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### Testing\nNew findings.")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note("note1.md"))
+
+        assert result["success"] is False
+        assert "multiple" in result["error"].lower()
+        # File should NOT have a third ## Research section
+        content = note_path.read_text()
+        assert content.count("## Research") == 2
 
     def test_invalid_depth(self, vault_config):
         """Should return error for invalid depth value."""

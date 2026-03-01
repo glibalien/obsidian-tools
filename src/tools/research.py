@@ -338,7 +338,7 @@ def _synthesize_research(
         if vault_results:
             parts.append("Vault notes:")
             for vr in vault_results:
-                vr_path = vr.get("path", "")
+                vr_path = vr.get("path") or vr.get("source", "")
                 note_name = Path(vr_path).stem if vr_path else ""
                 content = vr.get("content", "")
                 parts.append(f"- [[{note_name}]]: {content}")
@@ -468,9 +468,12 @@ def research_note(
         edit_file(path, formatted, "section", heading="## Research", mode="replace")
     )
     if not write_result.get("success"):
-        # Section not found — append instead
-        formatted = f"\n## Research\n\n{synthesis}"
-        write_result = json.loads(edit_file(path, formatted, "append"))
+        error_msg = write_result.get("error", "")
+        if "Heading not found" in error_msg:
+            # Section doesn't exist yet — append it
+            formatted = f"\n## Research\n\n{synthesis}"
+            write_result = json.loads(edit_file(path, formatted, "append"))
+        # Other failures (e.g. multiple matching headings) propagate as errors
 
     if not write_result.get("success"):
         return err(write_result.get("error", "Failed to write research section"))
