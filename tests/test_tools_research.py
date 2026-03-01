@@ -1,6 +1,7 @@
 """Tests for tools/research.py - topic extraction, research gathering, and synthesis."""
 
 import json
+import socket
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +10,11 @@ import pytest
 from services.compaction import build_tool_stub
 from tools.research import (
     _extract_topics,
+    _fetch_page,
     _gather_research,
+    _get_completion_content,
+    _is_public_ip,
+    _is_public_url,
     _research_topic,
     _synthesize_research,
     research_note,
@@ -144,6 +149,119 @@ class TestExtractTopics:
         user_msg = next(m for m in messages if m["role"] == "user")
         assert "Focus especially on:" not in user_msg["content"]
 
+    def test_empty_choices_returns_empty_list(self):
+        """Should return empty list when LLM response has no choices."""
+        mock_response = MagicMock()
+        mock_response.choices = []
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _extract_topics(mock_client, "Some content.")
+
+        assert result == []
+
+
+class TestGetCompletionContent:
+    """Tests for _get_completion_content helper."""
+
+    def test_normal_response(self):
+        """Should extract content from a standard response."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Hello"
+
+        assert _get_completion_content(mock_response) == "Hello"
+
+    def test_empty_choices(self):
+        """Should return None when choices is empty."""
+        mock_response = MagicMock()
+        mock_response.choices = []
+
+        assert _get_completion_content(mock_response) is None
+
+    def test_none_content(self):
+        """Should return None when content is None."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+
+        assert _get_completion_content(mock_response) is None
+
+
+class TestSSRFProtection:
+    """Tests for URL validation and SSRF prevention."""
+
+    def test_public_ip_allowed(self):
+        """Public IPs should pass validation."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(None, None, None, None, ("93.184.216.34", 0))]
+            assert _is_public_ip("example.com") is True
+
+    def test_localhost_blocked(self):
+        """Loopback addresses should be blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(None, None, None, None, ("127.0.0.1", 0))]
+            assert _is_public_ip("localhost") is False
+
+    def test_private_ip_blocked(self):
+        """Private network addresses should be blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(None, None, None, None, ("192.168.1.1", 0))]
+            assert _is_public_ip("internal.corp") is False
+
+    def test_link_local_blocked(self):
+        """Link-local addresses should be blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(None, None, None, None, ("169.254.169.254", 0))]
+            assert _is_public_ip("metadata.internal") is False
+
+    def test_dns_failure_blocked(self):
+        """DNS resolution failure should be treated as blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.side_effect = socket.gaierror("Name resolution failed")
+            assert _is_public_ip("nonexistent.invalid") is False
+
+    def test_mixed_ips_blocked_if_any_private(self):
+        """If any resolved IP is private, the host should be blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [
+                (None, None, None, None, ("93.184.216.34", 0)),
+                (None, None, None, None, ("10.0.0.1", 0)),
+            ]
+            assert _is_public_ip("dual-homed.example") is False
+
+    def test_is_public_url_rejects_no_host(self):
+        """URLs without a hostname should be rejected."""
+        assert _is_public_url("not-a-url") is False
+
+    def test_fetch_page_blocks_private_url(self):
+        """_fetch_page should return None for private URLs without making a request."""
+        with patch("tools.research._is_public_url", return_value=False), \
+             patch("tools.research.httpx") as mock_httpx:
+            result = _fetch_page("http://127.0.0.1:8080/admin")
+
+        assert result is None
+        mock_httpx.get.assert_not_called()
+
+    def test_fetch_page_blocks_redirect_to_private(self):
+        """_fetch_page should block after redirect to a non-public target."""
+        mock_response = MagicMock()
+        mock_response.url = "http://169.254.169.254/latest/meta-data"
+        mock_response.status_code = 200
+        mock_response.text = "<html>secret</html>"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("tools.research._is_public_url") as mock_validate, \
+             patch("tools.research.httpx") as mock_httpx:
+            # First call (initial URL) passes, second call (redirect target) fails
+            mock_validate.side_effect = [True, False]
+            mock_httpx.get.return_value = mock_response
+
+            result = _fetch_page("https://evil.com/redirect")
+
+        assert result is None
+
 
 class TestGatherResearch:
     """Tests for _gather_research and _research_topic functions."""
@@ -215,7 +333,8 @@ class TestGatherResearch:
         with patch("tools.research.web_search") as mock_web, \
              patch("tools.research.find_notes") as mock_vault, \
              patch("tools.research.httpx") as mock_httpx, \
-             patch("tools.research._extract_page_content") as mock_extract:
+             patch("tools.research._extract_page_content") as mock_extract, \
+             patch("tools.research._is_public_url", return_value=True):
             mock_web.return_value = self._make_web_search_ok(web_results)
             mock_vault.return_value = self._make_find_notes_ok(vault_results)
             mock_httpx.get.return_value = mock_response

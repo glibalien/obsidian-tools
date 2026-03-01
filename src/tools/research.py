@@ -1,11 +1,14 @@
 """Research tool - LLM-powered topic extraction and research."""
 
+import ipaddress
 import json
 import logging
 import os
+import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from openai import OpenAI
@@ -24,6 +27,48 @@ from tools.files import read_file
 from tools.search import find_notes, web_search
 
 logger = logging.getLogger(__name__)
+
+
+def _is_public_ip(host: str) -> bool:
+    """Check whether all resolved IPs for a hostname are public (non-private).
+
+    Returns False for loopback, private, link-local, and reserved addresses.
+    Also returns False if DNS resolution fails.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, OSError):
+        return False
+
+    if not infos:
+        return False
+
+    for info in infos:
+        addr = ipaddress.ip_address(info[4][0])
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            return False
+
+    return True
+
+
+def _is_public_url(url: str) -> bool:
+    """Validate that a URL targets a public host."""
+    parsed = urlparse(str(url))
+    host = parsed.hostname
+    if not host:
+        return False
+    return _is_public_ip(host)
+
+
+def _get_completion_content(response) -> str | None:
+    """Safely extract message content from an LLM chat completion response.
+
+    Returns None if choices is empty or content is absent.
+    """
+    if not response.choices:
+        return None
+    return response.choices[0].message.content
+
 
 _MAX_URLS_PER_TOPIC = 2
 _TEXT_SAFE_EXTENSIONS = {".md", ".txt", ".markdown"}
@@ -78,7 +123,7 @@ def _extract_topics(
         logger.warning("Topic extraction failed", exc_info=True)
         return []
 
-    raw = response.choices[0].message.content
+    raw = _get_completion_content(response)
     if not raw:
         logger.warning("LLM returned empty response for topic extraction")
         return []
@@ -100,12 +145,19 @@ def _extract_topics(
 def _fetch_page(url: str) -> str | None:
     """Fetch a web page and convert HTML to markdown.
 
+    Validates that both the initial URL and final redirect target resolve to
+    public IP addresses to prevent SSRF against internal services.
+
     Args:
         url: The URL to fetch.
 
     Returns:
         Markdown text of the page content, or None on any failure.
     """
+    if not _is_public_url(url):
+        logger.warning("Blocked fetch to non-public URL: %s", url)
+        return None
+
     try:
         response = httpx.get(
             url,
@@ -116,6 +168,14 @@ def _fetch_page(url: str) -> str | None:
         response.raise_for_status()
     except Exception:
         logger.warning("Failed to fetch page: %s", url, exc_info=True)
+        return None
+
+    # Validate redirect target — response.url is the final URL after redirects
+    if not _is_public_url(str(response.url)):
+        logger.warning(
+            "Blocked fetch after redirect to non-public URL: %s -> %s",
+            url, response.url,
+        )
         return None
 
     try:
@@ -171,7 +231,7 @@ def _extract_page_content(
         logger.warning("Page content extraction failed for topic: %s", topic, exc_info=True)
         return None
 
-    content = response.choices[0].message.content
+    content = _get_completion_content(response)
     if not content:
         return None
     return content
@@ -373,7 +433,7 @@ def _synthesize_research(
         logger.warning("Research synthesis failed", exc_info=True)
         return None
 
-    content = response.choices[0].message.content
+    content = _get_completion_content(response)
     if not content:
         logger.warning("LLM returned empty response for research synthesis")
         return None
