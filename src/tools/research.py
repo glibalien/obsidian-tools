@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 
 
 def _is_public_ip(host: str) -> bool:
-    """Check whether all resolved IPs for a hostname are public (non-private).
+    """Check whether all resolved IPs for a hostname are globally routable.
 
-    Returns False for loopback, private, link-local, and reserved addresses.
-    Also returns False if DNS resolution fails.
+    Uses is_global which rejects loopback, private, link-local, reserved,
+    multicast, carrier-grade NAT (100.64/10), documentation, and other
+    non-globally-routable ranges.  Returns False if DNS resolution fails.
     """
     try:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
@@ -45,7 +46,7 @@ def _is_public_ip(host: str) -> bool:
 
     for info in infos:
         addr = ipaddress.ip_address(info[4][0])
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        if not addr.is_global or addr.is_multicast:
             return False
 
     return True

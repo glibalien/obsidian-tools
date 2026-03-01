@@ -222,14 +222,26 @@ class TestSSRFProtection:
             mock_dns.side_effect = socket.gaierror("Name resolution failed")
             assert _is_public_ip("nonexistent.invalid") is False
 
-    def test_mixed_ips_blocked_if_any_private(self):
-        """If any resolved IP is private, the host should be blocked."""
+    def test_mixed_ips_blocked_if_any_non_global(self):
+        """If any resolved IP is non-global, the host should be blocked."""
         with patch("tools.research.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (None, None, None, None, ("93.184.216.34", 0)),
                 (None, None, None, None, ("10.0.0.1", 0)),
             ]
             assert _is_public_ip("dual-homed.example") is False
+
+    def test_carrier_grade_nat_blocked(self):
+        """Carrier-grade NAT (100.64.0.0/10) should be blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(None, None, None, None, ("100.64.0.1", 0))]
+            assert _is_public_ip("cgnat.internal") is False
+
+    def test_multicast_blocked(self):
+        """Multicast addresses should be blocked."""
+        with patch("tools.research.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(None, None, None, None, ("224.0.0.1", 0))]
+            assert _is_public_ip("multicast.local") is False
 
     def test_is_public_url_rejects_no_host(self):
         """URLs without a hostname should be rejected."""
