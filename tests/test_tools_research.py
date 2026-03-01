@@ -1,11 +1,11 @@
-"""Tests for tools/research.py - topic extraction."""
+"""Tests for tools/research.py - topic extraction and research gathering."""
 
 import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.research import _extract_topics
+from tools.research import _extract_topics, _gather_research, _research_topic
 
 
 class TestExtractTopics:
@@ -135,6 +135,146 @@ class TestExtractTopics:
         messages = call_args.kwargs["messages"]
         user_msg = next(m for m in messages if m["role"] == "user")
         assert "Focus especially on:" not in user_msg["content"]
+
+
+class TestGatherResearch:
+    """Tests for _gather_research and _research_topic functions."""
+
+    def _make_web_search_ok(self, results):
+        """Helper to create web_search ok() JSON response."""
+        return json.dumps({"success": True, "results": results})
+
+    def _make_find_notes_ok(self, results):
+        """Helper to create find_notes ok() JSON response."""
+        return json.dumps({"success": True, "results": results, "total": len(results)})
+
+    def test_shallow_searches_web_and_vault(self):
+        """Shallow mode calls web_search and find_notes per topic, returns structured results."""
+        topics = [
+            {"topic": "Machine learning", "context": "ML discussion", "type": "concept"},
+            {"topic": "Python decorators", "context": "Code review", "type": "concept"},
+        ]
+
+        web_results = [
+            {"title": "ML Guide", "url": "https://example.com/ml", "snippet": "ML overview"},
+        ]
+        vault_results = [
+            {"path": "notes/ml.md", "content": "ML content", "source": "notes/ml.md"},
+        ]
+
+        with patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_web.return_value = self._make_web_search_ok(web_results)
+            mock_vault.return_value = self._make_find_notes_ok(vault_results)
+
+            results = _gather_research(topics, depth="shallow")
+
+        assert len(results) == 2
+        # Both topics should have results
+        assert results[0]["topic"] == "Machine learning"
+        assert results[1]["topic"] == "Python decorators"
+        # Structure check
+        for r in results:
+            assert "web_results" in r
+            assert "vault_results" in r
+            assert "context" in r
+            assert "type" in r
+        # web_search called once per topic
+        assert mock_web.call_count == 2
+        # find_notes called once per topic
+        assert mock_vault.call_count == 2
+
+    def test_deep_fetches_pages(self):
+        """Deep mode fetches top web result URLs and extracts content via LLM."""
+        topics = [
+            {"topic": "Rust ownership", "context": "Language study", "type": "concept"},
+        ]
+
+        web_results = [
+            {"title": "Rust Book", "url": "https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html", "snippet": "Ownership"},
+            {"title": "Rust Blog", "url": "https://blog.rust-lang.org/ownership", "snippet": "Ownership blog"},
+            {"title": "Third result", "url": "https://example.com/third", "snippet": "Not fetched"},
+        ]
+        vault_results = []
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "<html><body><p>Rust ownership explained</p></body></html>"
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+
+        with patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault, \
+             patch("tools.research.httpx") as mock_httpx, \
+             patch("tools.research._extract_page_content") as mock_extract:
+            mock_web.return_value = self._make_web_search_ok(web_results)
+            mock_vault.return_value = self._make_find_notes_ok(vault_results)
+            mock_httpx.get.return_value = mock_response
+            mock_extract.return_value = "Ownership means each value has one owner."
+
+            results = _gather_research(topics, depth="deep", client=mock_client)
+
+        assert len(results) == 1
+        r = results[0]
+        assert "page_extracts" in r
+        assert len(r["page_extracts"]) == 2  # Only top 2 URLs fetched
+        assert r["page_extracts"][0] == "Ownership means each value has one owner."
+        # httpx.get called for top 2 URLs only
+        assert mock_httpx.get.call_count == 2
+        assert mock_extract.call_count == 2
+
+    def test_web_search_failure_skipped(self):
+        """When web_search returns an error, results still returned with empty web_results."""
+        topics = [
+            {"topic": "Quantum computing", "context": "Physics notes", "type": "concept"},
+        ]
+
+        vault_results = [
+            {"path": "notes/quantum.md", "content": "Quantum stuff"},
+        ]
+
+        with patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_web.return_value = json.dumps({"success": False, "error": "Network error"})
+            mock_vault.return_value = self._make_find_notes_ok(vault_results)
+
+            results = _gather_research(topics, depth="shallow")
+
+        assert len(results) == 1
+        r = results[0]
+        assert r["topic"] == "Quantum computing"
+        assert r["web_results"] == []
+        assert len(r["vault_results"]) == 1
+
+    def test_page_fetch_failure_skipped(self):
+        """When httpx.get raises an exception, page_extracts is empty but topic still in results."""
+        topics = [
+            {"topic": "GraphQL", "context": "API design", "type": "concept"},
+        ]
+
+        web_results = [
+            {"title": "GraphQL Docs", "url": "https://graphql.org/learn", "snippet": "Learn GraphQL"},
+        ]
+        vault_results = []
+
+        mock_client = MagicMock()
+
+        with patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault, \
+             patch("tools.research.httpx") as mock_httpx:
+            mock_web.return_value = self._make_web_search_ok(web_results)
+            mock_vault.return_value = self._make_find_notes_ok(vault_results)
+            mock_httpx.get.side_effect = Exception("Connection timeout")
+
+            results = _gather_research(topics, depth="deep", client=mock_client)
+
+        assert len(results) == 1
+        r = results[0]
+        assert r["topic"] == "GraphQL"
+        assert r["page_extracts"] == []
+        # Still has the web results from search
+        assert len(r["web_results"]) == 1
 
 
 class TestResearchNote:
