@@ -7,7 +7,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import html2text
 import httpx
 from openai import OpenAI
 
@@ -117,6 +116,12 @@ def _fetch_page(url: str) -> str | None:
         response.raise_for_status()
     except Exception:
         logger.warning("Failed to fetch page: %s", url, exc_info=True)
+        return None
+
+    try:
+        import html2text
+    except ImportError:
+        logger.warning("html2text not installed — cannot convert page to text")
         return None
 
     converter = html2text.HTML2Text()
