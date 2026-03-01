@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 import ssl
 import time
@@ -94,6 +95,22 @@ def _get_completion_content(response) -> str | None:
     return response.choices[0].message.content
 
 
+_FENCED_JSON_RE = re.compile(
+    r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL,
+)
+
+
+def _strip_json_fences(text: str) -> str:
+    """Strip markdown code fences wrapping JSON content.
+
+    LLMs commonly return JSON inside ```json ... ``` blocks despite
+    being asked for raw JSON.  If a fenced block is found, returns its
+    content; otherwise returns the original text unchanged.
+    """
+    m = _FENCED_JSON_RE.search(text)
+    return m.group(1).strip() if m else text.strip()
+
+
 _MAX_URLS_PER_TOPIC = 2
 _TEXT_SAFE_EXTENSIONS = {".md", ".txt", ".markdown"}
 _VALID_DEPTHS = {"shallow", "deep"}
@@ -153,7 +170,7 @@ def _extract_topics(
         return []
 
     try:
-        topics = json.loads(raw)
+        topics = json.loads(_strip_json_fences(raw))
     except (json.JSONDecodeError, TypeError):
         logger.warning("LLM returned invalid JSON for topic extraction: %s", raw[:200])
         return []

@@ -16,6 +16,7 @@ from tools.research import (
     _pinned_get,
     _resolve_public_host,
     _research_topic,
+    _strip_json_fences,
     _synthesize_research,
     research_note,
 )
@@ -160,6 +161,51 @@ class TestExtractTopics:
         result = _extract_topics(mock_client, "Some content.")
 
         assert result == []
+
+    def test_fenced_json_accepted(self):
+        """Should extract topics when LLM wraps JSON in markdown fences."""
+        topics = [
+            {"topic": "Docker", "context": "Container discussion", "type": "concept"},
+        ]
+        fenced = f"```json\n{json.dumps(topics)}\n```"
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = fenced
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _extract_topics(mock_client, "Notes about Docker.")
+
+        assert len(result) == 1
+        assert result[0]["topic"] == "Docker"
+
+
+class TestStripJsonFences:
+    """Tests for _strip_json_fences helper."""
+
+    def test_raw_json_unchanged(self):
+        """Plain JSON should pass through unchanged."""
+        raw = '[{"topic": "test"}]'
+        assert _strip_json_fences(raw) == raw
+
+    def test_json_fence(self):
+        """```json ... ``` should be stripped."""
+        assert _strip_json_fences('```json\n[1, 2]\n```') == "[1, 2]"
+
+    def test_bare_fence(self):
+        """``` ... ``` without language tag should be stripped."""
+        assert _strip_json_fences('```\n{"key": "val"}\n```') == '{"key": "val"}'
+
+    def test_surrounding_text_ignored(self):
+        """Text outside the fence should be discarded."""
+        text = 'Here is the result:\n```json\n[]\n```\nDone.'
+        assert _strip_json_fences(text) == "[]"
+
+    def test_whitespace_stripped(self):
+        """Leading/trailing whitespace should be stripped."""
+        assert _strip_json_fences("  [1]  ") == "[1]"
 
 
 class TestGetCompletionContent:
