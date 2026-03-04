@@ -510,7 +510,7 @@ def batch_create_files(
         payload_hash = hashlib.sha256(
             json.dumps(files, sort_keys=True, default=str).encode()
         ).hexdigest()
-        key = ("batch_create_files", payload_hash)
+        key = ("batch_create_files", payload_hash, skip_existing)
         if not (confirm and consume_preview(key)):
             store_preview(key)
             return ok(
@@ -531,7 +531,14 @@ def batch_create_files(
             continue
 
         path = item["path"]
-        content = item.get("content") or ""
+        raw_content = item.get("content")
+        if raw_content is None:
+            content = ""
+        elif isinstance(raw_content, str):
+            content = raw_content
+        else:
+            errors.append({"path": path, "error": f"Invalid content type: {type(raw_content).__name__}"})
+            continue
         fm = item.get("frontmatter")
 
         # Validate path

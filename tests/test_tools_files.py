@@ -2244,3 +2244,35 @@ class TestBatchCreateFiles:
         confirmed = json.loads(batch_create_files(files=files_v2, confirm=True))
         assert confirmed["success"] is True
         assert len(confirmed["created"]) == BATCH_CONFIRM_THRESHOLD + 1
+
+    def test_falsy_non_string_content_reported_as_error(self, vault_config):
+        """Non-string content (0, False) is an item error, not silently blanked."""
+        files = [
+            {"path": "c_zero.md", "content": 0},
+            {"path": "c_false.md", "content": False},
+            {"path": "c_list.md", "content": ["a"]},
+            {"path": "c_good.md", "content": "valid"},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert result["created"] == ["c_good.md"]
+        assert len(result["errors"]) == 3
+        for e in result["errors"]:
+            assert "content" in e["error"].lower()
+
+    def test_confirmation_key_includes_skip_existing(self, vault_config):
+        """Changing skip_existing invalidates a previous confirmation preview."""
+        from config import BATCH_CONFIRM_THRESHOLD
+
+        files = [
+            {"path": f"se_{i}.md", "content": "text"}
+            for i in range(BATCH_CONFIRM_THRESHOLD + 1)
+        ]
+        # Preview with skip_existing=True
+        preview = json.loads(batch_create_files(files=files, skip_existing=True))
+        assert preview.get("confirmation_required") is True
+        # Confirm with skip_existing=False — different key, needs new preview
+        result = json.loads(
+            batch_create_files(files=files, skip_existing=False, confirm=True)
+        )
+        assert result.get("confirmation_required") is True
