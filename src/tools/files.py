@@ -495,6 +495,8 @@ def batch_create_files(
     if not files:
         return err("files list is empty")
 
+    logger.info("Batch creating %s files", len(files))
+
     # Collect valid paths for confirmation key
     paths: list[str] = []
     for item in files:
@@ -515,7 +517,7 @@ def batch_create_files(
 
     created: list[str] = []
     skipped: list[str] = []
-    errors: list = []
+    errors: list[dict[str, str]] = []
 
     for i, item in enumerate(files):
         # Validate item structure
@@ -559,6 +561,7 @@ def batch_create_files(
             errors.append({"path": path, "error": result.get("error", "Unknown error")})
 
     summary = f"Batch create: {len(created)} succeeded, {len(skipped)} skipped, {len(errors)} failed"
+    logger.info(summary)
     return ok(summary, created=created, skipped=skipped, errors=errors)
 
 
