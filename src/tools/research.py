@@ -629,9 +629,10 @@ def _synthesize_research(
 
 def research_note(
     path: str | None = None,
-    topic: str | None = None,
     depth: str = "shallow",
     focus: str | None = None,
+    *,
+    topic: str | None = None,
 ) -> str:
     """Research topics from a vault note or an ad-hoc topic string.
 

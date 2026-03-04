@@ -884,6 +884,14 @@ class TestResearchNote:
         assert result["success"] is False
         assert "depth" in result["error"].lower()
 
+    def test_positional_depth_still_works(self, vault_config):
+        """Positional depth arg must bind to depth, not topic (regression)."""
+        result = json.loads(research_note("note1.md", "extreme"))
+        assert result["success"] is False
+        # Should hit depth validation, not mutual-exclusion error
+        assert "depth" in result["error"].lower()
+        assert "mutually exclusive" not in result["error"].lower()
+
 
 class TestResearchNoteCompaction:
     """Tests for research_note compaction stub."""
