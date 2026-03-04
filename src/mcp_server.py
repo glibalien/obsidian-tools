@@ -15,6 +15,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Import all tool implementations
 from tools.files import (
+    batch_create_files,
     batch_merge_files,
     batch_move_files,
     create_file,
@@ -59,6 +60,7 @@ mcp.tool()(web_search)
 mcp.tool()(read_file)
 mcp.tool()(get_note_info)
 mcp.tool()(create_file)
+mcp.tool()(batch_create_files)
 mcp.tool()(move_file)
 mcp.tool()(batch_move_files)
 mcp.tool()(merge_files)

@@ -176,7 +176,20 @@ def _build_research_stub(data: dict) -> str:
     return json.dumps(stub)
 
 
+def _build_batch_create_files_stub(data: dict) -> str:
+    """Compact batch_create_files: keep counts only."""
+    stub = _base_stub(data)
+    if "created" in data:
+        stub["created_count"] = len(data["created"])
+    if "skipped" in data:
+        stub["skipped_count"] = len(data["skipped"])
+    if "errors" in data:
+        stub["error_count"] = len(data["errors"])
+    return json.dumps(stub)
+
+
 _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
+    "batch_create_files": _build_batch_create_files_stub,
     "find_notes": _build_find_notes_stub,
     "read_file": _build_read_file_stub,
     "web_search": _build_web_search_stub,
