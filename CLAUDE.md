@@ -27,7 +27,7 @@ src/
 │   ├── editing.py       # edit_file
 │   ├── utility.py       # log_interaction
 │   ├── readers.py       # File type handlers (audio, image, office, PDF) for read_file dispatch
-│   ├── research.py      # research_note (agentic LLM pipeline: extract → search → synthesize)
+│   ├── research.py      # research_note (agentic LLM pipeline: extract → search → synthesize; note-based or ad-hoc topic)
 │   └── summary.py       # summarize_file (LLM-powered summarization)
 ├── config.py            # Env config + setup_logging(name)
 ├── api_server.py        # FastAPI HTTP wrapper with session management
@@ -78,7 +78,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `manage_preferences` | List/add/remove preferences | `operation` ("list"/"add"/"remove"), `preference`, `line_number` |
 | `edit_file` | Edit file content (prepend/append/section) | `path`, `content`, `position` ("prepend"/"append"/"section"), `heading` (for section), `mode` ("replace"/"append" for section) |
 | `summarize_file` | LLM-powered summary appended to file | `path`, `focus` (optional) |
-| `research_note` | Research topics in a note via web + vault | `path`, `depth` ("shallow"/"deep"), `focus` |
+| `research_note` | Research topics in a note or ad-hoc topic | `path` OR `topic` (mutually exclusive), `depth` ("shallow"/"deep"), `focus` |
 | `web_search` | DuckDuckGo search | `query` |
 
 ### Tool Parameter Types and LLM Efficiency
