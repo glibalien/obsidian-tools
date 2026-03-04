@@ -2067,13 +2067,13 @@ class TestBatchCreateFiles:
         assert "# New" in (vault_config / "new_file.md").read_text()
 
     def test_skip_existing_false(self, vault_config):
-        """With skip_existing=False (default), existing file reported as error."""
+        """With skip_existing=False, existing file reported as error."""
         (vault_config / "exists_err.md").write_text("# Original\n")
         files = [
             {"path": "exists_err.md", "content": "# Overwritten\n"},
             {"path": "brand_new.md", "content": "# Brand New\n"},
         ]
-        result = json.loads(batch_create_files(files=files))
+        result = json.loads(batch_create_files(files=files, skip_existing=False))
         assert result["success"] is True
         # New file should still be created
         assert (vault_config / "brand_new.md").exists()
@@ -2081,7 +2081,7 @@ class TestBatchCreateFiles:
         assert (vault_config / "exists_err.md").read_text() == "# Original\n"
         # Should report the existing file as an error
         assert len(result["errors"]) == 1
-        assert "exists_err.md" in result["errors"][0]
+        assert result["errors"][0]["path"] == "exists_err.md"
 
     def test_frontmatter_as_dict(self, vault_config):
         """Frontmatter should be accepted as a native dict, written as YAML."""
