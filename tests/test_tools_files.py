@@ -2206,3 +2206,41 @@ class TestBatchCreateFiles:
         text_fm = (vault_config / "null_with_fm.md").read_text()
         assert "None" not in text_fm
         assert "tag:" in text_fm
+
+    def test_falsy_non_dict_frontmatter_reported_as_error(self, vault_config):
+        """Falsy non-dict frontmatter (False, 0) is an item error, not silently dropped."""
+        files = [
+            {"path": "fm_false.md", "content": "text", "frontmatter": False},
+            {"path": "fm_zero.md", "content": "text", "frontmatter": 0},
+            {"path": "fm_list.md", "content": "text", "frontmatter": ["a", "b"]},
+            {"path": "fm_good.md", "content": "text", "frontmatter": {"tag": "ok"}},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert result["created"] == ["fm_good.md"]
+        assert len(result["errors"]) == 3
+        for e in result["errors"]:
+            assert "frontmatter" in e["error"].lower()
+
+    def test_confirmation_key_includes_payload(self, vault_config):
+        """Changing file content invalidates the confirmation preview."""
+        from config import BATCH_CONFIRM_THRESHOLD
+
+        files_v1 = [
+            {"path": f"file_{i}.md", "content": "version 1"}
+            for i in range(BATCH_CONFIRM_THRESHOLD + 1)
+        ]
+        files_v2 = [
+            {"path": f"file_{i}.md", "content": "version 2"}
+            for i in range(BATCH_CONFIRM_THRESHOLD + 1)
+        ]
+        # Preview with v1
+        preview = json.loads(batch_create_files(files=files_v1))
+        assert preview.get("confirmation_required") is True
+        # Confirm with v2 — different payload, should require new preview
+        result = json.loads(batch_create_files(files=files_v2, confirm=True))
+        assert result.get("confirmation_required") is True
+        # Confirm v2 with matching preview
+        confirmed = json.loads(batch_create_files(files=files_v2, confirm=True))
+        assert confirmed["success"] is True
+        assert len(confirmed["created"]) == BATCH_CONFIRM_THRESHOLD + 1

@@ -1,5 +1,6 @@
 """File operation tools - read, create, move, append."""
 
+import hashlib
 import json
 import logging
 import re
@@ -497,15 +498,19 @@ def batch_create_files(
 
     logger.info("Batch creating %s files", len(files))
 
-    # Collect valid paths for confirmation key
+    # Collect valid paths for preview listing
     paths: list[str] = []
     for item in files:
         if isinstance(item, dict) and "path" in item and isinstance(item["path"], str):
             paths.append(item["path"])
 
-    # Confirmation gate for large batches
+    # Confirmation gate for large batches — key includes full payload hash
+    # so a changed payload cannot reuse a previous preview's confirmation.
     if len(files) > BATCH_CONFIRM_THRESHOLD:
-        key = ("batch_create_files", tuple(sorted(paths)))
+        payload_hash = hashlib.sha256(
+            json.dumps(files, sort_keys=True, default=str).encode()
+        ).hexdigest()
+        key = ("batch_create_files", payload_hash)
         if not (confirm and consume_preview(key)):
             store_preview(key)
             return ok(
@@ -549,8 +554,11 @@ def batch_create_files(
         if fm is not None:
             if isinstance(fm, dict):
                 fm_str = json.dumps(fm)
-            else:
+            elif isinstance(fm, str):
                 fm_str = fm
+            else:
+                errors.append({"path": path, "error": f"Invalid frontmatter type: {type(fm).__name__}"})
+                continue
 
         # Create the file
         result_json = create_file(path, content, fm_str)
