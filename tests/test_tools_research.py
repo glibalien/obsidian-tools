@@ -902,6 +902,20 @@ class TestResearchNoteCompaction:
         assert stub["topics_researched"] == 3
         assert "preview" not in stub
 
+    def test_stub_works_for_topic_mode(self):
+        """Compaction stub should work for ad-hoc topic results too."""
+        content = json.dumps({
+            "success": True,
+            "path": "New York Mets.md",
+            "topics_researched": 5,
+            "preview": "Long preview that should be dropped...",
+        })
+
+        stub = json.loads(build_tool_stub(content, "research_note"))
+        assert stub["path"] == "New York Mets.md"
+        assert stub["topics_researched"] == 5
+        assert "preview" not in stub
+
 
 class TestSanitizeFilename:
     """Tests for _sanitize_filename helper."""
