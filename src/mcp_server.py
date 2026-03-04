@@ -40,7 +40,7 @@ from tools.search import (
 )
 from tools.editing import edit_file
 from tools.summary import summarize_file
-from tools.research import research_note
+from tools.research import research
 from tools.utility import (
     log_interaction,
 )
@@ -80,7 +80,7 @@ mcp.tool()(edit_file)
 mcp.tool()(summarize_file)
 
 # Research tools
-mcp.tool()(research_note)
+mcp.tool()(research)
 
 # Preference tools
 mcp.tool()(manage_preferences)

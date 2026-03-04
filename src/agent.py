@@ -32,7 +32,7 @@ FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 MAX_TOOL_RESULT_CHARS = 100_000
 TOOL_TIMEOUT = 60  # seconds
 _TOOL_TIMEOUT_OVERRIDES = {
-    "research_note": 300,  # 5 minutes — multi-step LLM pipeline
+    "research": 300,  # 5 minutes — multi-step LLM pipeline
     "summarize_file": 180,  # 3 minutes — embed expansion + LLM summarization
 }
 

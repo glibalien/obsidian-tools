@@ -27,7 +27,7 @@ src/
 │   ├── editing.py       # edit_file
 │   ├── utility.py       # log_interaction
 │   ├── readers.py       # File type handlers (audio, image, office, PDF) for read_file dispatch
-│   ├── research.py      # research_note (agentic LLM pipeline: extract → search → synthesize; note-based or ad-hoc topic)
+│   ├── research.py      # research (agentic LLM pipeline: extract → search → synthesize; note-based or ad-hoc topic)
 │   └── summary.py       # summarize_file (LLM-powered summarization)
 ├── config.py            # Env config + setup_logging(name)
 ├── api_server.py        # FastAPI HTTP wrapper with session management
@@ -46,7 +46,7 @@ services/                # systemd/launchd/taskscheduler templates
 ### Key Components
 
 - **services/vault.py**: `ok()`/`err()` response helpers, `resolve_file()`/`resolve_dir()` path validation, `find_section()` for heading lookup, `get_vault_files()`/`get_vault_note_names()` for scanning, `is_fence_line()` for code fence detection.
-- **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for find_notes (detects semantic vs vault-scan result shape), read_file, find_links, web_search, get_note_info, summarize_file, research_note; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
+- **services/compaction.py**: `compact_tool_messages()` replaces tool results with lightweight stubs between turns. Tool-specific stub builders for find_notes (detects semantic vs vault-scan result shape), read_file, find_links, web_search, get_note_info, summarize_file, research; generic fallback for the rest. Dispatches by tool name resolved from assistant messages.
 - **agent.py**: Connects LLM (Fireworks) to MCP server. Loads system prompt from `system_prompt.txt` (falls back to `.example`). Features: agent loop cap (20 iterations), 100K-char tool result truncation with `get_continuation`, compaction between turns, `on_event` callback for SSE streaming, preferences reload per turn, `ensure_interaction_logged` auto-calls `log_interaction` when agent forgets, `force_text_only` code-level enforcement (strips tool calls if model ignores `tool_choice="none"`, capped at 3 retries with preview message fallback). Confirmation preview SSE events are emitted after the response event to guarantee correct rendering order in the plugin.
 - **api_server.py**: FastAPI on 127.0.0.1. File-keyed sessions (LRU eviction, message trimming). CORS enabled. `/chat` and `/chat/stream` share `_prepare_turn`/`_restore_compacted_flags`.
 - **hybrid_search.py**: Semantic (ChromaDB) + keyword search merged via RRF. Keyword: single `$or` query, term frequency ranking, `_case_variants()` for case-insensitive matching. Returns `heading` metadata.
@@ -54,7 +54,7 @@ services/                # systemd/launchd/taskscheduler templates
 - **index_vault.py**: Indexing orchestration. Batch upserts per file. Incremental indexing uses scan-start time. `--full` for full reindex; `--reset` deletes the database and rebuilds from scratch (needed when HNSW index is corrupt or cross-platform-incompatible). Parallel file reading/chunking via `ThreadPoolExecutor` (`INDEX_WORKERS`) with `_prepare_file_chunks` (pure Python, thread-safe); all ChromaDB operations run on the main thread (ChromaDB is not thread-safe). Failures skip `mark_run` so next run retries; `FileNotFoundError` removes source from `valid_sources` so pruning cleans up.
 - **services/chroma.py**: Lazy singletons with `threading.RLock()` for thread-safe init. `purge_database()` for full DB wipe. Monkey-patches ChromaDB's Posthog `capture()` to no-op (thread-unsafe race in `batched_events` dict). `reset()` for tests.
 - **log_chat.py**: `add_wikilinks` uses strip-and-restore to protect code blocks, inline code, URLs, existing wikilinks.
-- **tools/research.py**: `research_note` — agentic three-stage pipeline (extract topics → gather research via web + vault → synthesize). `_extract_topics` uses LLM to identify research topics from note content; `_strip_json_fences` handles models that wrap JSON in markdown fences. `_gather_research` runs web search + page fetch + vault search per topic concurrently via `ThreadPoolExecutor`. `_synthesize_research` merges findings into a `## Research` section (replace existing or append). Depth param controls page fetching ("shallow" = search snippets only, "deep" = also fetches and LLM-extracts top web pages per topic). SSRF protection: `_resolve_public_host` validates all DNS results are `is_global` (blocks private, loopback, link-local, CGN, multicast); `_pinned_get` connects directly to validated IPs via stdlib `http.client`, trying each in order; `_PinnedHTTPSConnection` separates TCP target from TLS SNI hostname to prevent DNS rebinding. Page reads capped at `MAX_PAGE_CHARS * 5`.
+- **tools/research.py**: `research` — agentic three-stage pipeline (extract topics → gather research via web + vault → synthesize). `_extract_topics` uses LLM to identify research topics from note content; `_strip_json_fences` handles models that wrap JSON in markdown fences. `_gather_research` runs web search + page fetch + vault search per topic concurrently via `ThreadPoolExecutor`. `_synthesize_research` merges findings into a `## Research` section (replace existing or append). Depth param controls page fetching ("shallow" = search snippets only, "deep" = also fetches and LLM-extracts top web pages per topic). SSRF protection: `_resolve_public_host` validates all DNS results are `is_global` (blocks private, loopback, link-local, CGN, multicast); `_pinned_get` connects directly to validated IPs via stdlib `http.client`, trying each in order; `_PinnedHTTPSConnection` separates TCP target from TLS SNI hostname to prevent DNS rebinding. Page reads capped at `MAX_PAGE_CHARS * 5`.
 
 ## MCP Tools
 
@@ -78,7 +78,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 | `manage_preferences` | List/add/remove preferences | `operation` ("list"/"add"/"remove"), `preference`, `line_number` |
 | `edit_file` | Edit file content (prepend/append/section) | `path`, `content`, `position` ("prepend"/"append"/"section"), `heading` (for section), `mode` ("replace"/"append" for section) |
 | `summarize_file` | LLM-powered summary appended to file | `path`, `focus` (optional) |
-| `research_note` | Research topics in a note or ad-hoc topic | `path` OR `topic` (mutually exclusive), `depth` ("shallow"/"deep"), `focus` |
+| `research` | Research topics in a note or ad-hoc topic | `path` OR `topic` (mutually exclusive), `depth` ("shallow"/"deep"), `focus` |
 | `web_search` | DuckDuckGo search | `query` |
 
 ### Tool Parameter Types and LLM Efficiency

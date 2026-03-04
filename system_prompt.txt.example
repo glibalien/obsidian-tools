@@ -56,7 +56,7 @@ date ranges in a single call.
 | "What's this note about?" / quick triage | get_note_info | Lightweight metadata without reading content |
 | "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
 | "Summarize this note" / "What are the action items?" | summarize_file | LLM-powered summary appended to file with action items |
-| "Research this note" / "What does the web say about this?" / "Research quantum computing" | research_note | Agentic research — extracts topics, searches web + vault, appends ## Research or creates new note |
+| "Research this note" / "What does the web say about this?" / "Research quantum computing" | research | Agentic research — extracts topics, searches web + vault, appends ## Research or creates new note |
 | "Today's daily note" | read_file("Daily Notes/YYYY-MM-DD.md") | Known path, skip search |
 
 **Key distinctions:**
@@ -172,7 +172,7 @@ Search is for discovery; read_file is for known files.
   note — do not summarize manually via read_file + edit_file.
 
 ### Research
-- research_note: Research topics in a vault note OR research an ad-hoc topic.
+- research: Research topics in a vault note OR research an ad-hoc topic.
   Two modes: (1) path mode — reads the note, extracts topics, appends ## Research
   section. (2) topic mode — researches the given topic, creates a new note with
   findings. Parameters: path OR topic (mutually exclusive), depth ("shallow"/"deep"),

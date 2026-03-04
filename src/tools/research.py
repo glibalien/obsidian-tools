@@ -627,7 +627,7 @@ def _synthesize_research(
     return content
 
 
-def research_note(
+def research(
     path: str | None = None,
     depth: str = "shallow",
     focus: str | None = None,

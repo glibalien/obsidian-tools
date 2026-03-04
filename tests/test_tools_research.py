@@ -20,7 +20,7 @@ from tools.research import (
     _sanitize_filename,
     _strip_json_fences,
     _synthesize_research,
-    research_note,
+    research,
 )
 
 
@@ -688,7 +688,7 @@ class TestSynthesizeResearch:
 
 
 class TestResearchNote:
-    """Tests for research_note main function."""
+    """Tests for research main function."""
 
     def _make_mock_response(self, content):
         """Helper to create a mock LLM response."""
@@ -728,7 +728,7 @@ class TestResearchNote:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note("note1.md"))
+            result = json.loads(research("note1.md"))
 
         assert result["success"] is True
         assert result["path"]
@@ -766,7 +766,7 @@ class TestResearchNote:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note("note1.md"))
+            result = json.loads(research("note1.md"))
 
         assert result["success"] is True
         content = note_path.read_text()
@@ -779,7 +779,7 @@ class TestResearchNote:
 
     def test_file_not_found(self, vault_config):
         """Should return error for missing file."""
-        result = json.loads(research_note("nonexistent.md"))
+        result = json.loads(research("nonexistent.md"))
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
@@ -788,14 +788,14 @@ class TestResearchNote:
         attachments = vault_config / "Attachments"
         (attachments / "recording.m4a").write_bytes(b"fake audio")
 
-        result = json.loads(research_note("Attachments/recording.m4a"))
+        result = json.loads(research("Attachments/recording.m4a"))
         assert result["success"] is False
         assert "markdown/text" in result["error"].lower()
 
     def test_no_api_key(self, vault_config):
         """Should return error when FIREWORKS_API_KEY is not set."""
         with patch("os.getenv", return_value=None):
-            result = json.loads(research_note("note1.md"))
+            result = json.loads(research("note1.md"))
         assert result["success"] is False
         assert "FIREWORKS_API_KEY" in result["error"]
 
@@ -809,7 +809,7 @@ class TestResearchNote:
             mock_openai.return_value = mock_client
             mock_client.chat.completions.create.return_value = topic_response
 
-            result = json.loads(research_note("note1.md"))
+            result = json.loads(research("note1.md"))
 
         assert result["success"] is False
         assert "topic" in result["error"].lower()
@@ -836,7 +836,7 @@ class TestResearchNote:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note("note1.md"))
+            result = json.loads(research("note1.md"))
 
         assert result["success"] is False
         assert "synth" in result["error"].lower()
@@ -870,7 +870,7 @@ class TestResearchNote:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note("note1.md"))
+            result = json.loads(research("note1.md"))
 
         assert result["success"] is False
         assert "multiple" in result["error"].lower()
@@ -880,13 +880,13 @@ class TestResearchNote:
 
     def test_invalid_depth(self, vault_config):
         """Should return error for invalid depth value."""
-        result = json.loads(research_note("note1.md", depth="extreme"))
+        result = json.loads(research("note1.md", depth="extreme"))
         assert result["success"] is False
         assert "depth" in result["error"].lower()
 
     def test_positional_depth_still_works(self, vault_config):
         """Positional depth arg must bind to depth, not topic (regression)."""
-        result = json.loads(research_note("note1.md", "extreme"))
+        result = json.loads(research("note1.md", "extreme"))
         assert result["success"] is False
         # Should hit depth validation, not mutual-exclusion error
         assert "depth" in result["error"].lower()
@@ -894,7 +894,7 @@ class TestResearchNote:
 
 
 class TestResearchNoteCompaction:
-    """Tests for research_note compaction stub."""
+    """Tests for research compaction stub."""
 
     def test_stub_keeps_path_and_topics(self):
         """Should keep path and topics_researched, drop preview."""
@@ -905,7 +905,7 @@ class TestResearchNoteCompaction:
             "preview": "Long preview text that should be dropped...",
         })
 
-        stub = json.loads(build_tool_stub(content, "research_note"))
+        stub = json.loads(build_tool_stub(content, "research"))
         assert stub["path"] == "notes/test.md"
         assert stub["topics_researched"] == 3
         assert "preview" not in stub
@@ -919,7 +919,7 @@ class TestResearchNoteCompaction:
             "preview": "Long preview that should be dropped...",
         })
 
-        stub = json.loads(build_tool_stub(content, "research_note"))
+        stub = json.loads(build_tool_stub(content, "research"))
         assert stub["path"] == "New York Mets.md"
         assert stub["topics_researched"] == 5
         assert "preview" not in stub
@@ -958,7 +958,7 @@ class TestSanitizeFilename:
 
 
 class TestResearchNoteTopic:
-    """Tests for research_note ad-hoc topic mode."""
+    """Tests for research ad-hoc topic mode."""
 
     def _make_mock_response(self, content):
         mock_response = MagicMock()
@@ -994,7 +994,7 @@ class TestResearchNoteTopic:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note(topic="the New York Mets"))
+            result = json.loads(research(topic="the New York Mets"))
 
         assert result["success"] is True
         assert result["topics_researched"] == 1
@@ -1025,27 +1025,27 @@ class TestResearchNoteTopic:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note(topic="test topic"))
+            result = json.loads(research(topic="test topic"))
 
         assert result["success"] is True
         assert result["path"] == "Test Research.md"
 
     def test_both_path_and_topic_returns_error(self, vault_config):
         """Should error when both path and topic are provided."""
-        result = json.loads(research_note(path="note1.md", topic="something"))
+        result = json.loads(research(path="note1.md", topic="something"))
         assert result["success"] is False
         assert "mutually exclusive" in result["error"].lower()
 
     def test_neither_path_nor_topic_returns_error(self, vault_config):
         """Should error when neither path nor topic is provided."""
-        result = json.loads(research_note())
+        result = json.loads(research())
         assert result["success"] is False
         assert "path" in result["error"].lower() or "topic" in result["error"].lower()
 
     def test_no_api_key(self):
         """Should return error when FIREWORKS_API_KEY is not set."""
         with patch("os.getenv", return_value=None):
-            result = json.loads(research_note(topic="anything"))
+            result = json.loads(research(topic="anything"))
         assert result["success"] is False
         assert "FIREWORKS_API_KEY" in result["error"]
 
@@ -1060,7 +1060,7 @@ class TestResearchNoteTopic:
             mock_openai.return_value = mock_client
             mock_client.chat.completions.create.return_value = topic_response
 
-            result = json.loads(research_note(topic="xyzzy"))
+            result = json.loads(research(topic="xyzzy"))
 
         assert result["success"] is False
         assert "topic" in result["error"].lower()
@@ -1083,7 +1083,7 @@ class TestResearchNoteTopic:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note(topic="AI safety"))
+            result = json.loads(research(topic="AI safety"))
 
         assert result["success"] is False
         assert "synth" in result["error"].lower()
@@ -1109,7 +1109,7 @@ class TestResearchNoteTopic:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note(topic="the New York Mets"))
+            result = json.loads(research(topic="the New York Mets"))
 
         assert result["success"] is False
         assert "already exists" in result["error"].lower()
@@ -1133,7 +1133,7 @@ class TestResearchNoteTopic:
             mock_web.return_value = self._make_web_search_ok([])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note(topic="New York Mets", focus="pitching staff"))
+            result = json.loads(research(topic="New York Mets", focus="pitching staff"))
 
         assert result["success"] is True
 
@@ -1165,12 +1165,12 @@ class TestResearchNoteTopic:
             ])
             mock_vault.return_value = self._make_find_notes_ok([])
 
-            result = json.loads(research_note(topic="test", depth="deep"))
+            result = json.loads(research(topic="test", depth="deep"))
 
         assert result["success"] is True
 
     def test_invalid_depth_returns_error(self):
         """Should return error for invalid depth even in topic mode."""
-        result = json.loads(research_note(topic="test", depth="extreme"))
+        result = json.loads(research(topic="test", depth="extreme"))
         assert result["success"] is False
         assert "depth" in result["error"].lower()
