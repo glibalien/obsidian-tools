@@ -474,6 +474,94 @@ def create_file(
     return ok(f"Created {rel}", path=rel)
 
 
+def batch_create_files(
+    files: list[dict],
+    skip_existing: bool = True,
+    confirm: bool = False,
+) -> str:
+    """Create multiple vault files in a single batch operation.
+
+    Args:
+        files: List of dicts, each with 'path' (required), 'content' (optional),
+               and 'frontmatter' (optional, dict or JSON string).
+        skip_existing: If True, silently skip files that already exist.
+                       If False, report them as errors.
+        confirm: Must be True to execute when creating more than
+                 BATCH_CONFIRM_THRESHOLD files.
+
+    Returns:
+        Summary of created, skipped, and errored files, or confirmation preview.
+    """
+    if not files:
+        return err("files list is empty")
+
+    # Collect valid paths for confirmation key
+    paths: list[str] = []
+    for item in files:
+        if isinstance(item, dict) and "path" in item:
+            paths.append(item["path"])
+
+    # Confirmation gate for large batches
+    if len(files) > BATCH_CONFIRM_THRESHOLD:
+        key = ("batch_create_files", tuple(sorted(paths)))
+        if not (confirm and consume_preview(key)):
+            store_preview(key)
+            return ok(
+                "Describe this pending change to the user. They will confirm or cancel, then call again with confirm=true.",
+                confirmation_required=True,
+                preview_message=f"This will create {len(files)} files.",
+                files=paths,
+            )
+
+    created: list[str] = []
+    skipped: list[str] = []
+    errors: list = []
+
+    for i, item in enumerate(files):
+        # Validate item structure
+        if not isinstance(item, dict) or "path" not in item:
+            errors.append(f"item {i}: missing 'path' key")
+            continue
+
+        path = item["path"]
+        content = item.get("content", "")
+        fm = item.get("frontmatter")
+
+        # Validate path
+        try:
+            file_path = resolve_vault_path(path)
+        except ValueError as e:
+            errors.append(f"{path}: {e}")
+            continue
+
+        # Check if file already exists
+        if file_path.exists():
+            if skip_existing:
+                skipped.append(path)
+            else:
+                errors.append({"path": path, "error": "File already exists"})
+            continue
+
+        # Convert frontmatter dict to JSON string for create_file
+        fm_str = None
+        if fm is not None:
+            if isinstance(fm, dict):
+                fm_str = json.dumps(fm)
+            else:
+                fm_str = fm
+
+        # Create the file
+        result_json = create_file(path, content, fm_str)
+        result = json.loads(result_json)
+        if result.get("success"):
+            created.append(path)
+        else:
+            errors.append({"path": path, "error": result.get("error", "Unknown error")})
+
+    summary = f"Batch create: {len(created)} succeeded, {len(skipped)} skipped, {len(errors)} failed"
+    return ok(summary, created=created, skipped=skipped, errors=errors)
+
+
 def _parse_frontmatter(frontmatter: dict | str | None) -> tuple[dict, str | None]:
     """Normalize frontmatter input into a dictionary.
 
