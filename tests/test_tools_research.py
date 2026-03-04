@@ -12,10 +12,12 @@ from tools.research import (
     _extract_topics,
     _fetch_page,
     _gather_research,
+    _generate_title,
     _get_completion_content,
     _pinned_get,
     _resolve_public_host,
     _research_topic,
+    _sanitize_filename,
     _strip_json_fences,
     _synthesize_research,
     research_note,
@@ -233,6 +235,54 @@ class TestGetCompletionContent:
         mock_response.choices[0].message.content = None
 
         assert _get_completion_content(mock_response) is None
+
+
+class TestGenerateTitle:
+    """Tests for _generate_title helper."""
+
+    def test_returns_llm_title(self):
+        """Should return the title the LLM generates."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "New York Mets"
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _generate_title(mock_client, "the New York Mets", "Research about the Mets...")
+        assert result == "New York Mets"
+
+    def test_strips_whitespace_and_quotes(self):
+        """Should strip surrounding whitespace and quotes from LLM response."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '  "New York Mets"  \n'
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _generate_title(mock_client, "the New York Mets", "Research...")
+        assert result == "New York Mets"
+
+    def test_fallback_on_empty_response(self):
+        """Should fall back to title-cased topic when LLM returns empty."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = _generate_title(mock_client, "the new york mets", "Research...")
+        assert result == "The New York Mets"
+
+    def test_fallback_on_exception(self):
+        """Should fall back to title-cased topic when LLM call raises."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+
+        result = _generate_title(mock_client, "quantum computing", "Research...")
+        assert result == "Quantum Computing"
 
 
 class TestSSRFProtection:
@@ -851,3 +901,29 @@ class TestResearchNoteCompaction:
         assert stub["path"] == "notes/test.md"
         assert stub["topics_researched"] == 3
         assert "preview" not in stub
+
+
+class TestSanitizeFilename:
+    """Tests for _sanitize_filename helper."""
+
+    def test_clean_title_unchanged(self):
+        """Clean titles should pass through with .md appended."""
+        assert _sanitize_filename("New York Mets") == "New York Mets.md"
+
+    def test_strips_unsafe_chars(self):
+        """Should remove filesystem-unsafe characters."""
+        assert _sanitize_filename('Test: A/B\\C*D?"E') == "Test ABCDE.md"
+
+    def test_strips_leading_trailing_whitespace_and_dots(self):
+        """Should strip leading/trailing whitespace and dots."""
+        assert _sanitize_filename("  ..Hello World..  ") == "Hello World.md"
+
+    def test_empty_after_sanitize_returns_fallback(self):
+        """Should return 'Research.md' if sanitized result is empty."""
+        assert _sanitize_filename("///") == "Research.md"
+
+    def test_truncates_long_titles(self):
+        """Should truncate titles longer than 200 chars."""
+        long_title = "A" * 250
+        result = _sanitize_filename(long_title)
+        assert result == "A" * 200 + ".md"

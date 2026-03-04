@@ -115,6 +115,71 @@ _MAX_URLS_PER_TOPIC = 2
 _TEXT_SAFE_EXTENSIONS = {".md", ".txt", ".markdown"}
 _VALID_DEPTHS = {"shallow", "deep"}
 
+_TITLE_PROMPT = """\
+Given a research topic and the research content produced about it, generate a \
+short, clean title suitable as a note filename. Return ONLY the title, no \
+quotes, no file extension, no extra text. Examples:
+- Topic "the New York Mets" → New York Mets
+- Topic "quantum computing applications in drug discovery" → Quantum Computing in Drug Discovery"""
+
+
+def _generate_title(
+    client: OpenAI,
+    topic: str,
+    synthesis: str,
+) -> str:
+    """Generate a clean note title from a topic string via LLM.
+
+    Falls back to title-cased topic string on any failure.
+
+    Args:
+        client: OpenAI-compatible API client.
+        topic: The original topic string.
+        synthesis: The synthesized research content for context.
+
+    Returns:
+        A clean title string suitable for use as a filename.
+    """
+    fallback = topic.strip().title()
+    try:
+        response = client.chat.completions.create(
+            model=RESEARCH_MODEL,
+            messages=[
+                {"role": "system", "content": _TITLE_PROMPT},
+                {"role": "user", "content": f"Topic: {topic}\n\nResearch:\n{synthesis[:2000]}"},
+            ],
+        )
+    except Exception:
+        logger.warning("Title generation failed, using fallback", exc_info=True)
+        return fallback
+
+    raw = _get_completion_content(response)
+    if not raw or not raw.strip():
+        return fallback
+
+    # Strip quotes and whitespace
+    title = raw.strip().strip('"').strip("'").strip()
+    return title if title else fallback
+
+
+_UNSAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*]')
+
+
+def _sanitize_filename(title: str) -> str:
+    """Sanitize a title string into a safe filename with .md extension.
+
+    Removes filesystem-unsafe characters, strips leading/trailing whitespace
+    and dots, truncates to 200 chars, falls back to 'Research.md' if empty.
+    """
+    name = _UNSAFE_FILENAME_RE.sub("", title)
+    name = name.strip().strip(".")
+    if not name:
+        return "Research.md"
+    if len(name) > 200:
+        name = name[:200]
+    return f"{name}.md"
+
+
 _TOPIC_EXTRACTION_PROMPT = """\
 You are a topic extraction assistant. Given the contents of a note, extract \
 the key topics that could be researched further.
