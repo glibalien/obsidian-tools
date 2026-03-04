@@ -2177,3 +2177,17 @@ class TestBatchCreateFiles:
         assert len(result["errors"]) >= 1
         assert result["errors"][0]["path"] == "item_0"
         assert "path" in result["errors"][0]["error"].lower()
+
+    def test_non_string_paths_reported_as_errors(self, vault_config):
+        """Non-string paths (None, int, dict) are per-item errors, not crashes."""
+        files = [
+            {"path": None, "content": "# Null\n"},
+            {"path": 42, "content": "# Number\n"},
+            {"path": {"nested": "obj"}, "content": "# Object\n"},
+            {"path": "valid.md", "content": "# Valid\n"},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert len(result["created"]) == 1
+        assert result["created"][0] == "valid.md"
+        assert len(result["errors"]) == 3

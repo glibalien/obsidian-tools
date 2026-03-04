@@ -500,7 +500,7 @@ def batch_create_files(
     # Collect valid paths for confirmation key
     paths: list[str] = []
     for item in files:
-        if isinstance(item, dict) and "path" in item:
+        if isinstance(item, dict) and "path" in item and isinstance(item["path"], str):
             paths.append(item["path"])
 
     # Confirmation gate for large batches
@@ -532,7 +532,7 @@ def batch_create_files(
         # Validate path
         try:
             file_path = resolve_vault_path(path)
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             errors.append({"path": path, "error": str(e)})
             continue
 
