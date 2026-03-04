@@ -20,6 +20,7 @@ from tools.files import (
     _merge_frontmatter,
     _split_blocks,
     _split_frontmatter_body,
+    batch_create_files,
     batch_merge_files,
     batch_move_files,
     create_file,
@@ -2011,3 +2012,166 @@ class TestBatchMoveFilesQuery:
         assert "1 succeeded" in result["message"]
         assert (vault_config / "compat_dest.md").exists()
         assert not (vault_config / "compat_src.md").exists()
+
+
+class TestBatchCreateFiles:
+    """Tests for batch_create_files tool."""
+
+    def setup_method(self):
+        clear_pending_previews()
+
+    def test_create_multiple_files(self, vault_config):
+        """Should create multiple files with content and frontmatter."""
+        files = [
+            {
+                "path": "batch1.md",
+                "content": "# Batch 1\n\nFirst file.",
+                "frontmatter": '{"tags": ["test"]}',
+            },
+            {
+                "path": "batch2.md",
+                "content": "# Batch 2\n\nSecond file.",
+                "frontmatter": '{"category": "notes"}',
+            },
+            {
+                "path": "batch3.md",
+                "content": "# Batch 3\n\nThird file.",
+            },
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert "3 succeeded" in result["message"]
+        # Verify files exist on disk with correct content
+        text1 = (vault_config / "batch1.md").read_text()
+        assert "# Batch 1" in text1
+        assert "tags:" in text1
+        text2 = (vault_config / "batch2.md").read_text()
+        assert "# Batch 2" in text2
+        assert "category:" in text2
+        text3 = (vault_config / "batch3.md").read_text()
+        assert "# Batch 3" in text3
+
+    def test_skip_existing_true(self, vault_config):
+        """With skip_existing=True, existing files skipped, new files created."""
+        (vault_config / "existing.md").write_text("# Original\n")
+        files = [
+            {"path": "existing.md", "content": "# Overwritten\n"},
+            {"path": "new_file.md", "content": "# New\n"},
+        ]
+        result = json.loads(batch_create_files(files=files, skip_existing=True))
+        assert result["success"] is True
+        # Existing file should be unchanged
+        assert (vault_config / "existing.md").read_text() == "# Original\n"
+        # New file should be created
+        assert (vault_config / "new_file.md").exists()
+        assert "# New" in (vault_config / "new_file.md").read_text()
+
+    def test_skip_existing_false(self, vault_config):
+        """With skip_existing=False (default), existing file reported as error."""
+        (vault_config / "exists_err.md").write_text("# Original\n")
+        files = [
+            {"path": "exists_err.md", "content": "# Overwritten\n"},
+            {"path": "brand_new.md", "content": "# Brand New\n"},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        # New file should still be created
+        assert (vault_config / "brand_new.md").exists()
+        # Existing file unchanged
+        assert (vault_config / "exists_err.md").read_text() == "# Original\n"
+        # Should report the existing file as an error
+        assert len(result["errors"]) == 1
+        assert "exists_err.md" in result["errors"][0]
+
+    def test_frontmatter_as_dict(self, vault_config):
+        """Frontmatter should be accepted as a native dict, written as YAML."""
+        files = [
+            {
+                "path": "dict_fm.md",
+                "content": "# Dict Frontmatter\n",
+                "frontmatter": {"tags": ["alpha", "beta"], "status": "draft"},
+            },
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        text = (vault_config / "dict_fm.md").read_text()
+        assert text.startswith("---\n")
+        assert "tags:" in text
+        assert "- alpha" in text
+        assert "- beta" in text
+        assert "status: draft" in text
+
+    def test_confirmation_gate_triggers(self, vault_config):
+        """Creating >5 files should return confirmation_required, no files created."""
+        files = [
+            {"path": f"gate_{i}.md", "content": f"# Note {i}\n"}
+            for i in range(8)
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert result["confirmation_required"] is True
+        assert "8" in result["preview_message"]
+        # No files should have been created
+        for i in range(8):
+            assert not (vault_config / f"gate_{i}.md").exists()
+
+    def test_confirmation_gate_confirm(self, vault_config):
+        """First call returns preview, second with confirm=True executes."""
+        files = [
+            {"path": f"confirm_{i}.md", "content": f"# Note {i}\n"}
+            for i in range(8)
+        ]
+        # Step 1: preview
+        preview = json.loads(batch_create_files(files=files))
+        assert preview["confirmation_required"] is True
+        # Step 2: confirm
+        result = json.loads(batch_create_files(files=files, confirm=True))
+        assert result["success"] is True
+        assert "confirmation_required" not in result
+        assert "8 succeeded" in result["message"]
+        # All files should now exist
+        for i in range(8):
+            assert (vault_config / f"confirm_{i}.md").exists()
+
+    def test_empty_files_list(self, vault_config):
+        """Empty files list should return an error."""
+        result = json.loads(batch_create_files(files=[]))
+        assert result["success"] is False
+
+    def test_mixed_success_failure(self, vault_config):
+        """Invalid path (traversal) fails, valid path succeeds."""
+        files = [
+            {"path": "../../escape.md", "content": "# Escape\n"},
+            {"path": "valid_file.md", "content": "# Valid\n"},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        # Valid file should be created
+        assert (vault_config / "valid_file.md").exists()
+        # Should report the invalid path as an error
+        assert len(result["errors"]) >= 1
+        assert any("escape.md" in e for e in result["errors"])
+
+    def test_directory_creation(self, vault_config):
+        """Nested paths should create parent directories automatically."""
+        files = [
+            {"path": "deep/nested/dir/note.md", "content": "# Deep Note\n"},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert (vault_config / "deep" / "nested" / "dir" / "note.md").exists()
+        text = (vault_config / "deep" / "nested" / "dir" / "note.md").read_text()
+        assert "# Deep Note" in text
+
+    def test_missing_path_key(self, vault_config):
+        """Item without 'path' reported as error, other items succeed."""
+        files = [
+            {"content": "# No Path\n"},
+            {"path": "has_path.md", "content": "# Has Path\n"},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        # The file with a path should be created
+        assert (vault_config / "has_path.md").exists()
+        # Should report the missing-path item as an error
+        assert len(result["errors"]) >= 1
