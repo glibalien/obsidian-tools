@@ -1005,6 +1005,7 @@ class TestResearchNoteTopic:
         assert created_path.exists()
         content = created_path.read_text()
         assert "Mets History" in content
+        assert "category: note" in content
 
     def test_path_returned_is_relative(self, vault_config):
         """Result path should be the filename (vault root relative)."""
