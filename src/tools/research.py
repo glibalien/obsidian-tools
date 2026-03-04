@@ -162,7 +162,7 @@ def _generate_title(
     return title if title else fallback
 
 
-_UNSAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*]')
+_UNSAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 
 
 def _sanitize_filename(title: str) -> str:

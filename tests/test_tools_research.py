@@ -950,6 +950,12 @@ class TestSanitizeFilename:
         result = _sanitize_filename(long_title)
         assert result == "A" * 200 + ".md"
 
+    def test_strips_control_characters(self):
+        """Should strip newlines, tabs, and other control chars from titles."""
+        assert _sanitize_filename("Line One\nLine Two") == "Line OneLine Two.md"
+        assert _sanitize_filename("Tab\there") == "Tabhere.md"
+        assert _sanitize_filename("Null\x00byte") == "Nullbyte.md"
+
 
 class TestResearchNoteTopic:
     """Tests for research_note ad-hoc topic mode."""
