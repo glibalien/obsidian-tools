@@ -654,9 +654,9 @@ def research_note(
         success, or error on failure.
     """
     # Validate mutual exclusivity
-    if path and topic:
+    if path is not None and topic is not None:
         return err("'path' and 'topic' are mutually exclusive — provide one, not both")
-    if not path and not topic:
+    if path is None and topic is None:
         return err("Either 'path' or 'topic' must be provided")
 
     # Validate depth
@@ -672,7 +672,7 @@ def research_note(
 
     client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
 
-    if topic:
+    if topic is not None:
         return _research_adhoc(client, topic, depth, focus)
     return _research_from_note(client, path, depth, focus)
 
