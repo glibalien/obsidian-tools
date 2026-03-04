@@ -520,7 +520,7 @@ def batch_create_files(
     for i, item in enumerate(files):
         # Validate item structure
         if not isinstance(item, dict) or "path" not in item:
-            errors.append(f"item {i}: missing 'path' key")
+            errors.append({"path": f"item_{i}", "error": "Missing 'path' key"})
             continue
 
         path = item["path"]
@@ -531,7 +531,7 @@ def batch_create_files(
         try:
             file_path = resolve_vault_path(path)
         except ValueError as e:
-            errors.append(f"{path}: {e}")
+            errors.append({"path": path, "error": str(e)})
             continue
 
         # Check if file already exists

@@ -2150,7 +2150,7 @@ class TestBatchCreateFiles:
         assert (vault_config / "valid_file.md").exists()
         # Should report the invalid path as an error
         assert len(result["errors"]) >= 1
-        assert any("escape.md" in e for e in result["errors"])
+        assert any(e["path"] == "../../escape.md" for e in result["errors"])
 
     def test_directory_creation(self, vault_config):
         """Nested paths should create parent directories automatically."""
@@ -2173,5 +2173,7 @@ class TestBatchCreateFiles:
         assert result["success"] is True
         # The file with a path should be created
         assert (vault_config / "has_path.md").exists()
-        # Should report the missing-path item as an error
+        # Should report the missing-path item as an error with dict structure
         assert len(result["errors"]) >= 1
+        assert result["errors"][0]["path"] == "item_0"
+        assert "path" in result["errors"][0]["error"].lower()
