@@ -2191,3 +2191,18 @@ class TestBatchCreateFiles:
         assert len(result["created"]) == 1
         assert result["created"][0] == "valid.md"
         assert len(result["errors"]) == 3
+
+    def test_null_content_treated_as_empty(self, vault_config):
+        """Explicit null content creates an empty file, not 'None' literal."""
+        files = [
+            {"path": "null_content.md", "content": None},
+            {"path": "null_with_fm.md", "content": None, "frontmatter": {"tag": "x"}},
+        ]
+        result = json.loads(batch_create_files(files=files))
+        assert result["success"] is True
+        assert len(result["created"]) == 2
+        text = (vault_config / "null_content.md").read_text()
+        assert "None" not in text
+        text_fm = (vault_config / "null_with_fm.md").read_text()
+        assert "None" not in text_fm
+        assert "tag:" in text_fm

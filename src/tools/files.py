@@ -526,7 +526,7 @@ def batch_create_files(
             continue
 
         path = item["path"]
-        content = item.get("content", "")
+        content = item.get("content") or ""
         fm = item.get("frontmatter")
 
         # Validate path
