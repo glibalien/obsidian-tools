@@ -25,7 +25,7 @@ from config import (
 )
 from services.vault import err, get_relative_path, ok, resolve_file
 from tools.editing import edit_file
-from tools.files import read_file
+from tools.files import create_file, read_file
 from tools.search import find_notes, web_search
 
 logger = logging.getLogger(__name__)
@@ -628,25 +628,37 @@ def _synthesize_research(
 
 
 def research_note(
-    path: str,
+    path: str | None = None,
+    topic: str | None = None,
     depth: str = "shallow",
     focus: str | None = None,
 ) -> str:
-    """Research topics found in a vault note.
+    """Research topics from a vault note or an ad-hoc topic string.
 
-    Reads the note, extracts topics via LLM, gathers research from web
-    and vault searches, synthesizes findings, and appends a ## Research
-    section to the file.
+    Two modes:
+    - **Note mode** (path): Reads the note, extracts topics, researches them,
+      and appends a ## Research section to the file.
+    - **Topic mode** (topic): Researches sub-topics derived from a topic string
+      and creates a new note with the findings.
 
     Args:
-        path: Path to the note file (relative to vault or absolute).
-        depth: Research depth - "shallow" or "deep".
+        path: Path to an existing note (relative to vault or absolute).
+              Mutually exclusive with ``topic``.
+        topic: An ad-hoc topic string to research.
+               Mutually exclusive with ``path``.
+        depth: Research depth — "shallow" or "deep".
         focus: Optional focus area for topic extraction.
 
     Returns:
         JSON confirmation with path, topics_researched, and preview on
         success, or error on failure.
     """
+    # Validate mutual exclusivity
+    if path and topic:
+        return err("'path' and 'topic' are mutually exclusive — provide one, not both")
+    if not path and not topic:
+        return err("Either 'path' or 'topic' must be provided")
+
     # Validate depth
     if depth not in _VALID_DEPTHS:
         return err(
@@ -658,6 +670,20 @@ def research_note(
     if not api_key:
         return err("FIREWORKS_API_KEY not set")
 
+    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
+
+    if topic:
+        return _research_adhoc(client, topic, depth, focus)
+    return _research_from_note(client, path, depth, focus)
+
+
+def _research_from_note(
+    client: OpenAI,
+    path: str,
+    depth: str,
+    focus: str | None,
+) -> str:
+    """Research topics extracted from an existing vault note."""
     # Resolve file and check extension
     file_path, resolve_err = resolve_file(path)
     if resolve_err:
@@ -686,9 +712,6 @@ def research_note(
     # Cap content for LLM
     if len(content) > MAX_SUMMARIZE_CHARS:
         content = content[:MAX_SUMMARIZE_CHARS]
-
-    # Create OpenAI client
-    client = OpenAI(api_key=api_key, base_url=FIREWORKS_BASE_URL)
 
     # Stage 1: Extract topics
     logger.info("Extracting topics from %s", path)
@@ -730,3 +753,43 @@ def research_note(
     if len(synthesis) > 500:
         preview += "…"
     return ok(path=rel_path, topics_researched=len(topics), preview=preview)
+
+
+def _research_adhoc(
+    client: OpenAI,
+    topic: str,
+    depth: str,
+    focus: str | None,
+) -> str:
+    """Research an ad-hoc topic and create a new note with findings."""
+    # Stage 1: Extract sub-topics from the topic string
+    logger.info("Extracting sub-topics for ad-hoc topic: %s", topic)
+    topics = _extract_topics(client, topic, focus=focus)
+    if not topics:
+        return err("No topics could be extracted from the given topic")
+
+    # Stage 2: Gather research
+    logger.info("Researching %d sub-topics (depth=%s)", len(topics), depth)
+    start = time.perf_counter()
+    research_results = _gather_research(topics, depth=depth, client=client)
+    elapsed_gather = time.perf_counter() - start
+    logger.info("Research gathering completed in %.2fs", elapsed_gather)
+
+    # Stage 3: Synthesize
+    logger.info("Synthesizing research for topic: %s", topic)
+    synthesis = _synthesize_research(client, topic, research_results)
+    if not synthesis:
+        return err("Research synthesis failed — LLM returned empty result")
+
+    # Generate title and create file
+    title = _generate_title(client, topic, synthesis)
+    filename = _sanitize_filename(title)
+
+    create_result = json.loads(create_file(filename, synthesis))
+    if not create_result.get("success"):
+        return err(create_result.get("error", "Failed to create research note"))
+
+    preview = synthesis[:500]
+    if len(synthesis) > 500:
+        preview += "…"
+    return ok(path=filename, topics_researched=len(topics), preview=preview)

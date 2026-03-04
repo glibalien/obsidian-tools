@@ -927,3 +927,222 @@ class TestSanitizeFilename:
         long_title = "A" * 250
         result = _sanitize_filename(long_title)
         assert result == "A" * 200 + ".md"
+
+
+class TestResearchNoteTopic:
+    """Tests for research_note ad-hoc topic mode."""
+
+    def _make_mock_response(self, content):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = content
+        return mock_response
+
+    def _make_web_search_ok(self, results):
+        return json.dumps({"success": True, "results": results})
+
+    def _make_find_notes_ok(self, results):
+        return json.dumps({"success": True, "results": results, "total": len(results)})
+
+    def test_happy_path_creates_note(self, vault_config):
+        """Ad-hoc topic mode should create a new note with research findings."""
+        topics = [
+            {"topic": "Mets history", "context": "Franchise origins", "type": "theme"},
+        ]
+
+        # LLM calls: 1) extract topics, 2) synthesize, 3) generate title
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### Mets History\nFounded in 1962.")
+        title_response = self._make_mock_response("New York Mets")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response, title_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note(topic="the New York Mets"))
+
+        assert result["success"] is True
+        assert result["topics_researched"] == 1
+        assert "Mets" in result["preview"]
+
+        # Verify file was created in vault root
+        created_path = vault_config / "New York Mets.md"
+        assert created_path.exists()
+        content = created_path.read_text()
+        assert "Mets History" in content
+
+    def test_path_returned_is_relative(self, vault_config):
+        """Result path should be the filename (vault root relative)."""
+        topics = [{"topic": "Test", "context": "Testing", "type": "theme"}]
+
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### Test\nFindings.")
+        title_response = self._make_mock_response("Test Research")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response, title_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note(topic="test topic"))
+
+        assert result["success"] is True
+        assert result["path"] == "Test Research.md"
+
+    def test_both_path_and_topic_returns_error(self, vault_config):
+        """Should error when both path and topic are provided."""
+        result = json.loads(research_note(path="note1.md", topic="something"))
+        assert result["success"] is False
+        assert "mutually exclusive" in result["error"].lower()
+
+    def test_neither_path_nor_topic_returns_error(self, vault_config):
+        """Should error when neither path nor topic is provided."""
+        result = json.loads(research_note())
+        assert result["success"] is False
+        assert "path" in result["error"].lower() or "topic" in result["error"].lower()
+
+    def test_no_api_key(self):
+        """Should return error when FIREWORKS_API_KEY is not set."""
+        with patch("os.getenv", return_value=None):
+            result = json.loads(research_note(topic="anything"))
+        assert result["success"] is False
+        assert "FIREWORKS_API_KEY" in result["error"]
+
+    def test_no_topics_extracted(self, vault_config):
+        """Should return error when LLM finds no sub-topics."""
+        topic_response = MagicMock()
+        topic_response.choices = [MagicMock()]
+        topic_response.choices[0].message.content = "[]"
+
+        with patch("tools.research.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.return_value = topic_response
+
+            result = json.loads(research_note(topic="xyzzy"))
+
+        assert result["success"] is False
+        assert "topic" in result["error"].lower()
+
+    def test_synthesis_failure(self, vault_config):
+        """Should return error when synthesis fails; no file created."""
+        topics = [{"topic": "AI", "context": "Test", "type": "concept"}]
+
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response(None)
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note(topic="AI safety"))
+
+        assert result["success"] is False
+        assert "synth" in result["error"].lower()
+
+    def test_file_already_exists(self, vault_config):
+        """Should return error if generated filename already exists."""
+        (vault_config / "New York Mets.md").write_text("Existing note")
+
+        topics = [{"topic": "History", "context": "Origins", "type": "theme"}]
+
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### History\nFindings.")
+        title_response = self._make_mock_response("New York Mets")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response, title_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note(topic="the New York Mets"))
+
+        assert result["success"] is False
+        assert "already exists" in result["error"].lower()
+
+    def test_focus_param_works(self, vault_config):
+        """Focus parameter should be passed through to _extract_topics."""
+        topics = [{"topic": "Pitching", "context": "Mets pitchers", "type": "theme"}]
+
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### Pitching\nFindings.")
+        title_response = self._make_mock_response("Mets Pitching")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response, title_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note(topic="New York Mets", focus="pitching staff"))
+
+        assert result["success"] is True
+
+        # Verify focus was passed to the topic extraction LLM call
+        first_call = mock_client.chat.completions.create.call_args_list[0]
+        user_msg = next(m for m in first_call.kwargs["messages"] if m["role"] == "user")
+        assert "pitching staff" in user_msg["content"]
+
+    def test_depth_param_works(self, vault_config):
+        """Depth parameter should work for topic mode."""
+        topics = [{"topic": "Test", "context": "Testing", "type": "theme"}]
+
+        topic_response = self._make_mock_response(json.dumps(topics))
+        synthesis_response = self._make_mock_response("### Test\nFindings.")
+        title_response = self._make_mock_response("Test Note")
+
+        with patch("tools.research.OpenAI") as mock_openai, \
+             patch("tools.research.web_search") as mock_web, \
+             patch("tools.research.find_notes") as mock_vault, \
+             patch("tools.research._fetch_page", return_value="Page text"), \
+             patch("tools.research._extract_page_content", return_value="Extracted"):
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [
+                topic_response, synthesis_response, title_response,
+            ]
+            mock_web.return_value = self._make_web_search_ok([
+                {"title": "Result", "url": "https://example.com", "snippet": "Test"},
+            ])
+            mock_vault.return_value = self._make_find_notes_ok([])
+
+            result = json.loads(research_note(topic="test", depth="deep"))
+
+        assert result["success"] is True
+
+    def test_invalid_depth_returns_error(self):
+        """Should return error for invalid depth even in topic mode."""
+        result = json.loads(research_note(topic="test", depth="extreme"))
+        assert result["success"] is False
+        assert "depth" in result["error"].lower()
