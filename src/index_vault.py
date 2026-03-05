@@ -269,6 +269,7 @@ def index_vault(full: bool = False) -> None:
         all_metas.extend(metadatas)
 
     total_chunks = len(all_ids)
+    upsert_failures = 0
     if total_chunks > 0:
         n_batches = (total_chunks + UPSERT_BATCH_SIZE - 1) // UPSERT_BATCH_SIZE
         for batch_idx in range(n_batches):
@@ -276,11 +277,17 @@ def index_vault(full: bool = False) -> None:
             end = start + UPSERT_BATCH_SIZE
             logger.info("Upserting batch %s/%s (%s chunks)...",
                         batch_idx + 1, n_batches, min(UPSERT_BATCH_SIZE, total_chunks - start))
-            collection.upsert(
-                ids=all_ids[start:end],
-                documents=all_docs[start:end],
-                metadatas=all_metas[start:end],
-            )
+            try:
+                collection.upsert(
+                    ids=all_ids[start:end],
+                    documents=all_docs[start:end],
+                    metadatas=all_metas[start:end],
+                )
+            except Exception:
+                upsert_failures += 1
+                logger.error("Failed to upsert batch %s/%s", batch_idx + 1, n_batches, exc_info=True)
+    if upsert_failures:
+        failed += upsert_failures
 
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources, indexed_sources=indexed_sources)

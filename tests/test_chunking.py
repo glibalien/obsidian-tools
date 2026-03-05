@@ -1635,3 +1635,37 @@ class TestBatchUpserts:
         mock_collection.delete.assert_called_once_with(where={"source": str(f)})
         # No upsert since no new chunks
         mock_collection.upsert.assert_not_called()
+
+    def test_upsert_failure_continues_remaining_batches(self, tmp_path):
+        """A failed batch upsert doesn't abort the run; remaining batches still execute."""
+        files = [tmp_path / f"note{i}.md" for i in range(3)]
+        for f in files:
+            f.write_text(f"# {f.stem}")
+
+        results = {str(f): self._make_chunk_result(str(f), 2) for f in files}
+        call_count = {"upsert": 0}
+
+        def failing_upsert(**kwargs):
+            call_count["upsert"] += 1
+            if call_count["upsert"] == 1:
+                raise RuntimeError("transient embedding error")
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 6
+        mock_collection.upsert.side_effect = failing_upsert
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault._prepare_file_chunks", side_effect=lambda f: results[str(f)]), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 4):
+            index_vault(full=True)
+
+        # Both batches attempted (4+2 chunks), first failed
+        assert mock_collection.upsert.call_count == 2
+        # mark_run skipped due to failure
+        mock_mark.assert_not_called()
