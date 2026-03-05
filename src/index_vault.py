@@ -242,10 +242,18 @@ def index_vault(full: bool = False) -> None:
     # Phase 2: Delete stale chunks for files that will be re-upserted.
     collection = get_collection()
     sources_to_upsert = {src for src, _, _, _ in prepared}
+    delete_failed: set[str] = set()
     for source in sources_to_upsert:
-        collection.delete(where={"source": source})
-    if sources_to_upsert:
-        logger.info("Deleted stale chunks for %s files", len(sources_to_upsert))
+        try:
+            collection.delete(where={"source": source})
+        except Exception:
+            logger.error("Failed to delete stale chunks for %s", source, exc_info=True)
+            delete_failed.add(source)
+    if delete_failed:
+        prepared = [(src, ids, docs, metas) for src, ids, docs, metas in prepared if src not in delete_failed]
+        failed += len(delete_failed)
+    if sources_to_upsert - delete_failed:
+        logger.info("Deleted stale chunks for %s files", len(sources_to_upsert - delete_failed))
 
     # Phase 3: Bulk upsert in batches.
     all_ids: list[str] = []

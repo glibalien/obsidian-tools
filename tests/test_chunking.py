@@ -1568,3 +1568,46 @@ class TestBatchUpserts:
         # Should have preparation and upsert phase messages
         assert any("Prepared" in m for m in messages)
         assert any("Upserting" in m or "upsert" in m.lower() for m in messages)
+
+    def test_delete_failure_excludes_source_from_upsert(self, tmp_path):
+        """If deleting stale chunks fails for a source, its new chunks are excluded from upsert."""
+        good_file = tmp_path / "good.md"
+        good_file.write_text("# Good")
+        bad_file = tmp_path / "bad.md"
+        bad_file.write_text("# Bad")
+
+        good_result = self._make_chunk_result(str(good_file), 2)
+        bad_result = self._make_chunk_result(str(bad_file), 2)
+
+        def selective_prepare(f):
+            if f.name == "good.md":
+                return good_result
+            return bad_result
+
+        def selective_delete(**kwargs):
+            source = kwargs.get("where", {}).get("source", "")
+            if "bad" in source:
+                raise RuntimeError("delete failed")
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 4
+        mock_collection.delete.side_effect = selective_delete
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[good_file, bad_file]), \
+             patch("index_vault._prepare_file_chunks", side_effect=selective_prepare), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 1000):
+            index_vault(full=True)
+
+        # Only good file's chunks should be upserted
+        assert mock_collection.upsert.call_count == 1
+        upserted_ids = mock_collection.upsert.call_args[1]["ids"]
+        assert len(upserted_ids) == 2
+        assert all(str(good_file) in id_ for id_ in upserted_ids)
+        # Should skip mark_run since there was a failure
+        mock_mark.assert_not_called()
