@@ -216,6 +216,7 @@ def index_vault(full: bool = False) -> None:
 
     # Phase 1: Prepare chunks in parallel (pure Python in worker threads).
     prepared: list[tuple[str, list[str], list[str], list[dict]]] = []
+    processed_sources: set[str] = set()
     indexed = 0
     failed = 0
     with ThreadPoolExecutor(max_workers=INDEX_WORKERS) as executor:
@@ -224,6 +225,7 @@ def index_vault(full: bool = False) -> None:
             md_file = futures[future]
             try:
                 result = future.result()
+                processed_sources.add(str(md_file))
                 if result is not None:
                     prepared.append(result)
                 indexed += 1
@@ -239,11 +241,13 @@ def index_vault(full: bool = False) -> None:
     logger.info("Prepared %s files (%s with chunks, %s failed)",
                 indexed, len(prepared), failed)
 
-    # Phase 2: Delete stale chunks for files that will be re-upserted.
+    # Phase 2: Delete stale chunks for all successfully processed files.
+    # This includes files that now yield no chunks (e.g. emptied/frontmatter-only),
+    # so their previous embeddings don't remain queryable.
     collection = get_collection()
-    sources_to_upsert = {src for src, _, _, _ in prepared}
+    sources_to_delete = processed_sources
     delete_failed: set[str] = set()
-    for source in sources_to_upsert:
+    for source in sources_to_delete:
         try:
             collection.delete(where={"source": source})
         except Exception:
@@ -252,8 +256,8 @@ def index_vault(full: bool = False) -> None:
     if delete_failed:
         prepared = [(src, ids, docs, metas) for src, ids, docs, metas in prepared if src not in delete_failed]
         failed += len(delete_failed)
-    if sources_to_upsert - delete_failed:
-        logger.info("Deleted stale chunks for %s files", len(sources_to_upsert - delete_failed))
+    if sources_to_delete - delete_failed:
+        logger.info("Deleted stale chunks for %s files", len(sources_to_delete - delete_failed))
 
     # Phase 3: Bulk upsert in batches.
     all_ids: list[str] = []

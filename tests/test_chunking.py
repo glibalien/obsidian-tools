@@ -1611,3 +1611,27 @@ class TestBatchUpserts:
         assert all(str(good_file) in id_ for id_ in upserted_ids)
         # Should skip mark_run since there was a failure
         mock_mark.assert_not_called()
+
+    def test_stale_chunks_deleted_for_now_empty_file(self, tmp_path):
+        """When a file yields no chunks (e.g. emptied), its stale chunks are still deleted."""
+        f = tmp_path / "was_content.md"
+        f.write_text("")
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 0
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[f]), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 500):
+            index_vault(full=True)
+
+        # Stale chunks should be deleted even though file now produces no chunks
+        mock_collection.delete.assert_called_once_with(where={"source": str(f)})
+        # No upsert since no new chunks
+        mock_collection.upsert.assert_not_called()
