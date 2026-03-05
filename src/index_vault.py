@@ -14,7 +14,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
-from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, setup_logging
+from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, UPSERT_BATCH_SIZE, setup_logging
 from services.chroma import get_collection, purge_database
 from services.vault import get_vault_files
 
@@ -214,10 +214,9 @@ def index_vault(full: bool = False) -> None:
         if modified:
             to_index.append(md_file)
 
-    # Compute chunks in parallel (pure Python in worker threads).
-    # All ChromaDB writes happen on the main thread — ChromaDB is not
-    # thread-safe (telemetry races, singleton init races, SQLite deadlocks).
-    collection = get_collection()
+    # Phase 1: Prepare chunks in parallel (pure Python in worker threads).
+    prepared: list[tuple[str, list[str], list[str], list[dict]]] = []
+    processed_sources: set[str] = set()
     indexed = 0
     failed = 0
     with ThreadPoolExecutor(max_workers=INDEX_WORKERS) as executor:
@@ -226,22 +225,69 @@ def index_vault(full: bool = False) -> None:
             md_file = futures[future]
             try:
                 result = future.result()
-                source = str(md_file)
-                existing = collection.get(where={"source": source}, include=[])
-                if existing['ids']:
-                    collection.delete(ids=existing['ids'])
+                processed_sources.add(str(md_file))
                 if result is not None:
-                    _, ids, documents, metadatas = result
-                    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+                    prepared.append(result)
                 indexed += 1
                 if indexed % 100 == 0:
-                    logger.info("Indexed %s files...", indexed)
+                    logger.info("Prepared %s/%s files...", indexed, len(to_index))
             except FileNotFoundError:
                 logger.debug("File disappeared during indexing: %s", md_file)
                 valid_sources.discard(str(md_file))
             except Exception:
                 failed += 1
                 logger.error("Failed to index %s", md_file, exc_info=True)
+
+    logger.info("Prepared %s files (%s with chunks, %s failed)",
+                indexed, len(prepared), failed)
+
+    # Phase 2: Delete stale chunks for all successfully processed files.
+    # This includes files that now yield no chunks (e.g. emptied/frontmatter-only),
+    # so their previous embeddings don't remain queryable.
+    collection = get_collection()
+    sources_to_delete = processed_sources
+    delete_failed: set[str] = set()
+    for source in sources_to_delete:
+        try:
+            collection.delete(where={"source": source})
+        except Exception:
+            logger.error("Failed to delete stale chunks for %s", source, exc_info=True)
+            delete_failed.add(source)
+    if delete_failed:
+        prepared = [(src, ids, docs, metas) for src, ids, docs, metas in prepared if src not in delete_failed]
+        failed += len(delete_failed)
+    if sources_to_delete - delete_failed:
+        logger.info("Deleted stale chunks for %s files", len(sources_to_delete - delete_failed))
+
+    # Phase 3: Bulk upsert in batches.
+    all_ids: list[str] = []
+    all_docs: list[str] = []
+    all_metas: list[dict] = []
+    for _, ids, documents, metadatas in prepared:
+        all_ids.extend(ids)
+        all_docs.extend(documents)
+        all_metas.extend(metadatas)
+
+    total_chunks = len(all_ids)
+    upsert_failures = 0
+    if total_chunks > 0:
+        n_batches = (total_chunks + UPSERT_BATCH_SIZE - 1) // UPSERT_BATCH_SIZE
+        for batch_idx in range(n_batches):
+            start = batch_idx * UPSERT_BATCH_SIZE
+            end = start + UPSERT_BATCH_SIZE
+            logger.info("Upserting batch %s/%s (%s chunks)...",
+                        batch_idx + 1, n_batches, min(UPSERT_BATCH_SIZE, total_chunks - start))
+            try:
+                collection.upsert(
+                    ids=all_ids[start:end],
+                    documents=all_docs[start:end],
+                    metadatas=all_metas[start:end],
+                )
+            except Exception:
+                upsert_failures += 1
+                logger.error("Failed to upsert batch %s/%s", batch_idx + 1, n_batches, exc_info=True)
+    if upsert_failures:
+        failed += upsert_failures
 
     # Prune deleted files
     pruned = prune_deleted_files(valid_sources, indexed_sources=indexed_sources)

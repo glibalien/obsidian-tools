@@ -1314,7 +1314,7 @@ class TestParallelIndexing:
             with caplog.at_level(logging.INFO, logger="index_vault"):
                 index_vault(full=True)
 
-        progress_msgs = [r for r in caplog.records if "Indexed" in r.message and "files..." in r.message]
+        progress_msgs = [r for r in caplog.records if "Prepared" in r.message and "files" in r.message]
         assert len(progress_msgs) >= 1
 
     def test_skips_unmodified_files(self, tmp_path):
@@ -1399,3 +1399,273 @@ class TestParallelIndexing:
             index_vault(full=True)
 
         mock_mark.assert_called_once()
+
+
+class TestBatchUpserts:
+    """Tests for batched cross-file upserts in index_vault."""
+
+    def _make_chunk_result(self, source: str, n_chunks: int = 2):
+        """Helper to create a _prepare_file_chunks return value."""
+        ids = [f"{source}_chunk_{i}" for i in range(n_chunks)]
+        docs = [f"[{source}] content {i}" for i in range(n_chunks)]
+        metas = [{"source": source, "chunk": i, "heading": "", "chunk_type": "body"} for i in range(n_chunks)]
+        return source, ids, docs, metas
+
+    def test_chunks_batched_into_single_upsert(self, tmp_path):
+        """Multiple files' chunks are combined into a single upsert call when under batch size."""
+        files = [tmp_path / f"note{i}.md" for i in range(3)]
+        for f in files:
+            f.write_text(f"# {f.stem}")
+
+        results = {str(f): self._make_chunk_result(str(f), 2) for f in files}
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault._prepare_file_chunks", side_effect=lambda f: results[str(f)]), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 1000):
+            mock_coll.return_value.count.return_value = 6
+            index_vault(full=True)
+
+        # All 6 chunks (3 files x 2 chunks) in one upsert call
+        mock_collection = mock_coll.return_value
+        assert mock_collection.upsert.call_count == 1
+        call_args = mock_collection.upsert.call_args[1]
+        assert len(call_args["ids"]) == 6
+
+    def test_upsert_respects_batch_size(self, tmp_path):
+        """Chunks are split across multiple upsert calls when exceeding batch size."""
+        files = [tmp_path / f"note{i}.md" for i in range(3)]
+        for f in files:
+            f.write_text(f"# {f.stem}")
+
+        results = {str(f): self._make_chunk_result(str(f), 2) for f in files}
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault._prepare_file_chunks", side_effect=lambda f: results[str(f)]), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 4):
+            mock_coll.return_value.count.return_value = 6
+            index_vault(full=True)
+
+        # 6 chunks with batch_size=4 -> 2 upsert calls (4 + 2)
+        mock_collection = mock_coll.return_value
+        assert mock_collection.upsert.call_count == 2
+        first_ids = mock_collection.upsert.call_args_list[0][1]["ids"]
+        second_ids = mock_collection.upsert.call_args_list[1][1]["ids"]
+        assert len(first_ids) == 4
+        assert len(second_ids) == 2
+
+    def test_stale_chunks_deleted_before_upsert(self, tmp_path):
+        """Old chunks are deleted before new ones are upserted."""
+        f = tmp_path / "note.md"
+        f.write_text("# Note")
+
+        result = self._make_chunk_result(str(f), 2)
+        call_order = []
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 2
+        mock_collection.delete.side_effect = lambda **kw: call_order.append("delete")
+        mock_collection.upsert.side_effect = lambda **kw: call_order.append("upsert")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[f]), \
+             patch("index_vault._prepare_file_chunks", return_value=result), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 1000):
+            index_vault(full=True)
+
+        assert call_order[0] == "delete"
+        assert call_order[-1] == "upsert"
+
+    def test_failed_file_chunks_excluded_from_batch(self, tmp_path):
+        """Chunks from files that failed preparation are not included in the batch upsert."""
+        good_file = tmp_path / "good.md"
+        good_file.write_text("# Good")
+        bad_file = tmp_path / "bad.md"
+        bad_file.write_text("# Bad")
+
+        good_result = self._make_chunk_result(str(good_file), 2)
+
+        def selective_prepare(f):
+            if f.name == "bad.md":
+                raise RuntimeError("boom")
+            return good_result
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[good_file, bad_file]), \
+             patch("index_vault._prepare_file_chunks", side_effect=selective_prepare), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 1000):
+            mock_coll.return_value.count.return_value = 2
+            index_vault(full=True)
+
+        mock_collection = mock_coll.return_value
+        assert mock_collection.upsert.call_count == 1
+        upserted_ids = mock_collection.upsert.call_args[1]["ids"]
+        assert len(upserted_ids) == 2  # only good file's chunks
+
+    def test_empty_results_skip_upsert(self, tmp_path):
+        """When all files return None (empty), no upsert is called."""
+        f = tmp_path / "empty.md"
+        f.write_text("")
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[f]), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 500):
+            mock_coll.return_value.count.return_value = 0
+            index_vault(full=True)
+
+        mock_coll.return_value.upsert.assert_not_called()
+
+    def test_phase_progress_logging(self, tmp_path, caplog):
+        """Batch upsert logs phase-based progress."""
+        import logging
+        files = [tmp_path / f"note{i}.md" for i in range(3)]
+        for f in files:
+            f.write_text(f"# {f.stem}")
+
+        results = {str(f): self._make_chunk_result(str(f), 2) for f in files}
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault._prepare_file_chunks", side_effect=lambda f: results[str(f)]), \
+             patch("index_vault.get_collection") as mock_coll, \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 1000):
+            mock_coll.return_value.count.return_value = 6
+            with caplog.at_level(logging.INFO, logger="index_vault"):
+                index_vault(full=True)
+
+        messages = [r.message for r in caplog.records]
+        # Should have preparation and upsert phase messages
+        assert any("Prepared" in m for m in messages)
+        assert any("Upserting" in m or "upsert" in m.lower() for m in messages)
+
+    def test_delete_failure_excludes_source_from_upsert(self, tmp_path):
+        """If deleting stale chunks fails for a source, its new chunks are excluded from upsert."""
+        good_file = tmp_path / "good.md"
+        good_file.write_text("# Good")
+        bad_file = tmp_path / "bad.md"
+        bad_file.write_text("# Bad")
+
+        good_result = self._make_chunk_result(str(good_file), 2)
+        bad_result = self._make_chunk_result(str(bad_file), 2)
+
+        def selective_prepare(f):
+            if f.name == "good.md":
+                return good_result
+            return bad_result
+
+        def selective_delete(**kwargs):
+            source = kwargs.get("where", {}).get("source", "")
+            if "bad" in source:
+                raise RuntimeError("delete failed")
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 4
+        mock_collection.delete.side_effect = selective_delete
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[good_file, bad_file]), \
+             patch("index_vault._prepare_file_chunks", side_effect=selective_prepare), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 1000):
+            index_vault(full=True)
+
+        # Only good file's chunks should be upserted
+        assert mock_collection.upsert.call_count == 1
+        upserted_ids = mock_collection.upsert.call_args[1]["ids"]
+        assert len(upserted_ids) == 2
+        assert all(str(good_file) in id_ for id_ in upserted_ids)
+        # Should skip mark_run since there was a failure
+        mock_mark.assert_not_called()
+
+    def test_stale_chunks_deleted_for_now_empty_file(self, tmp_path):
+        """When a file yields no chunks (e.g. emptied), its stale chunks are still deleted."""
+        f = tmp_path / "was_content.md"
+        f.write_text("")
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 0
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=[f]), \
+             patch("index_vault._prepare_file_chunks", return_value=None), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run"), \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 500):
+            index_vault(full=True)
+
+        # Stale chunks should be deleted even though file now produces no chunks
+        mock_collection.delete.assert_called_once_with(where={"source": str(f)})
+        # No upsert since no new chunks
+        mock_collection.upsert.assert_not_called()
+
+    def test_upsert_failure_continues_remaining_batches(self, tmp_path):
+        """A failed batch upsert doesn't abort the run; remaining batches still execute."""
+        files = [tmp_path / f"note{i}.md" for i in range(3)]
+        for f in files:
+            f.write_text(f"# {f.stem}")
+
+        results = {str(f): self._make_chunk_result(str(f), 2) for f in files}
+        call_count = {"upsert": 0}
+
+        def failing_upsert(**kwargs):
+            call_count["upsert"] += 1
+            if call_count["upsert"] == 1:
+                raise RuntimeError("transient embedding error")
+
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 6
+        mock_collection.upsert.side_effect = failing_upsert
+
+        with patch("index_vault.VAULT_PATH", tmp_path), \
+             patch("index_vault.CHROMA_PATH", str(tmp_path)), \
+             patch("index_vault.get_vault_files", return_value=files), \
+             patch("index_vault._prepare_file_chunks", side_effect=lambda f: results[str(f)]), \
+             patch("index_vault.get_collection", return_value=mock_collection), \
+             patch("index_vault.prune_deleted_files", return_value=0), \
+             patch("index_vault.mark_run") as mock_mark, \
+             patch("index_vault.INDEX_WORKERS", 1), \
+             patch("index_vault.UPSERT_BATCH_SIZE", 4):
+            index_vault(full=True)
+
+        # Both batches attempted (4+2 chunks), first failed
+        assert mock_collection.upsert.call_count == 2
+        # mark_run skipped due to failure
+        mock_mark.assert_not_called()
