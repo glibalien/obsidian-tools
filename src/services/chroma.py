@@ -29,7 +29,10 @@ _NOMIC_MODEL = "nomic" in EMBEDDING_MODEL.lower()
 
 
 def get_embedding_function() -> SentenceTransformerEmbeddingFunction:
-    """Create the embedding function for the configured model."""
+    """Create the embedding function for the configured model.
+
+    Called once by get_collection() (singleton), not cached here.
+    """
     return SentenceTransformerEmbeddingFunction(
         model_name=EMBEDDING_MODEL, trust_remote_code=True
     )

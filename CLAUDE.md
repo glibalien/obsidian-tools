@@ -123,6 +123,7 @@ All paths configured via `.env`:
 | `API_PORT` | `8000` | HTTP API port |
 | `INDEX_INTERVAL` | `60` | Indexer interval (minutes) |
 | `INDEX_WORKERS` | `4` | Thread pool size for file indexing |
+| `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Sentence-transformers model for embeddings |
 | `LOG_DIR` | `VAULT_PATH/logs/` | Log file directory |
 | `LOG_MAX_BYTES` | `5242880` (5MB) | Max log file size before rotation |
 | `LOG_BACKUP_COUNT` | `3` | Rotated log files to keep |

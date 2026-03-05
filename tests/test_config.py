@@ -7,7 +7,7 @@ monkeypatch to control env vars and re-evaluate module-level assignments.
 
 import importlib
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -284,9 +284,6 @@ def test_setup_logging_falls_back_on_permission_error(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Embedding function and prefix helpers
 # ---------------------------------------------------------------------------
-
-
-from unittest.mock import MagicMock
 
 
 class TestEmbeddingFunction:
