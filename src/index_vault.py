@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
 from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, UPSERT_BATCH_SIZE, setup_logging
-from services.chroma import get_collection, purge_database
+from services.chroma import get_collection, prefix_document, purge_database
 from services.vault import get_vault_files
 
 
@@ -117,7 +117,7 @@ def _prepare_file_chunks(
     metadatas = []
     for i, chunk in enumerate(chunks):
         ids.append(hashlib.md5(f"{md_file}_{i}".encode()).hexdigest())
-        documents.append(f"[{md_file.stem}] {chunk['text']}")
+        documents.append(prefix_document(f"[{md_file.stem}] {chunk['text']}"))
         metadatas.append({
             "source": source,
             "chunk": i,

@@ -279,3 +279,64 @@ def test_setup_logging_falls_back_on_permission_error(tmp_path, monkeypatch):
 
     # Clean up
     root.handlers.clear()
+
+
+# ---------------------------------------------------------------------------
+# Embedding function and prefix helpers
+# ---------------------------------------------------------------------------
+
+
+from unittest.mock import MagicMock
+
+
+class TestEmbeddingFunction:
+    """Tests for embedding function and prefix helpers in chroma.py."""
+
+    def test_get_embedding_function_returns_sentence_transformer(self):
+        """get_embedding_function returns a SentenceTransformerEmbeddingFunction."""
+        from services.chroma import get_embedding_function
+        ef = get_embedding_function()
+        from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+        assert isinstance(ef, SentenceTransformerEmbeddingFunction)
+
+    def test_prefix_document_nomic(self):
+        """prefix_document adds 'search_document: ' prefix for nomic models."""
+        from services import chroma
+        with patch.object(chroma, "_NOMIC_MODEL", True):
+            result = chroma.prefix_document("hello world")
+        assert result == "search_document: hello world"
+
+    def test_prefix_query_nomic(self):
+        """prefix_query adds 'search_query: ' prefix for nomic models."""
+        from services import chroma
+        with patch.object(chroma, "_NOMIC_MODEL", True):
+            result = chroma.prefix_query("hello world")
+        assert result == "search_query: hello world"
+
+    def test_prefix_document_non_nomic(self):
+        """prefix_document passes through for non-nomic models."""
+        from services import chroma
+        with patch.object(chroma, "_NOMIC_MODEL", False):
+            result = chroma.prefix_document("hello world")
+        assert result == "hello world"
+
+    def test_prefix_query_non_nomic(self):
+        """prefix_query passes through for non-nomic models."""
+        from services import chroma
+        with patch.object(chroma, "_NOMIC_MODEL", False):
+            result = chroma.prefix_query("hello world")
+        assert result == "hello world"
+
+    def test_get_collection_uses_embedding_function(self):
+        """get_collection passes the embedding function to get_or_create_collection."""
+        from services import chroma
+        chroma.reset()
+        mock_client = MagicMock()
+        with patch.object(chroma, "get_client", return_value=mock_client), \
+             patch.object(chroma, "get_embedding_function") as mock_ef:
+            mock_ef.return_value = "fake_ef"
+            chroma.get_collection()
+            mock_client.get_or_create_collection.assert_called_once_with(
+                "obsidian_vault", embedding_function="fake_ef"
+            )
+        chroma.reset()

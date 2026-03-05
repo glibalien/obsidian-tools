@@ -315,7 +315,8 @@ class TestIndexFileMetadata:
             assert "chunk" in metadata
 
     @patch("index_vault.get_collection")
-    def test_index_file_prepends_note_name(self, mock_get_collection, tmp_path):
+    @patch("index_vault.prefix_document", side_effect=lambda t: t)
+    def test_index_file_prepends_note_name(self, mock_prefix, mock_get_collection, tmp_path):
         md_file = tmp_path / "Obsidian Tools.md"
         md_file.write_text("# Title\n\nContent.")
 
@@ -375,6 +376,20 @@ class TestSearchHeadingMetadata:
         from hybrid_search import keyword_search
         results = keyword_search("searchable content", n_results=1)
         assert results[0]["heading"] == "## Tasks"
+
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.prefix_query", side_effect=lambda t: f"search_query: {t}")
+    def test_semantic_search_applies_query_prefix(self, mock_prefix, mock_get_collection):
+        """semantic_search applies prefix_query to the query text."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {"documents": [[]], "metadatas": [[]]}
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("test query")
+
+        call_args = mock_collection.query.call_args[1]
+        assert call_args["query_texts"] == ["search_query: test query"]
 
 
 class TestChunkTypeFilter:
@@ -781,6 +796,24 @@ class TestIndexFileBatching:
             assert len(call_args["metadatas"]) == len(call_args["ids"])
         finally:
             tmp_path.unlink()
+
+    @patch("index_vault.get_collection")
+    @patch("index_vault.prefix_document", side_effect=lambda t: f"search_document: {t}")
+    def test_index_file_applies_document_prefix(self, mock_prefix, mock_get_collection, tmp_path):
+        """_prepare_file_chunks applies prefix_document to each chunk."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": []}
+        mock_get_collection.return_value = mock_collection
+
+        md_file = tmp_path / "test.md"
+        md_file.write_text("# Hello\n\nSome content here.\n")
+
+        from index_vault import index_file
+        index_file(md_file)
+
+        call_args = mock_collection.upsert.call_args[1]
+        for doc in call_args["documents"]:
+            assert doc.startswith("search_document: ")
 
 
 class TestMarkRun:
