@@ -336,7 +336,7 @@ def chunk_markdown(
     If frontmatter is provided, creates a dedicated frontmatter chunk
     prepended to the result list so metadata is searchable.
 
-    Returns list of dicts with keys: text, heading, chunk_type.
+    Returns list of dicts with keys: text, heading, heading_chain, chunk_type.
     chunk_type is one of: frontmatter, section, paragraph, sentence, fragment.
     """
     if not text or not text.strip():
