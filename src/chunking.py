@@ -178,7 +178,7 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _chunk_sentences(
-    text: str, heading: str, max_chunk_size: int
+    text: str, heading: str, heading_chain: list[str], max_chunk_size: int
 ) -> list[dict]:
     """Accumulate sentences into chunks, falling back to fixed chunks for oversized ones."""
     sentences = _split_sentences(text)
@@ -198,6 +198,7 @@ def _chunk_sentences(
                 chunks.append({
                     "text": current,
                     "heading": heading,
+                    "heading_chain": heading_chain,
                     "chunk_type": "sentence",
                 })
                 current = ""
@@ -211,6 +212,7 @@ def _chunk_sentences(
                         chunks.append({
                             "text": fragment,
                             "heading": heading,
+                            "heading_chain": heading_chain,
                             "chunk_type": "fragment",
                         })
 
@@ -218,6 +220,7 @@ def _chunk_sentences(
         chunks.append({
             "text": current,
             "heading": heading,
+            "heading_chain": heading_chain,
             "chunk_type": "sentence",
         })
 
@@ -225,13 +228,14 @@ def _chunk_sentences(
 
 
 def _chunk_text_block(
-    text: str, heading: str, max_chunk_size: int
+    text: str, heading: str, heading_chain: list[str], max_chunk_size: int
 ) -> list[dict]:
     """Chunk a text block: try whole section, then paragraphs, then sentences."""
     if len(text) <= max_chunk_size:
         return [{
             "text": text,
             "heading": heading,
+            "heading_chain": heading_chain,
             "chunk_type": "section",
         }]
 
@@ -252,6 +256,7 @@ def _chunk_text_block(
                     chunks.append({
                         "text": current,
                         "heading": heading,
+                        "heading_chain": heading_chain,
                         "chunk_type": "paragraph",
                     })
                     current = ""
@@ -260,18 +265,19 @@ def _chunk_text_block(
                 else:
                     # Paragraph too big — split by sentences
                     chunks.extend(
-                        _chunk_sentences(para, heading, max_chunk_size)
+                        _chunk_sentences(para, heading, heading_chain, max_chunk_size)
                     )
         if current.strip():
             chunks.append({
                 "text": current,
                 "heading": heading,
+                "heading_chain": heading_chain,
                 "chunk_type": "paragraph",
             })
         return chunks
 
     # Single paragraph too big — split by sentences
-    return _chunk_sentences(text, heading, max_chunk_size)
+    return _chunk_sentences(text, heading, heading_chain, max_chunk_size)
 
 
 def chunk_markdown(
@@ -301,6 +307,7 @@ def chunk_markdown(
             all_chunks.append({
                 "text": fm_text,
                 "heading": "frontmatter",
+                "heading_chain": [],
                 "chunk_type": "frontmatter",
             })
 
@@ -308,13 +315,15 @@ def chunk_markdown(
     body = _strip_frontmatter(text)
     if body.strip():
         sections = _split_by_headings(body)
-        for heading, content in sections:
+        for heading, heading_chain, content in sections:
             if heading == "top-level":
                 block = content.strip()
             else:
                 block = (heading + "\n" + content).strip()
             if not block:
                 continue
-            all_chunks.extend(_chunk_text_block(block, heading, max_chunk_size))
+            all_chunks.extend(
+                _chunk_text_block(block, heading, heading_chain, max_chunk_size)
+            )
 
     return all_chunks

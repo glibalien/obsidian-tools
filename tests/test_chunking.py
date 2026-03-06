@@ -1780,3 +1780,86 @@ class TestSplitByHeadings:
         assert len(sections) == 2
         assert sections[0][1] == ["Parent"]
         assert sections[1][1] == ["Parent", "GrandChild"]
+
+    def test_code_fence_headings_ignored(self):
+        """Headings inside code fences are not treated as section breaks."""
+        text = (
+            "## Real Heading\n"
+            "Some text\n"
+            "```\n"
+            "## Fake Heading\n"
+            "code content\n"
+            "```\n"
+            "More text\n"
+            "## Another Real\n"
+            "End"
+        )
+        sections = _split_by_headings(text)
+        # Should only have 2 sections: "Real Heading" and "Another Real"
+        assert len(sections) == 2
+        headings = [s[0] for s in sections]
+        assert "## Real Heading" in headings
+        assert "## Another Real" in headings
+        # The fake heading inside the fence should be part of the first section's content
+        assert "## Fake Heading" in sections[0][2]
+        assert "code content" in sections[0][2]
+
+
+class TestHeadingChainPropagation:
+    """Tests for heading_chain propagation through chunk dicts."""
+
+    def test_section_chunk_has_chain(self):
+        """A small section under ## Architecture has heading_chain == ['Architecture']."""
+        text = "## Architecture\nSmall section content."
+        chunks = chunk_markdown(text)
+        assert len(chunks) >= 1
+        assert chunks[0]["heading_chain"] == ["Architecture"]
+
+    def test_nested_chunk_has_full_chain(self):
+        """## Parent then ### Child gives child chunk heading_chain ['Parent', 'Child']."""
+        text = "## Parent\nParent content.\n### Child\nChild content."
+        chunks = chunk_markdown(text)
+        # Find the child chunk
+        child_chunks = [c for c in chunks if "Child content" in c["text"]]
+        assert len(child_chunks) >= 1
+        assert child_chunks[0]["heading_chain"] == ["Parent", "Child"]
+
+    def test_top_level_has_empty_chain(self):
+        """Content before first heading has heading_chain == []."""
+        text = "Top level content before any heading.\n## Heading\nSection content."
+        chunks = chunk_markdown(text)
+        top_chunks = [c for c in chunks if "Top level content" in c["text"]]
+        assert len(top_chunks) >= 1
+        assert top_chunks[0]["heading_chain"] == []
+
+    def test_frontmatter_has_empty_chain(self):
+        """Frontmatter chunk has heading_chain == []."""
+        text = "---\ntitle: Test\n---\n## Heading\nContent."
+        fm = {"title": "Test"}
+        chunks = chunk_markdown(text, frontmatter=fm)
+        fm_chunks = [c for c in chunks if c["chunk_type"] == "frontmatter"]
+        assert len(fm_chunks) == 1
+        assert fm_chunks[0]["heading_chain"] == []
+
+    def test_paragraph_chunks_inherit_chain(self):
+        """Large section split into paragraphs keeps heading_chain."""
+        # Create a section large enough to be split into paragraphs
+        para1 = "First paragraph. " * 60  # ~1020 chars
+        para2 = "Second paragraph. " * 60  # ~1080 chars
+        text = f"## Overview\n{para1}\n\n{para2}"
+        chunks = chunk_markdown(text, max_chunk_size=1200)
+        para_chunks = [c for c in chunks if c["chunk_type"] == "paragraph"]
+        assert len(para_chunks) >= 2
+        for chunk in para_chunks:
+            assert chunk["heading_chain"] == ["Overview"]
+
+    def test_sentence_chunks_inherit_chain(self):
+        """Sentence-split chunks inherit heading_chain."""
+        # Single paragraph (no double newlines) that's too large for one chunk
+        long_text = ". ".join([f"Sentence number {i}" for i in range(80)])
+        text = f"## Details\n{long_text}"
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        assert len(sentence_chunks) >= 2
+        for chunk in sentence_chunks:
+            assert chunk["heading_chain"] == ["Details"]
