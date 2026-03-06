@@ -89,17 +89,24 @@ def format_frontmatter_for_indexing(frontmatter: dict) -> str:
     return "\n".join(lines)
 
 
-def _split_by_headings(text: str) -> list[tuple[str, str]]:
+def _split_by_headings(text: str) -> list[tuple[str, list[str], str]]:
     """Split text on markdown headings, respecting code fences.
 
-    Returns list of (heading, content) tuples. Content before the first
-    heading gets heading="top-level".
+    Returns list of (heading, heading_chain, content) tuples.
+    - heading: raw heading line (e.g. "## Foo") or "top-level"
+    - heading_chain: list of clean heading names from root to current
+      (e.g. ["Parent", "Child"]). Empty for top-level content.
+    - content: text under this heading (before the next heading)
     """
     lines = text.split("\n")
-    sections: list[tuple[str, str]] = []
+    sections: list[tuple[str, list[str], str]] = []
     current_heading = "top-level"
+    current_chain: list[str] = []
     current_lines: list[str] = []
     in_fence = False
+
+    # Stack of (level, clean_name) for building heading chains
+    stack: list[tuple[int, str]] = []
 
     for line in lines:
         # Track code fence state
@@ -107,12 +114,24 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
             in_fence = not in_fence
 
         # Check for heading (only outside code fences)
-        if not in_fence and re.match(r"^#{1,6} ", line):
+        heading_match = None if in_fence else re.match(r"^(#{1,6}) (.+)", line)
+        if heading_match:
             # Save previous section
             content = "\n".join(current_lines)
             if content.strip() or current_heading != "top-level":
-                sections.append((current_heading, content))
+                sections.append((current_heading, current_chain, content))
+
+            # Parse heading level and clean name
+            level = len(heading_match.group(1))
+            clean_name = heading_match.group(2).strip()
+
+            # Pop stack entries with level >= current
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            stack.append((level, clean_name))
+
             current_heading = line.strip()
+            current_chain = [name for _, name in stack]
             current_lines = []
         else:
             current_lines.append(line)
@@ -120,7 +139,7 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     # Save final section
     content = "\n".join(current_lines)
     if content.strip() or current_heading != "top-level":
-        sections.append((current_heading, content))
+        sections.append((current_heading, current_chain, content))
 
     return sections
 

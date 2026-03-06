@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from chunking import (
     _fixed_chunk_text,
+    _split_by_headings,
     _split_sentences,
     _strip_wikilink_brackets,
     chunk_markdown,
@@ -1711,3 +1712,71 @@ class TestBatchUpserts:
         assert mock_collection.upsert.call_count == 2
         # mark_run skipped due to failure
         mock_mark.assert_not_called()
+
+
+# --- _split_by_headings tests ---
+
+
+class TestSplitByHeadings:
+    """Tests for heading splitting with heading chain tracking."""
+
+    def test_flat_headings(self):
+        """Sequential same-level headings each get their own single-element chain."""
+        text = "## Intro\nHello\n## Methods\nStuff\n## Results\nData"
+        sections = _split_by_headings(text)
+        assert len(sections) == 3
+        # Each section: (heading, heading_chain, content)
+        assert sections[0] == ("## Intro", ["Intro"], "Hello")
+        assert sections[1] == ("## Methods", ["Methods"], "Stuff")
+        assert sections[2] == ("## Results", ["Results"], "Data")
+
+    def test_nested_headings(self):
+        """Child headings include parent in their chain."""
+        text = "# Parent\nIntro\n## Child\nBody"
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0] == ("# Parent", ["Parent"], "Intro")
+        assert sections[1] == ("## Child", ["Parent", "Child"], "Body")
+
+    def test_level_reset(self):
+        """Same-or-higher level heading resets the stack."""
+        text = "# First\nA\n## Sub\nB\n# Second\nC"
+        sections = _split_by_headings(text)
+        assert len(sections) == 3
+        assert sections[0][1] == ["First"]
+        assert sections[1][1] == ["First", "Sub"]
+        # Second h1 resets - no parent
+        assert sections[2][1] == ["Second"]
+
+    def test_deeply_nested(self):
+        """Full chain through 4 levels of headings."""
+        text = "# A\na\n## B\nb\n### C\nc\n#### D\nd"
+        sections = _split_by_headings(text)
+        assert len(sections) == 4
+        assert sections[0][1] == ["A"]
+        assert sections[1][1] == ["A", "B"]
+        assert sections[2][1] == ["A", "B", "C"]
+        assert sections[3][1] == ["A", "B", "C", "D"]
+
+    def test_top_level_content(self):
+        """Content before first heading has empty chain."""
+        text = "Some intro text\n# Heading\nBody"
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0] == ("top-level", [], "Some intro text")
+        assert sections[1] == ("# Heading", ["Heading"], "Body")
+
+    def test_no_headings(self):
+        """Text with no headings returns one top-level section with empty chain."""
+        text = "Just some plain text.\nAnother line."
+        sections = _split_by_headings(text)
+        assert len(sections) == 1
+        assert sections[0] == ("top-level", [], "Just some plain text.\nAnother line.")
+
+    def test_skip_level(self):
+        """Skipping levels (h2 -> h4) still builds correct chain."""
+        text = "## Parent\nA\n#### GrandChild\nB"
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0][1] == ["Parent"]
+        assert sections[1][1] == ["Parent", "GrandChild"]
