@@ -2102,6 +2102,30 @@ class TestCrossSectionOverlap:
         assert "A two." in c_chunk["text"]
         assert "A three." in c_chunk["text"]
 
+    def test_overlap_targets_first_body_chunk(self):
+        """When first chunk is heading-only, overlap goes to the first body chunk."""
+        # Section A provides overlap; section B's heading is split from its body
+        paras = ["Paragraph %d content here. " % i + "x" * 200 for i in range(5)]
+        body = "\n\n".join(paras)
+        text = "## A\n\nA one. A two. A three.\n\n## B\n\n" + body
+        chunks = chunk_markdown(text, max_chunk_size=300)
+        b_chunks = [c for c in chunks if c["heading"] == "## B"]
+        assert len(b_chunks) >= 2
+        # If first chunk is heading-only, overlap should NOT be on it
+        first = b_chunks[0]
+        first_without_heading = first["text"]
+        if first_without_heading.startswith("## B"):
+            first_without_heading = first_without_heading[len("## B"):].strip()
+        if not first_without_heading:
+            # Heading-only first chunk — should not contain overlap
+            assert "A two." not in first["text"]
+            assert "A three." not in first["text"]
+            # Second chunk should have overlap
+            assert "A two." in b_chunks[1]["text"] or "A three." in b_chunks[1]["text"]
+        else:
+            # First chunk has body — overlap should be here
+            assert "A two." in first["text"] or "A three." in first["text"]
+
     def test_overlap_excludes_heading(self):
         """Heading line from previous section is not included in overlap text."""
         text = (

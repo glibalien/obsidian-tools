@@ -379,16 +379,24 @@ def chunk_markdown(
                 next_trailing = _trailing_sentences(trail_text, OVERLAP_SENTENCES)
             else:
                 next_trailing = ""
-            # Prepend cross-section overlap to first chunk.
-            # Skip for heading-only sections (no body text) — overlap would be
-            # indexed under the wrong heading, and the next real section should
-            # inherit it instead.
+            # Prepend cross-section overlap to first body chunk.
+            # Skip heading-only sections and heading-only first chunks so
+            # overlap lands on actual content, not a bare heading line.
             has_body = content.strip() != ""
             if prev_trailing and section_chunks and has_body:
-                combined = prev_trailing + "\n" + section_chunks[0]["text"]
+                # Find first chunk with body content (not just the heading)
+                target_idx = 0
+                for idx, sc in enumerate(section_chunks):
+                    text_without_heading = sc["text"]
+                    if heading != "top-level" and text_without_heading.startswith(heading):
+                        text_without_heading = text_without_heading[len(heading):].strip()
+                    if text_without_heading:
+                        target_idx = idx
+                        break
+                combined = prev_trailing + "\n" + section_chunks[target_idx]["text"]
                 if len(combined) <= max_chunk_size:
-                    section_chunks[0] = dict(section_chunks[0])
-                    section_chunks[0]["text"] = combined
+                    section_chunks[target_idx] = dict(section_chunks[target_idx])
+                    section_chunks[target_idx]["text"] = combined
                 prev_trailing = next_trailing
             else:
                 # Preserve prev_trailing for the next content-bearing section
