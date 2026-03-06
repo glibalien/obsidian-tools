@@ -1983,6 +1983,19 @@ class TestSentenceOverlap:
         for i in range(len(sentence_chunks) - 1):
             assert sentence_chunks[i]["text"] != sentence_chunks[i + 1]["text"]
 
+    def test_no_duplicate_carry_before_fragment(self):
+        """Carry is dropped (not emitted) before oversized sentence fragment fallback."""
+        s1 = "Short one."
+        s2 = "Short two."
+        giant = "".join(f"word{i} " for i in range(600))  # ~3600 chars, forces fragment
+        text = f"## S\n\n{s1} {s2} {giant}"
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        # Carry ("Short one. Short two.") should NOT appear as a standalone chunk
+        # after the first sentence chunk that already contains them
+        for i in range(len(sentence_chunks) - 1):
+            assert sentence_chunks[i]["text"] != sentence_chunks[i + 1]["text"]
+
 
 class TestCrossSectionOverlap:
     """Tests for overlap between heading sections."""
@@ -2038,6 +2051,18 @@ class TestCrossSectionOverlap:
         chunks = chunk_markdown(text)
         b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
         assert "Only one sentence here." in b_chunk["text"]
+
+    def test_overlap_excludes_heading(self):
+        """Heading line from previous section is not included in overlap text."""
+        text = (
+            "## Previous\n\nOne line of content\n\n"
+            "## Next\n\nNext content."
+        )
+        chunks = chunk_markdown(text)
+        next_chunk = [c for c in chunks if c["heading"] == "## Next"][0]
+        # Should have body content as overlap, NOT the heading
+        assert "One line of content" in next_chunk["text"]
+        assert "## Previous" not in next_chunk["text"]
 
     def test_overlap_does_not_cascade(self):
         """Overlap from section A should not leak through B into C."""

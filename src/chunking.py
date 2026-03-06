@@ -226,16 +226,10 @@ def _chunk_sentences(
                 buffer = [sentence]
                 buf_len = len(sentence)
             else:
-                # Flush any carry-forward before fragments
-                if buffer:
-                    chunks.append({
-                        "text": " ".join(buffer),
-                        "heading": heading,
-                        "heading_chain": heading_chain,
-                        "chunk_type": "sentence",
-                    })
-                    buffer = []
-                    buf_len = 0
+                # Drop carry-forward before fragments — carry sentences are
+                # already in the previous chunk, emitting them would duplicate.
+                buffer = []
+                buf_len = 0
                 # Sentence too big — fall back to fixed chunking
                 for fragment in _fixed_chunk_text(sentence, chunk_size=max_chunk_size, overlap=50):
                     if fragment.strip():
@@ -376,11 +370,13 @@ def chunk_markdown(
                 block, heading, heading_chain, max_chunk_size
             )
             # Extract trailing for NEXT section BEFORE prepending overlap
-            # to this one — prevents A's overlap from cascading through B into C
+            # to this one — prevents A's overlap from cascading through B into C.
+            # Strip heading line so it doesn't leak into the next section's text.
             if section_chunks:
-                next_trailing = _trailing_sentences(
-                    section_chunks[-1]["text"], OVERLAP_SENTENCES
-                )
+                trail_text = section_chunks[-1]["text"]
+                if heading != "top-level" and trail_text.startswith(heading):
+                    trail_text = trail_text[len(heading):].lstrip("\n")
+                next_trailing = _trailing_sentences(trail_text, OVERLAP_SENTENCES)
             else:
                 next_trailing = ""
             # Prepend cross-section overlap to first chunk (skip if oversize)
