@@ -68,7 +68,11 @@ def _check_model_marker() -> None:
         except RuntimeError:
             raise
         except Exception as e:
-            logger.warning("Could not check for legacy data: %s", e)
+            raise RuntimeError(
+                f"Cannot verify whether existing ChromaDB data is compatible "
+                f"with '{EMBEDDING_MODEL}' (error: {e}). "
+                f"Run index_vault.py --reset to rebuild the database."
+            ) from e
         os.makedirs(CHROMA_PATH, exist_ok=True)
         with open(marker_path, "w") as f:
             f.write(EMBEDDING_MODEL)

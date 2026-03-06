@@ -375,6 +375,19 @@ class TestEmbeddingFunction:
             with pytest.raises(RuntimeError, match="Existing ChromaDB data found"):
                 chroma._check_model_marker()
 
+    def test_model_marker_raises_on_legacy_check_error(self, tmp_path):
+        """RuntimeError raised when legacy DB check itself fails (fail closed)."""
+        from services import chroma
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.side_effect = Exception("SQLite locked")
+        with patch.object(chroma, "CHROMA_PATH", str(tmp_path)), \
+             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"), \
+             patch.object(chroma, "get_client", return_value=mock_client):
+            with pytest.raises(RuntimeError, match="Cannot verify"):
+                chroma._check_model_marker()
+        # Marker must NOT have been written
+        assert not (tmp_path / ".embedding_model").exists()
+
     def test_model_marker_passes_on_match(self, tmp_path):
         """No error when marker matches configured model."""
         from services import chroma
