@@ -220,14 +220,9 @@ def _chunk_sentences(
                 buffer.append(sentence)
                 buf_len += added_len
             elif len(sentence) <= max_chunk_size:
-                # Sentence fits alone but not with carry — flush carry, start fresh
-                if buffer:
-                    chunks.append({
-                        "text": " ".join(buffer),
-                        "heading": heading,
-                        "heading_chain": heading_chain,
-                        "chunk_type": "sentence",
-                    })
+                # Sentence fits alone but not with carry — drop carry, start fresh.
+                # Carry sentences are already in the previous chunk; emitting them
+                # as a standalone chunk would create an identical duplicate.
                 buffer = [sentence]
                 buf_len = len(sentence)
             else:
@@ -380,6 +375,14 @@ def chunk_markdown(
             section_chunks = _chunk_text_block(
                 block, heading, heading_chain, max_chunk_size
             )
+            # Extract trailing for NEXT section BEFORE prepending overlap
+            # to this one — prevents A's overlap from cascading through B into C
+            if section_chunks:
+                next_trailing = _trailing_sentences(
+                    section_chunks[-1]["text"], OVERLAP_SENTENCES
+                )
+            else:
+                next_trailing = ""
             # Prepend cross-section overlap to first chunk (skip if oversize)
             if prev_trailing and section_chunks:
                 combined = prev_trailing + "\n" + section_chunks[0]["text"]
@@ -387,11 +390,6 @@ def chunk_markdown(
                     section_chunks[0] = dict(section_chunks[0])
                     section_chunks[0]["text"] = combined
             all_chunks.extend(section_chunks)
-            # Save trailing sentences for next section
-            if section_chunks:
-                last_text = section_chunks[-1]["text"]
-                prev_trailing = _trailing_sentences(last_text, OVERLAP_SENTENCES)
-            else:
-                prev_trailing = ""
+            prev_trailing = next_trailing
 
     return all_chunks

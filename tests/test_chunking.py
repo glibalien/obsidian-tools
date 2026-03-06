@@ -1970,6 +1970,19 @@ class TestSentenceOverlap:
         # Fixed chunks have 50-char overlap
         assert fragment_chunks[0]["text"][-50:] == fragment_chunks[1]["text"][:50]
 
+    def test_no_duplicate_carry_chunks(self):
+        """Carry that can't fit with next sentence is dropped, not emitted as duplicate."""
+        # Two long sentences that each take ~60% of max; carry of 2 = entire previous chunk
+        s1 = "A" * 119 + "."
+        s2 = "B" * 119 + "."
+        s3 = "C" * 119 + "."
+        text = f"## S\n\n{s1} {s2} {s3}"
+        chunks = chunk_markdown(text, max_chunk_size=250)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        # No two consecutive chunks should have identical text
+        for i in range(len(sentence_chunks) - 1):
+            assert sentence_chunks[i]["text"] != sentence_chunks[i + 1]["text"]
+
 
 class TestCrossSectionOverlap:
     """Tests for overlap between heading sections."""
@@ -2025,6 +2038,19 @@ class TestCrossSectionOverlap:
         chunks = chunk_markdown(text)
         b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
         assert "Only one sentence here." in b_chunk["text"]
+
+    def test_overlap_does_not_cascade(self):
+        """Overlap from section A should not leak through B into C."""
+        text = (
+            "## A\n\nAlpha one. Alpha two. Alpha three.\n\n"
+            "## B\n\nBravo content.\n\n"
+            "## C\n\nCharlie content."
+        )
+        chunks = chunk_markdown(text)
+        c_chunk = [c for c in chunks if c["heading"] == "## C"][0]
+        # C should have B's trailing, NOT A's
+        assert "Bravo content." in c_chunk["text"]
+        assert "Alpha" not in c_chunk["text"]
 
     def test_overlap_skipped_when_oversize(self):
         """Cross-section overlap is skipped if it would exceed max_chunk_size."""
