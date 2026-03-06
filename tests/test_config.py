@@ -348,14 +348,32 @@ class TestEmbeddingFunction:
         chroma.reset()
 
     def test_model_marker_written_on_new_db(self, tmp_path):
-        """Model marker file is created when DB is new."""
+        """Model marker file is created when DB is new (empty collection)."""
         from services import chroma
         marker_path = str(tmp_path / ".embedding_model")
+        mock_col = MagicMock()
+        mock_col.count.return_value = 0
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.return_value = mock_col
         with patch.object(chroma, "CHROMA_PATH", str(tmp_path)), \
-             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"):
+             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"), \
+             patch.object(chroma, "get_client", return_value=mock_client):
             chroma._check_model_marker()
         with open(marker_path) as f:
             assert f.read().strip() == chroma.EMBEDDING_MODEL
+
+    def test_model_marker_raises_on_legacy_db(self, tmp_path):
+        """RuntimeError raised when no marker exists but collection has data."""
+        from services import chroma
+        mock_col = MagicMock()
+        mock_col.count.return_value = 100
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.return_value = mock_col
+        with patch.object(chroma, "CHROMA_PATH", str(tmp_path)), \
+             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"), \
+             patch.object(chroma, "get_client", return_value=mock_client):
+            with pytest.raises(RuntimeError, match="Existing ChromaDB data found"):
+                chroma._check_model_marker()
 
     def test_model_marker_passes_on_match(self, tmp_path):
         """No error when marker matches configured model."""

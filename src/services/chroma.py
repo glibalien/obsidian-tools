@@ -53,6 +53,22 @@ def _check_model_marker() -> None:
                 f"Run index_vault.py --reset to rebuild the database."
             )
     else:
+        # Check for a pre-existing collection from a prior version that
+        # never wrote this marker.  If data exists, refuse rather than
+        # silently mislabeling a potentially incompatible index.
+        try:
+            client = get_client()
+            col = client.get_or_create_collection("obsidian_vault")
+            if col.count() > 0:
+                raise RuntimeError(
+                    f"Existing ChromaDB data found without an embedding model marker. "
+                    f"Cannot verify compatibility with '{EMBEDDING_MODEL}'. "
+                    f"Run index_vault.py --reset to rebuild the database."
+                )
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning("Could not check for legacy data: %s", e)
         os.makedirs(CHROMA_PATH, exist_ok=True)
         with open(marker_path, "w") as f:
             f.write(EMBEDDING_MODEL)

@@ -272,24 +272,24 @@ def index_vault(full: bool = False) -> None:
     total_chunks = len(all_ids)
     upsert_failures = 0
     if total_chunks > 0:
-        logger.info("Computing embeddings for %s chunks...", total_chunks)
-        all_embeddings = embed_documents(all_docs)
         n_batches = (total_chunks + UPSERT_BATCH_SIZE - 1) // UPSERT_BATCH_SIZE
         for batch_idx in range(n_batches):
             start = batch_idx * UPSERT_BATCH_SIZE
             end = start + UPSERT_BATCH_SIZE
-            logger.info("Upserting batch %s/%s (%s chunks)...",
-                        batch_idx + 1, n_batches, min(UPSERT_BATCH_SIZE, total_chunks - start))
+            batch_size = min(UPSERT_BATCH_SIZE, total_chunks - start)
+            logger.info("Embedding+upserting batch %s/%s (%s chunks)...",
+                        batch_idx + 1, n_batches, batch_size)
             try:
+                batch_embeddings = embed_documents(all_docs[start:end])
                 collection.upsert(
                     ids=all_ids[start:end],
                     documents=all_docs[start:end],
-                    embeddings=all_embeddings[start:end],
+                    embeddings=batch_embeddings,
                     metadatas=all_metas[start:end],
                 )
             except Exception:
                 upsert_failures += 1
-                logger.error("Failed to upsert batch %s/%s", batch_idx + 1, n_batches, exc_info=True)
+                logger.error("Failed batch %s/%s", batch_idx + 1, n_batches, exc_info=True)
     if upsert_failures:
         failed += upsert_failures
 
