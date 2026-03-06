@@ -2075,6 +2075,33 @@ class TestCrossSectionOverlap:
         b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
         assert "Only one sentence here." in b_chunk["text"]
 
+    def test_no_overlap_on_heading_only_section(self):
+        """Heading-only sections (no body) don't receive overlap."""
+        text = (
+            "## A\n\nA one. A two. A three.\n\n"
+            "## Parent\n\n"
+            "### Child\n\nChild content."
+        )
+        chunks = chunk_markdown(text)
+        parent = [c for c in chunks if c["heading"] == "## Parent"]
+        assert len(parent) == 1
+        # Parent section should NOT have A's overlap prepended
+        assert "A two." not in parent[0]["text"]
+        assert "A three." not in parent[0]["text"]
+
+    def test_overlap_passes_through_heading_only(self):
+        """Overlap from A passes through heading-only B to first content section C."""
+        text = (
+            "## A\n\nA one. A two. A three.\n\n"
+            "## B\n\n"
+            "## C\n\nC content."
+        )
+        chunks = chunk_markdown(text)
+        c_chunk = [c for c in chunks if c["heading"] == "## C"][0]
+        # C should inherit A's overlap since B was heading-only
+        assert "A two." in c_chunk["text"]
+        assert "A three." in c_chunk["text"]
+
     def test_overlap_excludes_heading(self):
         """Heading line from previous section is not included in overlap text."""
         text = (
