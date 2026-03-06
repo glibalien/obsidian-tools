@@ -1968,3 +1968,59 @@ class TestSentenceOverlap:
         assert len(fragment_chunks) >= 2
         # Fixed chunks have 50-char overlap
         assert fragment_chunks[0]["text"][-50:] == fragment_chunks[1]["text"][:50]
+
+
+class TestCrossSectionOverlap:
+    """Tests for overlap between heading sections."""
+
+    def test_overlap_between_sections(self):
+        """First chunk of section N+1 contains trailing sentences from section N."""
+        text = (
+            "## First\n\nAlpha sentence one. Alpha sentence two. Alpha sentence three.\n\n"
+            "## Second\n\nBeta content here."
+        )
+        chunks = chunk_markdown(text)
+        second = [c for c in chunks if c["heading"] == "## Second"]
+        assert len(second) == 1
+        assert "Alpha sentence two." in second[0]["text"]
+        assert "Alpha sentence three." in second[0]["text"]
+
+    def test_no_overlap_after_frontmatter(self):
+        """First body section does not get overlap from frontmatter."""
+        text = "---\ntitle: Test\n---\n\n## First\n\nBody content."
+        chunks = chunk_markdown(text, frontmatter={"title": "Test"})
+        body = [c for c in chunks if c["heading"] == "## First"]
+        assert len(body) == 1
+        assert "title" not in body[0]["text"]
+
+    def test_no_overlap_on_first_section(self):
+        """Very first section has no overlap prefix."""
+        text = "## Only\n\nJust content."
+        chunks = chunk_markdown(text)
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "## Only\n\nJust content."
+
+    def test_overlap_across_three_sections(self):
+        """Overlap chains across multiple sections."""
+        text = (
+            "## A\n\nA one. A two. A three.\n\n"
+            "## B\n\nB one. B two. B three.\n\n"
+            "## C\n\nC content here."
+        )
+        chunks = chunk_markdown(text)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        c_chunk = [c for c in chunks if c["heading"] == "## C"][0]
+        assert "A two." in b_chunk["text"]
+        assert "A three." in b_chunk["text"]
+        assert "B two." in c_chunk["text"]
+        assert "B three." in c_chunk["text"]
+
+    def test_single_sentence_section_overlap(self):
+        """Section with only 1 sentence provides just that 1 sentence as overlap."""
+        text = (
+            "## A\n\nOnly one sentence here.\n\n"
+            "## B\n\nB content."
+        )
+        chunks = chunk_markdown(text)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        assert "Only one sentence here." in b_chunk["text"]

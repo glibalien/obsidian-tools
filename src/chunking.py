@@ -262,6 +262,15 @@ def _chunk_sentences(
     return chunks
 
 
+def _trailing_sentences(text: str, n: int) -> str:
+    """Extract the last n sentences from text."""
+    sentences = _split_sentences(text)
+    if not sentences:
+        return ""
+    tail = sentences[-n:]
+    return " ".join(tail)
+
+
 def _chunk_text_block(
     text: str, heading: str, heading_chain: list[str], max_chunk_size: int
 ) -> list[dict]:
@@ -350,6 +359,7 @@ def chunk_markdown(
     body = _strip_frontmatter(text)
     if body.strip():
         sections = _split_by_headings(body)
+        prev_trailing = ""
         for heading, heading_chain, content in sections:
             if heading == "top-level":
                 block = content.strip()
@@ -357,8 +367,21 @@ def chunk_markdown(
                 block = (heading + "\n" + content).strip()
             if not block:
                 continue
-            all_chunks.extend(
-                _chunk_text_block(block, heading, heading_chain, max_chunk_size)
+            section_chunks = _chunk_text_block(
+                block, heading, heading_chain, max_chunk_size
             )
+            # Prepend cross-section overlap to first chunk
+            if prev_trailing and section_chunks:
+                section_chunks[0] = dict(section_chunks[0])
+                section_chunks[0]["text"] = (
+                    prev_trailing + "\n" + section_chunks[0]["text"]
+                )
+            all_chunks.extend(section_chunks)
+            # Save trailing sentences for next section
+            if section_chunks:
+                last_text = section_chunks[-1]["text"]
+                prev_trailing = _trailing_sentences(last_text, OVERLAP_SENTENCES)
+            else:
+                prev_trailing = ""
 
     return all_chunks
