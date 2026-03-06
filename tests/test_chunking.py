@@ -13,13 +13,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from chunking import (
+    OVERLAP_SENTENCES,
     _fixed_chunk_text,
+    _split_by_headings,
     _split_sentences,
     _strip_wikilink_brackets,
+    _trailing_sentences,
     chunk_markdown,
     format_frontmatter_for_indexing,
 )
 from index_vault import (
+    _prepare_file_chunks,
     get_last_run,
     index_vault,
     load_manifest,
@@ -330,7 +334,7 @@ class TestIndexFileMetadata:
         assert mock_collection.upsert.called
         for call in mock_collection.upsert.call_args_list:
             doc_text = call[1]["documents"][0]
-            assert doc_text.startswith("[Obsidian Tools] ")
+            assert doc_text.startswith("[Obsidian Tools > Title]")
 
 
 class TestSearchHeadingMetadata:
@@ -1711,3 +1715,525 @@ class TestBatchUpserts:
         assert mock_collection.upsert.call_count == 2
         # mark_run skipped due to failure
         mock_mark.assert_not_called()
+
+
+# --- _split_by_headings tests ---
+
+
+class TestSplitByHeadings:
+    """Tests for heading splitting with heading chain tracking."""
+
+    def test_flat_headings(self):
+        """Sequential same-level headings each get their own single-element chain."""
+        text = "## Intro\nHello\n## Methods\nStuff\n## Results\nData"
+        sections = _split_by_headings(text)
+        assert len(sections) == 3
+        # Each section: (heading, heading_chain, content)
+        assert sections[0] == ("## Intro", ["Intro"], "Hello")
+        assert sections[1] == ("## Methods", ["Methods"], "Stuff")
+        assert sections[2] == ("## Results", ["Results"], "Data")
+
+    def test_nested_headings(self):
+        """Child headings include parent in their chain."""
+        text = "# Parent\nIntro\n## Child\nBody"
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0] == ("# Parent", ["Parent"], "Intro")
+        assert sections[1] == ("## Child", ["Parent", "Child"], "Body")
+
+    def test_level_reset(self):
+        """Same-or-higher level heading resets the stack."""
+        text = "# First\nA\n## Sub\nB\n# Second\nC"
+        sections = _split_by_headings(text)
+        assert len(sections) == 3
+        assert sections[0][1] == ["First"]
+        assert sections[1][1] == ["First", "Sub"]
+        # Second h1 resets - no parent
+        assert sections[2][1] == ["Second"]
+
+    def test_deeply_nested(self):
+        """Full chain through 4 levels of headings."""
+        text = "# A\na\n## B\nb\n### C\nc\n#### D\nd"
+        sections = _split_by_headings(text)
+        assert len(sections) == 4
+        assert sections[0][1] == ["A"]
+        assert sections[1][1] == ["A", "B"]
+        assert sections[2][1] == ["A", "B", "C"]
+        assert sections[3][1] == ["A", "B", "C", "D"]
+
+    def test_top_level_content(self):
+        """Content before first heading has empty chain."""
+        text = "Some intro text\n# Heading\nBody"
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0] == ("top-level", [], "Some intro text")
+        assert sections[1] == ("# Heading", ["Heading"], "Body")
+
+    def test_no_headings(self):
+        """Text with no headings returns one top-level section with empty chain."""
+        text = "Just some plain text.\nAnother line."
+        sections = _split_by_headings(text)
+        assert len(sections) == 1
+        assert sections[0] == ("top-level", [], "Just some plain text.\nAnother line.")
+
+    def test_skip_level(self):
+        """Skipping levels (h2 -> h4) still builds correct chain."""
+        text = "## Parent\nA\n#### GrandChild\nB"
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0][1] == ["Parent"]
+        assert sections[1][1] == ["Parent", "GrandChild"]
+
+    def test_code_fence_headings_ignored(self):
+        """Headings inside code fences are not treated as section breaks."""
+        text = (
+            "## Real Heading\n"
+            "Some text\n"
+            "```\n"
+            "## Fake Heading\n"
+            "code content\n"
+            "```\n"
+            "More text\n"
+            "## Another Real\n"
+            "End"
+        )
+        sections = _split_by_headings(text)
+        # Should only have 2 sections: "Real Heading" and "Another Real"
+        assert len(sections) == 2
+        headings = [s[0] for s in sections]
+        assert "## Real Heading" in headings
+        assert "## Another Real" in headings
+        # The fake heading inside the fence should be part of the first section's content
+        assert "## Fake Heading" in sections[0][2]
+        assert "code content" in sections[0][2]
+
+
+    def test_empty_heading(self):
+        """Headings with no text after the space are still treated as section breaks."""
+        text = "## \n\nContent under empty heading.\n\n## Real\n\nReal content."
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0][0] == "##"
+        assert sections[0][1] == [""]
+        assert sections[1][0] == "## Real"
+
+    def test_closing_atx_markers_stripped(self):
+        """Trailing ## closing markers are stripped from heading_chain names."""
+        text = "## Title ## \n\nContent."
+        sections = _split_by_headings(text)
+        assert sections[0][1] == ["Title"]
+
+    def test_closing_markers_nested(self):
+        """Closing markers stripped at all nesting levels."""
+        text = "## Parent ##\n\nP.\n\n### Child ###\n\nC."
+        sections = _split_by_headings(text)
+        assert sections[0][1] == ["Parent"]
+        assert sections[1][1] == ["Parent", "Child"]
+
+
+class TestHeadingChainPropagation:
+    """Tests for heading_chain propagation through chunk dicts."""
+
+    def test_section_chunk_has_chain(self):
+        """A small section under ## Architecture has heading_chain == ['Architecture']."""
+        text = "## Architecture\nSmall section content."
+        chunks = chunk_markdown(text)
+        assert len(chunks) >= 1
+        assert chunks[0]["heading_chain"] == ["Architecture"]
+
+    def test_nested_chunk_has_full_chain(self):
+        """## Parent then ### Child gives child chunk heading_chain ['Parent', 'Child']."""
+        text = "## Parent\nParent content.\n### Child\nChild content."
+        chunks = chunk_markdown(text)
+        # Find the child chunk
+        child_chunks = [c for c in chunks if "Child content" in c["text"]]
+        assert len(child_chunks) >= 1
+        assert child_chunks[0]["heading_chain"] == ["Parent", "Child"]
+
+    def test_top_level_has_empty_chain(self):
+        """Content before first heading has heading_chain == []."""
+        text = "Top level content before any heading.\n## Heading\nSection content."
+        chunks = chunk_markdown(text)
+        top_chunks = [c for c in chunks if "Top level content" in c["text"]]
+        assert len(top_chunks) >= 1
+        assert top_chunks[0]["heading_chain"] == []
+
+    def test_frontmatter_has_empty_chain(self):
+        """Frontmatter chunk has heading_chain == []."""
+        text = "---\ntitle: Test\n---\n## Heading\nContent."
+        fm = {"title": "Test"}
+        chunks = chunk_markdown(text, frontmatter=fm)
+        fm_chunks = [c for c in chunks if c["chunk_type"] == "frontmatter"]
+        assert len(fm_chunks) == 1
+        assert fm_chunks[0]["heading_chain"] == []
+
+    def test_paragraph_chunks_inherit_chain(self):
+        """Large section split into paragraphs keeps heading_chain."""
+        # Create a section large enough to be split into paragraphs
+        para1 = "First paragraph. " * 60  # ~1020 chars
+        para2 = "Second paragraph. " * 60  # ~1080 chars
+        text = f"## Overview\n{para1}\n\n{para2}"
+        chunks = chunk_markdown(text, max_chunk_size=1200)
+        para_chunks = [c for c in chunks if c["chunk_type"] == "paragraph"]
+        assert len(para_chunks) >= 2
+        for chunk in para_chunks:
+            assert chunk["heading_chain"] == ["Overview"]
+
+    def test_sentence_chunks_inherit_chain(self):
+        """Sentence-split chunks inherit heading_chain."""
+        # Single paragraph (no double newlines) that's too large for one chunk
+        long_text = ". ".join([f"Sentence number {i}" for i in range(80)])
+        text = f"## Details\n{long_text}"
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        assert len(sentence_chunks) >= 2
+        for chunk in sentence_chunks:
+            assert chunk["heading_chain"] == ["Details"]
+
+
+class TestPrepareFileChunksPrefix:
+    """Tests for heading-chain-based document prefixes in _prepare_file_chunks."""
+
+    def test_flat_heading_prefix(self, tmp_path):
+        """File with ## Architecture -> doc starts with [My Note > Architecture]."""
+        md = tmp_path / "My Note.md"
+        md.write_text("## Architecture\nSome content here.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        arch_docs = [d for d in documents if "Some content here" in d]
+        assert arch_docs
+        assert arch_docs[0].startswith("[My Note > Architecture]")
+
+    def test_nested_heading_prefix(self, tmp_path):
+        """## Architecture then ### Database -> doc starts with [My Note > Architecture > Database]."""
+        md = tmp_path / "My Note.md"
+        md.write_text("## Architecture\n### Database\nSchema details.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        db_docs = [d for d in documents if "Schema details" in d]
+        assert db_docs
+        assert db_docs[0].startswith("[My Note > Architecture > Database]")
+
+    def test_top_level_prefix(self, tmp_path):
+        """Content before first heading -> doc starts with [My Note] (no chain)."""
+        md = tmp_path / "My Note.md"
+        md.write_text("Top level content before any heading.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        top_docs = [d for d in documents if "Top level content" in d]
+        assert top_docs
+        assert top_docs[0].startswith("[My Note] ")
+
+    def test_frontmatter_prefix(self, tmp_path):
+        """File with frontmatter -> frontmatter doc starts with [My Note] (no chain)."""
+        md = tmp_path / "My Note.md"
+        md.write_text("---\ntags: [test]\n---\nSome body text.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        # Frontmatter chunk should have [My Note] prefix
+        fm_docs = [d for d in documents if "tags" in d]
+        assert fm_docs
+        assert fm_docs[0].startswith("[My Note] ")
+
+    def test_level_reset_prefix(self, tmp_path):
+        """## A then ### B then ## C -> C doc starts with [Note > C] (not [Note > A > C])."""
+        md = tmp_path / "Note.md"
+        md.write_text("## A\n### B\nNested content.\n## C\nReset content.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        c_docs = [d for d in documents if "Reset content" in d]
+        assert c_docs
+        assert c_docs[0].startswith("[Note > C]")
+
+
+class TestSentenceOverlap:
+    """Tests for sentence carry-forward overlap in _chunk_sentences."""
+
+    def test_overlap_between_chunks(self):
+        """Last 2 sentences of chunk N appear at start of chunk N+1."""
+        sentences = [f"Sentence {i} has some content here." for i in range(20)]
+        text = " ".join(sentences)
+        chunks = chunk_markdown("## S\n\n" + text, max_chunk_size=200)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        assert len(sentence_chunks) >= 2
+        # Second chunk should start with overlap from first
+        first_text = sentence_chunks[0]["text"]
+        second_text = sentence_chunks[1]["text"]
+        first_sentences = _split_sentences(first_text)
+        overlap = first_sentences[-2:] if len(first_sentences) >= 2 else first_sentences[-1:]
+        for sent in overlap:
+            assert sent in second_text
+
+    def test_first_chunk_no_overlap(self):
+        """First chunk has no carry-forward prefix."""
+        sentences = [f"Sentence {i} is here." for i in range(20)]
+        text = " ".join(sentences)
+        chunks = chunk_markdown("## S\n\n" + text, max_chunk_size=200)
+        assert chunks[0]["text"].startswith("## S")
+
+    def test_single_chunk_no_overlap(self):
+        """A section that fits in one chunk has no overlap artifacts."""
+        text = "## S\n\nShort content here."
+        chunks = chunk_markdown(text)
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "## S\n\nShort content here."
+
+    def test_fragment_keeps_own_overlap(self):
+        """Oversized sentences fall back to _fixed_chunk_text with its own 50-char overlap."""
+        giant = "x" * 3000
+        text = "## S\n\n" + giant
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        fragment_chunks = [c for c in chunks if c["chunk_type"] == "fragment"]
+        assert len(fragment_chunks) >= 2
+        # Fixed chunks have 50-char overlap
+        assert fragment_chunks[0]["text"][-50:] == fragment_chunks[1]["text"][:50]
+
+    def test_no_duplicate_carry_chunks(self):
+        """Carry that can't fit with next sentence is dropped, not emitted as duplicate."""
+        # Two long sentences that each take ~60% of max; carry of 2 = entire previous chunk
+        s1 = "A" * 119 + "."
+        s2 = "B" * 119 + "."
+        s3 = "C" * 119 + "."
+        text = f"## S\n\n{s1} {s2} {s3}"
+        chunks = chunk_markdown(text, max_chunk_size=250)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        # No two consecutive chunks should have identical text
+        for i in range(len(sentence_chunks) - 1):
+            assert sentence_chunks[i]["text"] != sentence_chunks[i + 1]["text"]
+
+    def test_no_duplicate_carry_before_fragment(self):
+        """Carry is dropped (not emitted) before oversized sentence fragment fallback."""
+        s1 = "Short one."
+        s2 = "Short two."
+        giant = "".join(f"word{i} " for i in range(600))  # ~3600 chars, forces fragment
+        text = f"## S\n\n{s1} {s2} {giant}"
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        # Carry ("Short one. Short two.") should NOT appear as a standalone chunk
+        # after the first sentence chunk that already contains them
+        for i in range(len(sentence_chunks) - 1):
+            assert sentence_chunks[i]["text"] != sentence_chunks[i + 1]["text"]
+
+
+class TestCrossSectionOverlap:
+    """Tests for overlap between heading sections."""
+
+    def test_overlap_between_sections(self):
+        """First chunk of section N+1 contains trailing sentences from section N."""
+        text = (
+            "## First\n\nAlpha sentence one. Alpha sentence two. Alpha sentence three.\n\n"
+            "## Second\n\nBeta content here."
+        )
+        chunks = chunk_markdown(text)
+        second = [c for c in chunks if c["heading"] == "## Second"]
+        assert len(second) == 1
+        assert "Alpha sentence two." in second[0]["text"]
+        assert "Alpha sentence three." in second[0]["text"]
+
+    def test_no_overlap_after_frontmatter(self):
+        """First body section does not get overlap from frontmatter."""
+        text = "---\ntitle: Test\n---\n\n## First\n\nBody content."
+        chunks = chunk_markdown(text, frontmatter={"title": "Test"})
+        body = [c for c in chunks if c["heading"] == "## First"]
+        assert len(body) == 1
+        assert "title" not in body[0]["text"]
+
+    def test_no_overlap_on_first_section(self):
+        """Very first section has no overlap prefix."""
+        text = "## Only\n\nJust content."
+        chunks = chunk_markdown(text)
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "## Only\n\nJust content."
+
+    def test_overlap_across_three_sections(self):
+        """Overlap chains across multiple sections."""
+        text = (
+            "## A\n\nA one. A two. A three.\n\n"
+            "## B\n\nB one. B two. B three.\n\n"
+            "## C\n\nC content here."
+        )
+        chunks = chunk_markdown(text)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        c_chunk = [c for c in chunks if c["heading"] == "## C"][0]
+        assert "A two." in b_chunk["text"]
+        assert "A three." in b_chunk["text"]
+        assert "B two." in c_chunk["text"]
+        assert "B three." in c_chunk["text"]
+
+    def test_single_sentence_section_overlap(self):
+        """Section with only 1 sentence provides just that 1 sentence as overlap."""
+        text = (
+            "## A\n\nOnly one sentence here.\n\n"
+            "## B\n\nB content."
+        )
+        chunks = chunk_markdown(text)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        assert "Only one sentence here." in b_chunk["text"]
+
+    def test_overlap_uses_full_section_tail(self):
+        """Cross-section overlap draws from full section body, not just last chunk."""
+        # Build a section where the last sentence-chunk has only 1 sentence,
+        # but the section body has many — overlap should still get 2 sentences.
+        sentences = [f"Sentence {i} here." for i in range(15)]
+        body = " ".join(sentences)
+        text = f"## A\n\n{body}\n\n## B\n\nB content."
+        chunks = chunk_markdown(text, max_chunk_size=200)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        # Should have the last 2 sentences from A's body
+        assert "Sentence 13 here." in b_chunk["text"]
+        assert "Sentence 14 here." in b_chunk["text"]
+
+    def test_no_overlap_on_heading_only_section(self):
+        """Heading-only sections (no body) don't receive overlap."""
+        text = (
+            "## A\n\nA one. A two. A three.\n\n"
+            "## Parent\n\n"
+            "### Child\n\nChild content."
+        )
+        chunks = chunk_markdown(text)
+        parent = [c for c in chunks if c["heading"] == "## Parent"]
+        assert len(parent) == 1
+        # Parent section should NOT have A's overlap prepended
+        assert "A two." not in parent[0]["text"]
+        assert "A three." not in parent[0]["text"]
+
+    def test_overlap_passes_through_heading_only(self):
+        """Overlap from A passes through heading-only B to first content section C."""
+        text = (
+            "## A\n\nA one. A two. A three.\n\n"
+            "## B\n\n"
+            "## C\n\nC content."
+        )
+        chunks = chunk_markdown(text)
+        c_chunk = [c for c in chunks if c["heading"] == "## C"][0]
+        # C should inherit A's overlap since B was heading-only
+        assert "A two." in c_chunk["text"]
+        assert "A three." in c_chunk["text"]
+
+    def test_overlap_targets_first_body_chunk(self):
+        """When first chunk is heading-only, overlap goes to the first body chunk."""
+        # Section A provides overlap; section B's heading is split from its body
+        paras = ["Paragraph %d content here. " % i + "x" * 200 for i in range(5)]
+        body = "\n\n".join(paras)
+        text = "## A\n\nA one. A two. A three.\n\n## B\n\n" + body
+        chunks = chunk_markdown(text, max_chunk_size=300)
+        b_chunks = [c for c in chunks if c["heading"] == "## B"]
+        assert len(b_chunks) >= 2
+        # If first chunk is heading-only, overlap should NOT be on it
+        first = b_chunks[0]
+        first_without_heading = first["text"]
+        if first_without_heading.startswith("## B"):
+            first_without_heading = first_without_heading[len("## B"):].strip()
+        if not first_without_heading:
+            # Heading-only first chunk — should not contain overlap
+            assert "A two." not in first["text"]
+            assert "A three." not in first["text"]
+            # Second chunk should have overlap
+            assert "A two." in b_chunks[1]["text"] or "A three." in b_chunks[1]["text"]
+        else:
+            # First chunk has body — overlap should be here
+            assert "A two." in first["text"] or "A three." in first["text"]
+
+    def test_overlap_excludes_heading(self):
+        """Heading line from previous section is not included in overlap text."""
+        text = (
+            "## Previous\n\nOne line of content\n\n"
+            "## Next\n\nNext content."
+        )
+        chunks = chunk_markdown(text)
+        next_chunk = [c for c in chunks if c["heading"] == "## Next"][0]
+        # Should have body content as overlap, NOT the heading
+        assert "One line of content" in next_chunk["text"]
+        assert "## Previous" not in next_chunk["text"]
+
+    def test_no_overlap_from_fragment_section(self):
+        """Sections ending in fragment chunks do not contribute overlap."""
+        giant = "".join(f"word{i} " for i in range(600))  # ~3600 chars, no sentence punctuation
+        text = f"## A\n\n{giant}\n\n## B\n\nB content."
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        # B should NOT contain arbitrary fragment text from A
+        assert "word599" not in b_chunk["text"]
+        # B should just be its own content
+        assert b_chunk["text"].startswith("## B")
+
+    def test_overlap_does_not_cascade(self):
+        """Overlap from section A should not leak through B into C."""
+        text = (
+            "## A\n\nAlpha one. Alpha two. Alpha three.\n\n"
+            "## B\n\nBravo content.\n\n"
+            "## C\n\nCharlie content."
+        )
+        chunks = chunk_markdown(text)
+        c_chunk = [c for c in chunks if c["heading"] == "## C"][0]
+        # C should have B's trailing, NOT A's
+        assert "Bravo content." in c_chunk["text"]
+        assert "Alpha" not in c_chunk["text"]
+
+    def test_overlap_skipped_when_oversize(self):
+        """Cross-section overlap is skipped if it would exceed max_chunk_size."""
+        # Section A content near the limit; section B content near the limit
+        filler_a = "A word. " * 80  # ~640 chars
+        filler_b = "B word. " * 80  # ~640 chars
+        text = f"## A\n\n{filler_a}\n\n## B\n\n{filler_b}"
+        chunks = chunk_markdown(text, max_chunk_size=700)
+        b_chunks = [c for c in chunks if c["heading"] == "## B"]
+        assert len(b_chunks) >= 1
+        # No chunk should exceed max_chunk_size
+        for c in b_chunks:
+            assert len(c["text"]) <= 700
+
+    def test_overlap_with_newline_terminated_text(self):
+        """Sections with newline-terminated lines (no sentence punctuation) get line-based overlap."""
+        text = (
+            "## A\n\n- Item one\n- Item two\n- Item three\n\n"
+            "## B\n\nB content."
+        )
+        chunks = chunk_markdown(text)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        # Should get last 2 lines, not the entire section
+        assert "- Item two" in b_chunk["text"]
+        assert "- Item three" in b_chunk["text"]
+        # Should NOT contain the heading from section A
+        assert "## A" not in b_chunk["text"]
+
+
+class TestTrailingSentences:
+    """Tests for _trailing_sentences fallback behavior."""
+
+    def test_sentence_split(self):
+        """Normal prose with sentence punctuation splits on sentences."""
+        text = "First sentence. Second sentence. Third sentence."
+        result = _trailing_sentences(text, 2)
+        assert "Second sentence." in result
+        assert "Third sentence." in result
+        assert "First" not in result
+
+    def test_line_fallback(self):
+        """Text without sentence punctuation falls back to line splitting."""
+        text = "- Item one\n- Item two\n- Item three"
+        result = _trailing_sentences(text, 2)
+        assert "- Item two" in result
+        assert "- Item three" in result
+        assert "Item one" not in result
+
+    def test_single_line_no_split(self):
+        """Single line with no sentence punctuation returns the whole line."""
+        text = "Just one line"
+        result = _trailing_sentences(text, 2)
+        assert result == "Just one line"
+
+    def test_empty_text(self):
+        """Empty text returns empty string."""
+        assert _trailing_sentences("", 2) == ""
+
+    def test_fewer_sentences_than_n(self):
+        """Requesting more units than exist returns all available."""
+        text = "Only one sentence."
+        result = _trailing_sentences(text, 5)
+        assert result == "Only one sentence."

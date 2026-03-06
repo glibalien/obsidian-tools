@@ -31,6 +31,15 @@ _NOMIC_MODEL = "nomic" in EMBEDDING_MODEL.lower()
 _MODEL_MARKER = ".embedding_model"
 
 
+def _cuda_available() -> bool:
+    """Check if CUDA is available for GPU-accelerated embeddings."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
+
 def _get_model_marker_path() -> str:
     """Return path to the embedding model marker file."""
     return os.path.join(CHROMA_PATH, _MODEL_MARKER)
@@ -76,7 +85,8 @@ def get_embedding_function() -> SentenceTransformerEmbeddingFunction:
         with _lock:
             if _embedding_function is None:
                 _embedding_function = SentenceTransformerEmbeddingFunction(
-                    model_name=EMBEDDING_MODEL, trust_remote_code=True
+                    model_name=EMBEDDING_MODEL, trust_remote_code=True,
+                    device="cuda" if _cuda_available() else "cpu",
                 )
     return _embedding_function
 

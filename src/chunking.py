@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 # Frontmatter fields excluded from search indexing (display/config only)
 FRONTMATTER_EXCLUDE = {"cssclass", "cssclasses", "aliases", "publish", "permalink"}
 
+OVERLAP_SENTENCES = 2
+
 
 def _fixed_chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """Split text into overlapping chunks by character count (fallback chunker)."""
@@ -89,17 +91,24 @@ def format_frontmatter_for_indexing(frontmatter: dict) -> str:
     return "\n".join(lines)
 
 
-def _split_by_headings(text: str) -> list[tuple[str, str]]:
+def _split_by_headings(text: str) -> list[tuple[str, list[str], str]]:
     """Split text on markdown headings, respecting code fences.
 
-    Returns list of (heading, content) tuples. Content before the first
-    heading gets heading="top-level".
+    Returns list of (heading, heading_chain, content) tuples.
+    - heading: raw heading line (e.g. "## Foo") or "top-level"
+    - heading_chain: list of clean heading names from root to current
+      (e.g. ["Parent", "Child"]). Empty for top-level content.
+    - content: text under this heading (before the next heading)
     """
     lines = text.split("\n")
-    sections: list[tuple[str, str]] = []
+    sections: list[tuple[str, list[str], str]] = []
     current_heading = "top-level"
+    current_chain: list[str] = []
     current_lines: list[str] = []
     in_fence = False
+
+    # Stack of (level, clean_name) for building heading chains
+    stack: list[tuple[int, str]] = []
 
     for line in lines:
         # Track code fence state
@@ -107,12 +116,24 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
             in_fence = not in_fence
 
         # Check for heading (only outside code fences)
-        if not in_fence and re.match(r"^#{1,6} ", line):
+        heading_match = None if in_fence else re.match(r"^(#{1,6}) (.*)", line)
+        if heading_match:
             # Save previous section
             content = "\n".join(current_lines)
             if content.strip() or current_heading != "top-level":
-                sections.append((current_heading, content))
+                sections.append((current_heading, current_chain, content))
+
+            # Parse heading level and clean name
+            level = len(heading_match.group(1))
+            clean_name = re.sub(r"\s+#+\s*$", "", heading_match.group(2)).strip()
+
+            # Pop stack entries with level >= current
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            stack.append((level, clean_name))
+
             current_heading = line.strip()
+            current_chain = [name for _, name in stack]
             current_lines = []
         else:
             current_lines.append(line)
@@ -120,7 +141,7 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     # Save final section
     content = "\n".join(current_lines)
     if content.strip() or current_heading != "top-level":
-        sections.append((current_heading, content))
+        sections.append((current_heading, current_chain, content))
 
     return sections
 
@@ -159,60 +180,105 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _chunk_sentences(
-    text: str, heading: str, max_chunk_size: int
+    text: str, heading: str, heading_chain: list[str], max_chunk_size: int
 ) -> list[dict]:
-    """Accumulate sentences into chunks, falling back to fixed chunks for oversized ones."""
+    """Accumulate sentences into chunks with overlap carry-forward.
+
+    When flushing a buffer, the last OVERLAP_SENTENCES sentences are
+    carried forward as the start of the next chunk for continuity.
+    """
     sentences = _split_sentences(text)
     if not sentences:
         return []
 
     chunks: list[dict] = []
-    current = ""
+    buffer: list[str] = []
+    buf_len = 0
 
     for sentence in sentences:
-        candidate = (current + " " + sentence).strip() if current else sentence
-        if len(candidate) <= max_chunk_size:
-            current = candidate
+        added_len = len(sentence) + (1 if buffer else 0)  # space separator
+        if buf_len + added_len <= max_chunk_size:
+            buffer.append(sentence)
+            buf_len += added_len
         else:
             # Flush current buffer
-            if current:
+            if buffer:
                 chunks.append({
-                    "text": current,
+                    "text": " ".join(buffer),
                     "heading": heading,
+                    "heading_chain": heading_chain,
                     "chunk_type": "sentence",
                 })
-                current = ""
-            # Check if this single sentence fits
-            if len(sentence) <= max_chunk_size:
-                current = sentence
+                # Carry forward last N sentences
+                carry = buffer[-OVERLAP_SENTENCES:]
+                buffer = list(carry)
+                buf_len = sum(len(s) for s in buffer) + max(0, len(buffer) - 1)
+
+            # Check if this single sentence fits (with carry-forward)
+            added_len = len(sentence) + (1 if buffer else 0)
+            if buf_len + added_len <= max_chunk_size:
+                buffer.append(sentence)
+                buf_len += added_len
+            elif len(sentence) <= max_chunk_size:
+                # Sentence fits alone but not with carry — drop carry, start fresh.
+                # Carry sentences are already in the previous chunk; emitting them
+                # as a standalone chunk would create an identical duplicate.
+                buffer = [sentence]
+                buf_len = len(sentence)
             else:
+                # Drop carry-forward before fragments — carry sentences are
+                # already in the previous chunk, emitting them would duplicate.
+                buffer = []
+                buf_len = 0
                 # Sentence too big — fall back to fixed chunking
                 for fragment in _fixed_chunk_text(sentence, chunk_size=max_chunk_size, overlap=50):
                     if fragment.strip():
                         chunks.append({
                             "text": fragment,
                             "heading": heading,
+                            "heading_chain": heading_chain,
                             "chunk_type": "fragment",
                         })
 
-    if current.strip():
+    if buffer and " ".join(buffer).strip():
         chunks.append({
-            "text": current,
+            "text": " ".join(buffer),
             "heading": heading,
+            "heading_chain": heading_chain,
             "chunk_type": "sentence",
         })
 
     return chunks
 
 
+def _trailing_sentences(text: str, n: int) -> str:
+    """Extract the last n text units (sentences or lines) from text.
+
+    Uses sentence splitting first; falls back to line splitting when
+    the text lacks sentence-ending punctuation (e.g. list items,
+    newline-terminated prose).
+    """
+    units = _split_sentences(text)
+    # Fall back to line splitting when sentence splitting doesn't break the text
+    if len(units) <= 1 and "\n" in text:
+        lines = [l for l in text.split("\n") if l.strip()]
+        if len(lines) > 1:
+            units = lines
+    if not units:
+        return ""
+    tail = units[-n:]
+    return " ".join(tail)
+
+
 def _chunk_text_block(
-    text: str, heading: str, max_chunk_size: int
+    text: str, heading: str, heading_chain: list[str], max_chunk_size: int
 ) -> list[dict]:
     """Chunk a text block: try whole section, then paragraphs, then sentences."""
     if len(text) <= max_chunk_size:
         return [{
             "text": text,
             "heading": heading,
+            "heading_chain": heading_chain,
             "chunk_type": "section",
         }]
 
@@ -233,6 +299,7 @@ def _chunk_text_block(
                     chunks.append({
                         "text": current,
                         "heading": heading,
+                        "heading_chain": heading_chain,
                         "chunk_type": "paragraph",
                     })
                     current = ""
@@ -241,18 +308,19 @@ def _chunk_text_block(
                 else:
                     # Paragraph too big — split by sentences
                     chunks.extend(
-                        _chunk_sentences(para, heading, max_chunk_size)
+                        _chunk_sentences(para, heading, heading_chain, max_chunk_size)
                     )
         if current.strip():
             chunks.append({
                 "text": current,
                 "heading": heading,
+                "heading_chain": heading_chain,
                 "chunk_type": "paragraph",
             })
         return chunks
 
     # Single paragraph too big — split by sentences
-    return _chunk_sentences(text, heading, max_chunk_size)
+    return _chunk_sentences(text, heading, heading_chain, max_chunk_size)
 
 
 def chunk_markdown(
@@ -267,7 +335,7 @@ def chunk_markdown(
     If frontmatter is provided, creates a dedicated frontmatter chunk
     prepended to the result list so metadata is searchable.
 
-    Returns list of dicts with keys: text, heading, chunk_type.
+    Returns list of dicts with keys: text, heading, heading_chain, chunk_type.
     chunk_type is one of: frontmatter, section, paragraph, sentence, fragment.
     """
     if not text or not text.strip():
@@ -282,6 +350,7 @@ def chunk_markdown(
             all_chunks.append({
                 "text": fm_text,
                 "heading": "frontmatter",
+                "heading_chain": [],
                 "chunk_type": "frontmatter",
             })
 
@@ -289,13 +358,50 @@ def chunk_markdown(
     body = _strip_frontmatter(text)
     if body.strip():
         sections = _split_by_headings(body)
-        for heading, content in sections:
+        prev_trailing = ""
+        for heading, heading_chain, content in sections:
             if heading == "top-level":
                 block = content.strip()
             else:
                 block = (heading + "\n" + content).strip()
             if not block:
                 continue
-            all_chunks.extend(_chunk_text_block(block, heading, max_chunk_size))
+            section_chunks = _chunk_text_block(
+                block, heading, heading_chain, max_chunk_size
+            )
+            # Extract trailing for NEXT section from the raw section body,
+            # not the last chunk — a sentence-split section's last chunk may
+            # have fewer than OVERLAP_SENTENCES sentences.
+            body_text = content.strip()
+            if section_chunks and body_text:
+                next_trailing = _trailing_sentences(body_text, OVERLAP_SENTENCES)
+            else:
+                next_trailing = ""
+            # Prepend cross-section overlap to first body chunk.
+            # Skip heading-only sections and heading-only first chunks so
+            # overlap lands on actual content, not a bare heading line.
+            has_body = content.strip() != ""
+            if prev_trailing and section_chunks and has_body:
+                # Find first chunk with body content (not just the heading)
+                target_idx = 0
+                for idx, sc in enumerate(section_chunks):
+                    text_without_heading = sc["text"]
+                    if heading != "top-level" and text_without_heading.startswith(heading):
+                        text_without_heading = text_without_heading[len(heading):].strip()
+                    if text_without_heading:
+                        target_idx = idx
+                        break
+                combined = prev_trailing + "\n" + section_chunks[target_idx]["text"]
+                if len(combined) <= max_chunk_size:
+                    section_chunks[target_idx] = dict(section_chunks[target_idx])
+                    section_chunks[target_idx]["text"] = combined
+                prev_trailing = next_trailing
+            else:
+                # Preserve prev_trailing for the next content-bearing section
+                # when this section is heading-only; otherwise advance normally
+                if has_body or not section_chunks:
+                    prev_trailing = next_trailing
+                # else: keep prev_trailing as-is so next section inherits it
+            all_chunks.extend(section_chunks)
 
     return all_chunks
