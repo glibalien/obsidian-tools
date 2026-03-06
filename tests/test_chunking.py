@@ -2075,6 +2075,19 @@ class TestCrossSectionOverlap:
         b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
         assert "Only one sentence here." in b_chunk["text"]
 
+    def test_overlap_uses_full_section_tail(self):
+        """Cross-section overlap draws from full section body, not just last chunk."""
+        # Build a section where the last sentence-chunk has only 1 sentence,
+        # but the section body has many — overlap should still get 2 sentences.
+        sentences = [f"Sentence {i} here." for i in range(15)]
+        body = " ".join(sentences)
+        text = f"## A\n\n{body}\n\n## B\n\nB content."
+        chunks = chunk_markdown(text, max_chunk_size=200)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        # Should have the last 2 sentences from A's body
+        assert "Sentence 13 here." in b_chunk["text"]
+        assert "Sentence 14 here." in b_chunk["text"]
+
     def test_no_overlap_on_heading_only_section(self):
         """Heading-only sections (no body) don't receive overlap."""
         text = (

@@ -369,14 +369,12 @@ def chunk_markdown(
             section_chunks = _chunk_text_block(
                 block, heading, heading_chain, max_chunk_size
             )
-            # Extract trailing for NEXT section BEFORE prepending overlap
-            # to this one — prevents A's overlap from cascading through B into C.
-            # Strip heading line so it doesn't leak into the next section's text.
-            if section_chunks and section_chunks[-1]["chunk_type"] != "fragment":
-                trail_text = section_chunks[-1]["text"]
-                if heading != "top-level" and trail_text.startswith(heading):
-                    trail_text = trail_text[len(heading):].lstrip("\n")
-                next_trailing = _trailing_sentences(trail_text, OVERLAP_SENTENCES)
+            # Extract trailing for NEXT section from the raw section body,
+            # not the last chunk — a sentence-split section's last chunk may
+            # have fewer than OVERLAP_SENTENCES sentences.
+            body_text = content.strip()
+            if section_chunks and body_text:
+                next_trailing = _trailing_sentences(body_text, OVERLAP_SENTENCES)
             else:
                 next_trailing = ""
             # Prepend cross-section overlap to first body chunk.
