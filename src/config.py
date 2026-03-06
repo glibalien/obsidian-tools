@@ -53,6 +53,7 @@ MAX_SESSION_MESSAGES = max(2, int(os.getenv("MAX_SESSION_MESSAGES", "50")))
 INDEX_INTERVAL = int(os.getenv("INDEX_INTERVAL", "60"))
 INDEX_WORKERS = max(1, int(os.getenv("INDEX_WORKERS", "4")))
 UPSERT_BATCH_SIZE = 500
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-ai/nomic-embed-text-v1.5")
 
 # Pagination defaults for path-only list tools
 LIST_DEFAULT_LIMIT = 500

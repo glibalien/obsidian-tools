@@ -7,7 +7,7 @@ from collections import defaultdict
 from chromadb.errors import ChromaError
 
 from config import KEYWORD_LIMIT, RRF_K
-from services.chroma import get_collection
+from services.chroma import embed_query, get_collection
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,8 @@ def semantic_search(
         List of dicts with 'source' and 'content' keys.
     """
     collection = get_collection()
-    query_kwargs: dict = {"query_texts": [query], "n_results": n_results}
+    query_embedding = embed_query(query)
+    query_kwargs: dict = {"query_embeddings": [query_embedding], "n_results": n_results}
     if chunk_type:
         query_kwargs["where"] = {"chunk_type": chunk_type}
     results = collection.query(**query_kwargs)

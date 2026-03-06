@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
 from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, UPSERT_BATCH_SIZE, setup_logging
-from services.chroma import get_collection, purge_database
+from services.chroma import embed_documents, get_collection, purge_database
 from services.vault import get_vault_files
 
 
@@ -138,7 +138,8 @@ def index_file(md_file: Path) -> None:
         collection.delete(ids=existing['ids'])
     if result is not None:
         _, ids, documents, metadatas = result
-        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        embeddings = embed_documents(documents)
+        collection.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
 
 
 def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | None = None) -> int:
@@ -259,7 +260,7 @@ def index_vault(full: bool = False) -> None:
     if sources_to_delete - delete_failed:
         logger.info("Deleted stale chunks for %s files", len(sources_to_delete - delete_failed))
 
-    # Phase 3: Bulk upsert in batches.
+    # Phase 3: Compute embeddings and bulk upsert in batches.
     all_ids: list[str] = []
     all_docs: list[str] = []
     all_metas: list[dict] = []
@@ -275,17 +276,20 @@ def index_vault(full: bool = False) -> None:
         for batch_idx in range(n_batches):
             start = batch_idx * UPSERT_BATCH_SIZE
             end = start + UPSERT_BATCH_SIZE
-            logger.info("Upserting batch %s/%s (%s chunks)...",
-                        batch_idx + 1, n_batches, min(UPSERT_BATCH_SIZE, total_chunks - start))
+            batch_size = min(UPSERT_BATCH_SIZE, total_chunks - start)
+            logger.info("Embedding+upserting batch %s/%s (%s chunks)...",
+                        batch_idx + 1, n_batches, batch_size)
             try:
+                batch_embeddings = embed_documents(all_docs[start:end])
                 collection.upsert(
                     ids=all_ids[start:end],
                     documents=all_docs[start:end],
+                    embeddings=batch_embeddings,
                     metadatas=all_metas[start:end],
                 )
             except Exception:
                 upsert_failures += 1
-                logger.error("Failed to upsert batch %s/%s", batch_idx + 1, n_batches, exc_info=True)
+                logger.error("Failed batch %s/%s", batch_idx + 1, n_batches, exc_info=True)
     if upsert_failures:
         failed += upsert_failures
 
