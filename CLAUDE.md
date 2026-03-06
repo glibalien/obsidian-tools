@@ -15,7 +15,7 @@ Semantic search and interaction logging for an Obsidian vault. Two operational m
 src/
 ├── mcp_server.py        # Entry point - registers tools from submodules
 ├── services/
-│   ├── chroma.py        # Shared ChromaDB connection (thread-safe singletons, purge_database, telemetry fix)
+│   ├── chroma.py        # Shared ChromaDB connection (thread-safe singletons, embedding helpers, model marker, purge_database, telemetry fix)
 │   ├── compaction.py    # Tool message compaction (shared by API + CLI)
 │   └── vault.py         # Path resolution, ok()/err() helpers, find_section, file scanning
 ├── tools/
@@ -52,7 +52,7 @@ services/                # systemd/launchd/taskscheduler templates
 - **hybrid_search.py**: Semantic (ChromaDB) + keyword search merged via RRF. Keyword: single `$or` query, term frequency ranking, `_case_variants()` for case-insensitive matching. Returns `heading` metadata.
 - **chunking.py**: Structure-aware chunking (headings → paragraphs → sentences). Frontmatter indexed as dedicated chunk with wikilink brackets stripped. `chunk_markdown` is the main entry point; `_parse_frontmatter`/`_strip_frontmatter` also live here.
 - **index_vault.py**: Indexing orchestration. Batch upserts per file. Incremental indexing uses scan-start time. `--full` for full reindex; `--reset` deletes the database and rebuilds from scratch (needed when HNSW index is corrupt or cross-platform-incompatible). Parallel file reading/chunking via `ThreadPoolExecutor` (`INDEX_WORKERS`) with `_prepare_file_chunks` (pure Python, thread-safe); all ChromaDB operations run on the main thread (ChromaDB is not thread-safe). Failures skip `mark_run` so next run retries; `FileNotFoundError` removes source from `valid_sources` so pruning cleans up.
-- **services/chroma.py**: Lazy singletons with `threading.RLock()` for thread-safe init. `purge_database()` for full DB wipe. Monkey-patches ChromaDB's Posthog `capture()` to no-op (thread-unsafe race in `batched_events` dict). `reset()` for tests.
+- **services/chroma.py**: Lazy singletons with `threading.RLock()` for thread-safe init. `embed_documents()`/`embed_query()` apply model-specific prefixes (e.g. nomic `search_document:`/`search_query:`) for embedding computation only — callers store unprefixed text and pass pre-computed embeddings via `embeddings=`/`query_embeddings=`. `_check_model_marker()` validates `.embedding_model` file in CHROMA_PATH (legacy DB detection via `chroma.sqlite3` existence). `purge_database()` for full DB wipe. Monkey-patches ChromaDB's Posthog `capture()` to no-op (thread-unsafe race in `batched_events` dict). `reset()` for tests.
 - **log_chat.py**: `add_wikilinks` uses strip-and-restore to protect code blocks, inline code, URLs, existing wikilinks.
 - **tools/research.py**: `research` — agentic three-stage pipeline (extract topics → gather research via web + vault → synthesize). `_extract_topics` uses LLM to identify research topics from note content; `_strip_json_fences` handles models that wrap JSON in markdown fences. `_gather_research` runs web search + page fetch + vault search per topic concurrently via `ThreadPoolExecutor`. `_synthesize_research` merges findings into a `## Research` section (replace existing or append). Depth param controls page fetching ("shallow" = search snippets only, "deep" = also fetches and LLM-extracts top web pages per topic). SSRF protection: `_resolve_public_host` validates all DNS results are `is_global` (blocks private, loopback, link-local, CGN, multicast); `_pinned_get` connects directly to validated IPs via stdlib `http.client`, trying each in order; `_PinnedHTTPSConnection` separates TCP target from TLS SNI hostname to prevent DNS rebinding. Page reads capped at `MAX_PAGE_CHARS * 5`.
 
@@ -124,6 +124,7 @@ All paths configured via `.env`:
 | `INDEX_INTERVAL` | `60` | Indexer interval (minutes) |
 | `INDEX_WORKERS` | `4` | Thread pool size for file indexing |
 | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Sentence-transformers model for embeddings |
+| `UPSERT_BATCH_SIZE` | `500` | Chunks per ChromaDB upsert batch |
 | `LOG_DIR` | `VAULT_PATH/logs/` | Log file directory |
 | `LOG_MAX_BYTES` | `5242880` (5MB) | Max log file size before rotation |
 | `LOG_BACKUP_COUNT` | `3` | Rotated log files to keep |
