@@ -117,7 +117,9 @@ def _prepare_file_chunks(
     metadatas = []
     for i, chunk in enumerate(chunks):
         ids.append(hashlib.md5(f"{md_file}_{i}".encode()).hexdigest())
-        documents.append(f"[{md_file.stem}] {chunk['text']}")
+        chain = [md_file.stem] + chunk.get("heading_chain", [])
+        prefix = " > ".join(chain)
+        documents.append(f"[{prefix}] {chunk['text']}")
         metadatas.append({
             "source": source,
             "chunk": i,

@@ -21,6 +21,7 @@ from chunking import (
     format_frontmatter_for_indexing,
 )
 from index_vault import (
+    _prepare_file_chunks,
     get_last_run,
     index_vault,
     load_manifest,
@@ -331,7 +332,7 @@ class TestIndexFileMetadata:
         assert mock_collection.upsert.called
         for call in mock_collection.upsert.call_args_list:
             doc_text = call[1]["documents"][0]
-            assert doc_text.startswith("[Obsidian Tools] ")
+            assert doc_text.startswith("[Obsidian Tools > Title]")
 
 
 class TestSearchHeadingMetadata:
@@ -1863,3 +1864,63 @@ class TestHeadingChainPropagation:
         assert len(sentence_chunks) >= 2
         for chunk in sentence_chunks:
             assert chunk["heading_chain"] == ["Details"]
+
+
+class TestPrepareFileChunksPrefix:
+    """Tests for heading-chain-based document prefixes in _prepare_file_chunks."""
+
+    def test_flat_heading_prefix(self, tmp_path):
+        """File with ## Architecture -> doc starts with [My Note > Architecture]."""
+        md = tmp_path / "My Note.md"
+        md.write_text("## Architecture\nSome content here.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        arch_docs = [d for d in documents if "Some content here" in d]
+        assert arch_docs
+        assert arch_docs[0].startswith("[My Note > Architecture]")
+
+    def test_nested_heading_prefix(self, tmp_path):
+        """## Architecture then ### Database -> doc starts with [My Note > Architecture > Database]."""
+        md = tmp_path / "My Note.md"
+        md.write_text("## Architecture\n### Database\nSchema details.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        db_docs = [d for d in documents if "Schema details" in d]
+        assert db_docs
+        assert db_docs[0].startswith("[My Note > Architecture > Database]")
+
+    def test_top_level_prefix(self, tmp_path):
+        """Content before first heading -> doc starts with [My Note] (no chain)."""
+        md = tmp_path / "My Note.md"
+        md.write_text("Top level content before any heading.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        top_docs = [d for d in documents if "Top level content" in d]
+        assert top_docs
+        assert top_docs[0].startswith("[My Note] ")
+
+    def test_frontmatter_prefix(self, tmp_path):
+        """File with frontmatter -> frontmatter doc starts with [My Note] (no chain)."""
+        md = tmp_path / "My Note.md"
+        md.write_text("---\ntags: [test]\n---\nSome body text.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        # Frontmatter chunk should have [My Note] prefix
+        fm_docs = [d for d in documents if "tags" in d]
+        assert fm_docs
+        assert fm_docs[0].startswith("[My Note] ")
+
+    def test_level_reset_prefix(self, tmp_path):
+        """## A then ### B then ## C -> C doc starts with [Note > C] (not [Note > A > C])."""
+        md = tmp_path / "Note.md"
+        md.write_text("## A\n### B\nNested content.\n## C\nReset content.")
+        result = _prepare_file_chunks(md)
+        assert result is not None
+        _, _, documents, _ = result
+        c_docs = [d for d in documents if "Reset content" in d]
+        assert c_docs
+        assert c_docs[0].startswith("[Note > C]")
