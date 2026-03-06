@@ -372,7 +372,7 @@ def chunk_markdown(
             # Extract trailing for NEXT section BEFORE prepending overlap
             # to this one — prevents A's overlap from cascading through B into C.
             # Strip heading line so it doesn't leak into the next section's text.
-            if section_chunks:
+            if section_chunks and section_chunks[-1]["chunk_type"] != "fragment":
                 trail_text = section_chunks[-1]["text"]
                 if heading != "top-level" and trail_text.startswith(heading):
                     trail_text = trail_text[len(heading):].lstrip("\n")

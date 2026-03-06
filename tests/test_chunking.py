@@ -2064,6 +2064,17 @@ class TestCrossSectionOverlap:
         assert "One line of content" in next_chunk["text"]
         assert "## Previous" not in next_chunk["text"]
 
+    def test_no_overlap_from_fragment_section(self):
+        """Sections ending in fragment chunks do not contribute overlap."""
+        giant = "".join(f"word{i} " for i in range(600))  # ~3600 chars, no sentence punctuation
+        text = f"## A\n\n{giant}\n\n## B\n\nB content."
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        # B should NOT contain arbitrary fragment text from A
+        assert "word599" not in b_chunk["text"]
+        # B should just be its own content
+        assert b_chunk["text"].startswith("## B")
+
     def test_overlap_does_not_cascade(self):
         """Overlap from section A should not leak through B into C."""
         text = (
