@@ -53,26 +53,17 @@ def _check_model_marker() -> None:
                 f"Run index_vault.py --reset to rebuild the database."
             )
     else:
-        # Check for a pre-existing collection from a prior version that
-        # never wrote this marker.  If data exists, refuse rather than
-        # silently mislabeling a potentially incompatible index.
-        try:
-            client = get_client()
-            col = client.get_or_create_collection("obsidian_vault")
-            if col.count() > 0:
-                raise RuntimeError(
-                    f"Existing ChromaDB data found without an embedding model marker. "
-                    f"Cannot verify compatibility with '{EMBEDDING_MODEL}'. "
-                    f"Run index_vault.py --reset to rebuild the database."
-                )
-        except RuntimeError:
-            raise
-        except Exception as e:
+        # Check for a pre-existing database from a prior version that
+        # never wrote this marker.  A chroma.sqlite3 file without a
+        # marker means legacy data — refuse rather than silently
+        # mislabeling a potentially incompatible index.
+        chroma_db_file = os.path.join(CHROMA_PATH, "chroma.sqlite3")
+        if os.path.exists(chroma_db_file):
             raise RuntimeError(
-                f"Cannot verify whether existing ChromaDB data is compatible "
-                f"with '{EMBEDDING_MODEL}' (error: {e}). "
+                f"Existing ChromaDB database found without an embedding model marker. "
+                f"Cannot verify compatibility with '{EMBEDDING_MODEL}'. "
                 f"Run index_vault.py --reset to rebuild the database."
-            ) from e
+            )
         os.makedirs(CHROMA_PATH, exist_ok=True)
         with open(marker_path, "w") as f:
             f.write(EMBEDDING_MODEL)

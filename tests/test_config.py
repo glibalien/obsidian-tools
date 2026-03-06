@@ -348,42 +348,22 @@ class TestEmbeddingFunction:
         chroma.reset()
 
     def test_model_marker_written_on_new_db(self, tmp_path):
-        """Model marker file is created when DB is new (empty collection)."""
+        """Model marker file is created when no pre-existing DB exists."""
         from services import chroma
         marker_path = str(tmp_path / ".embedding_model")
-        mock_col = MagicMock()
-        mock_col.count.return_value = 0
-        mock_client = MagicMock()
-        mock_client.get_or_create_collection.return_value = mock_col
         with patch.object(chroma, "CHROMA_PATH", str(tmp_path)), \
-             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"), \
-             patch.object(chroma, "get_client", return_value=mock_client):
+             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"):
             chroma._check_model_marker()
         with open(marker_path) as f:
             assert f.read().strip() == chroma.EMBEDDING_MODEL
 
     def test_model_marker_raises_on_legacy_db(self, tmp_path):
-        """RuntimeError raised when no marker exists but collection has data."""
+        """RuntimeError raised when chroma.sqlite3 exists without a marker."""
         from services import chroma
-        mock_col = MagicMock()
-        mock_col.count.return_value = 100
-        mock_client = MagicMock()
-        mock_client.get_or_create_collection.return_value = mock_col
+        (tmp_path / "chroma.sqlite3").write_text("")
         with patch.object(chroma, "CHROMA_PATH", str(tmp_path)), \
-             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"), \
-             patch.object(chroma, "get_client", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="Existing ChromaDB data found"):
-                chroma._check_model_marker()
-
-    def test_model_marker_raises_on_legacy_check_error(self, tmp_path):
-        """RuntimeError raised when legacy DB check itself fails (fail closed)."""
-        from services import chroma
-        mock_client = MagicMock()
-        mock_client.get_or_create_collection.side_effect = Exception("SQLite locked")
-        with patch.object(chroma, "CHROMA_PATH", str(tmp_path)), \
-             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"), \
-             patch.object(chroma, "get_client", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="Cannot verify"):
+             patch.object(chroma, "_MODEL_MARKER", ".embedding_model"):
+            with pytest.raises(RuntimeError, match="Existing ChromaDB database found"):
                 chroma._check_model_marker()
         # Marker must NOT have been written
         assert not (tmp_path / ".embedding_model").exists()
