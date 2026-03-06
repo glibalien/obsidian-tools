@@ -315,8 +315,8 @@ class TestIndexFileMetadata:
             assert "chunk" in metadata
 
     @patch("index_vault.get_collection")
-    @patch("index_vault.prefix_document", side_effect=lambda t: t)
-    def test_index_file_prepends_note_name(self, mock_prefix, mock_get_collection, tmp_path):
+    @patch("index_vault.embed_documents", side_effect=lambda docs: [[0.1]] * len(docs))
+    def test_index_file_prepends_note_name(self, mock_embed, mock_get_collection, tmp_path):
         md_file = tmp_path / "Obsidian Tools.md"
         md_file.write_text("# Title\n\nContent.")
 
@@ -337,7 +337,8 @@ class TestSearchHeadingMetadata:
     """Tests for heading metadata in search results."""
 
     @patch("hybrid_search.get_collection")
-    def test_semantic_search_includes_heading(self, mock_get_collection):
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_semantic_search_includes_heading(self, mock_embed, mock_get_collection):
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
             "documents": [["Some content"]],
@@ -350,7 +351,8 @@ class TestSearchHeadingMetadata:
         assert results[0]["heading"] == "## Notes"
 
     @patch("hybrid_search.get_collection")
-    def test_semantic_search_missing_heading_defaults(self, mock_get_collection):
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_semantic_search_missing_heading_defaults(self, mock_embed, mock_get_collection):
         """Old chunks without heading metadata should get a default."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -378,9 +380,9 @@ class TestSearchHeadingMetadata:
         assert results[0]["heading"] == "## Tasks"
 
     @patch("hybrid_search.get_collection")
-    @patch("hybrid_search.prefix_query", side_effect=lambda t: f"search_query: {t}")
-    def test_semantic_search_applies_query_prefix(self, mock_prefix, mock_get_collection):
-        """semantic_search applies prefix_query to the query text."""
+    @patch("hybrid_search.embed_query", return_value=[0.1, 0.2])
+    def test_semantic_search_uses_embed_query(self, mock_embed, mock_get_collection):
+        """semantic_search uses embed_query and passes query_embeddings."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {"documents": [[]], "metadatas": [[]]}
         mock_get_collection.return_value = mock_collection
@@ -388,15 +390,17 @@ class TestSearchHeadingMetadata:
         from hybrid_search import semantic_search
         semantic_search("test query")
 
+        mock_embed.assert_called_once_with("test query")
         call_args = mock_collection.query.call_args[1]
-        assert call_args["query_texts"] == ["search_query: test query"]
+        assert call_args["query_embeddings"] == [[0.1, 0.2]]
 
 
 class TestChunkTypeFilter:
     """Tests for chunk_type filtering in search."""
 
+    @patch("hybrid_search.embed_query", return_value=[0.1])
     @patch("hybrid_search.get_collection")
-    def test_semantic_search_with_chunk_type(self, mock_get_collection):
+    def test_semantic_search_with_chunk_type(self, mock_get_collection, mock_embed):
         """Semantic search passes chunk_type as where filter."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -412,8 +416,9 @@ class TestChunkTypeFilter:
         assert call_kwargs["where"] == {"chunk_type": "frontmatter"}
         assert len(results) == 1
 
+    @patch("hybrid_search.embed_query", return_value=[0.1])
     @patch("hybrid_search.get_collection")
-    def test_semantic_search_no_chunk_type(self, mock_get_collection):
+    def test_semantic_search_no_chunk_type(self, mock_get_collection, mock_embed):
         """Semantic search without chunk_type sends no where filter."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -798,9 +803,9 @@ class TestIndexFileBatching:
             tmp_path.unlink()
 
     @patch("index_vault.get_collection")
-    @patch("index_vault.prefix_document", side_effect=lambda t: f"search_document: {t}")
-    def test_index_file_applies_document_prefix(self, mock_prefix, mock_get_collection, tmp_path):
-        """_prepare_file_chunks applies prefix_document to each chunk."""
+    @patch("index_vault.embed_documents", side_effect=lambda docs: [[0.1]] * len(docs))
+    def test_index_file_passes_precomputed_embeddings(self, mock_embed, mock_get_collection, tmp_path):
+        """index_file passes pre-computed embeddings and stores clean documents."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {"ids": []}
         mock_get_collection.return_value = mock_collection
@@ -811,9 +816,13 @@ class TestIndexFileBatching:
         from index_vault import index_file
         index_file(md_file)
 
+        mock_embed.assert_called_once()
         call_args = mock_collection.upsert.call_args[1]
+        # Documents should NOT have prefix (clean text)
         for doc in call_args["documents"]:
-            assert doc.startswith("search_document: ")
+            assert not doc.startswith("search_document: ")
+        # Embeddings should be passed
+        assert "embeddings" in call_args
 
 
 class TestMarkRun:

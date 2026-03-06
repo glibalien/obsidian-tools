@@ -23,33 +23,71 @@ logger = logging.getLogger(__name__)
 _lock = threading.RLock()
 _client = None
 _collection = None
+_embedding_function = None
 
 # Nomic models require task prefixes for optimal quality.
 _NOMIC_MODEL = "nomic" in EMBEDDING_MODEL.lower()
 
+_MODEL_MARKER = ".embedding_model"
+
+
+def _get_model_marker_path() -> str:
+    """Return path to the embedding model marker file."""
+    return os.path.join(CHROMA_PATH, _MODEL_MARKER)
+
+
+def _check_model_marker() -> None:
+    """Check that the stored embedding model matches the configured one.
+
+    Raises RuntimeError if there's a mismatch, instructing the user to
+    run --reset. Writes the marker if it doesn't exist (new DB).
+    """
+    marker_path = _get_model_marker_path()
+    if os.path.exists(marker_path):
+        with open(marker_path) as f:
+            stored_model = f.read().strip()
+        if stored_model != EMBEDDING_MODEL:
+            raise RuntimeError(
+                f"Embedding model mismatch: database was indexed with "
+                f"'{stored_model}' but EMBEDDING_MODEL is '{EMBEDDING_MODEL}'. "
+                f"Run index_vault.py --reset to rebuild the database."
+            )
+    else:
+        os.makedirs(CHROMA_PATH, exist_ok=True)
+        with open(marker_path, "w") as f:
+            f.write(EMBEDDING_MODEL)
+
 
 def get_embedding_function() -> SentenceTransformerEmbeddingFunction:
-    """Create the embedding function for the configured model.
+    """Get or create the embedding function (lazy singleton, thread-safe)."""
+    global _embedding_function
+    if _embedding_function is None:
+        with _lock:
+            if _embedding_function is None:
+                _embedding_function = SentenceTransformerEmbeddingFunction(
+                    model_name=EMBEDDING_MODEL, trust_remote_code=True
+                )
+    return _embedding_function
 
-    Called once by get_collection() (singleton), not cached here.
+
+def embed_documents(texts: list[str]) -> list:
+    """Compute embeddings for documents, applying model-specific prefixes.
+
+    The prefix is only used for embedding computation — callers should
+    store the original unprefixed text in ChromaDB.
     """
-    return SentenceTransformerEmbeddingFunction(
-        model_name=EMBEDDING_MODEL, trust_remote_code=True
-    )
-
-
-def prefix_document(text: str) -> str:
-    """Add the document prefix required by the embedding model, if any."""
+    ef = get_embedding_function()
     if _NOMIC_MODEL:
-        return f"search_document: {text}"
-    return text
+        texts = [f"search_document: {t}" for t in texts]
+    return ef(texts)
 
 
-def prefix_query(text: str) -> str:
-    """Add the query prefix required by the embedding model, if any."""
+def embed_query(text: str) -> list:
+    """Compute embedding for a query, applying model-specific prefix."""
+    ef = get_embedding_function()
     if _NOMIC_MODEL:
-        return f"search_query: {text}"
-    return text
+        text = f"search_query: {text}"
+    return ef([text])[0]
 
 
 def get_client() -> chromadb.PersistentClient:
@@ -69,6 +107,7 @@ def get_collection() -> chromadb.Collection:
     if _collection is None:
         with _lock:
             if _collection is None:
+                _check_model_marker()
                 _collection = get_client().get_or_create_collection(
                     "obsidian_vault", embedding_function=get_embedding_function()
                 )
@@ -91,6 +130,7 @@ def purge_database() -> None:
 
 def reset():
     """Reset singletons (for testing)."""
-    global _client, _collection
+    global _client, _collection, _embedding_function
     _client = None
     _collection = None
+    _embedding_function = None

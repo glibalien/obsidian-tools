@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
 from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, UPSERT_BATCH_SIZE, setup_logging
-from services.chroma import get_collection, prefix_document, purge_database
+from services.chroma import embed_documents, get_collection, purge_database
 from services.vault import get_vault_files
 
 
@@ -117,7 +117,7 @@ def _prepare_file_chunks(
     metadatas = []
     for i, chunk in enumerate(chunks):
         ids.append(hashlib.md5(f"{md_file}_{i}".encode()).hexdigest())
-        documents.append(prefix_document(f"[{md_file.stem}] {chunk['text']}"))
+        documents.append(f"[{md_file.stem}] {chunk['text']}")
         metadatas.append({
             "source": source,
             "chunk": i,
@@ -138,7 +138,8 @@ def index_file(md_file: Path) -> None:
         collection.delete(ids=existing['ids'])
     if result is not None:
         _, ids, documents, metadatas = result
-        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        embeddings = embed_documents(documents)
+        collection.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
 
 
 def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | None = None) -> int:
@@ -259,7 +260,7 @@ def index_vault(full: bool = False) -> None:
     if sources_to_delete - delete_failed:
         logger.info("Deleted stale chunks for %s files", len(sources_to_delete - delete_failed))
 
-    # Phase 3: Bulk upsert in batches.
+    # Phase 3: Compute embeddings and bulk upsert in batches.
     all_ids: list[str] = []
     all_docs: list[str] = []
     all_metas: list[dict] = []
@@ -271,6 +272,8 @@ def index_vault(full: bool = False) -> None:
     total_chunks = len(all_ids)
     upsert_failures = 0
     if total_chunks > 0:
+        logger.info("Computing embeddings for %s chunks...", total_chunks)
+        all_embeddings = embed_documents(all_docs)
         n_batches = (total_chunks + UPSERT_BATCH_SIZE - 1) // UPSERT_BATCH_SIZE
         for batch_idx in range(n_batches):
             start = batch_idx * UPSERT_BATCH_SIZE
@@ -281,6 +284,7 @@ def index_vault(full: bool = False) -> None:
                 collection.upsert(
                     ids=all_ids[start:end],
                     documents=all_docs[start:end],
+                    embeddings=all_embeddings[start:end],
                     metadatas=all_metas[start:end],
                 )
             except Exception:
