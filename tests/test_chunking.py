@@ -18,6 +18,7 @@ from chunking import (
     _split_by_headings,
     _split_sentences,
     _strip_wikilink_brackets,
+    _trailing_sentences,
     chunk_markdown,
     format_frontmatter_for_indexing,
 )
@@ -2024,3 +2025,66 @@ class TestCrossSectionOverlap:
         chunks = chunk_markdown(text)
         b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
         assert "Only one sentence here." in b_chunk["text"]
+
+    def test_overlap_skipped_when_oversize(self):
+        """Cross-section overlap is skipped if it would exceed max_chunk_size."""
+        # Section A content near the limit; section B content near the limit
+        filler_a = "A word. " * 80  # ~640 chars
+        filler_b = "B word. " * 80  # ~640 chars
+        text = f"## A\n\n{filler_a}\n\n## B\n\n{filler_b}"
+        chunks = chunk_markdown(text, max_chunk_size=700)
+        b_chunks = [c for c in chunks if c["heading"] == "## B"]
+        assert len(b_chunks) >= 1
+        # No chunk should exceed max_chunk_size
+        for c in b_chunks:
+            assert len(c["text"]) <= 700
+
+    def test_overlap_with_newline_terminated_text(self):
+        """Sections with newline-terminated lines (no sentence punctuation) get line-based overlap."""
+        text = (
+            "## A\n\n- Item one\n- Item two\n- Item three\n\n"
+            "## B\n\nB content."
+        )
+        chunks = chunk_markdown(text)
+        b_chunk = [c for c in chunks if c["heading"] == "## B"][0]
+        # Should get last 2 lines, not the entire section
+        assert "- Item two" in b_chunk["text"]
+        assert "- Item three" in b_chunk["text"]
+        # Should NOT contain the heading from section A
+        assert "## A" not in b_chunk["text"]
+
+
+class TestTrailingSentences:
+    """Tests for _trailing_sentences fallback behavior."""
+
+    def test_sentence_split(self):
+        """Normal prose with sentence punctuation splits on sentences."""
+        text = "First sentence. Second sentence. Third sentence."
+        result = _trailing_sentences(text, 2)
+        assert "Second sentence." in result
+        assert "Third sentence." in result
+        assert "First" not in result
+
+    def test_line_fallback(self):
+        """Text without sentence punctuation falls back to line splitting."""
+        text = "- Item one\n- Item two\n- Item three"
+        result = _trailing_sentences(text, 2)
+        assert "- Item two" in result
+        assert "- Item three" in result
+        assert "Item one" not in result
+
+    def test_single_line_no_split(self):
+        """Single line with no sentence punctuation returns the whole line."""
+        text = "Just one line"
+        result = _trailing_sentences(text, 2)
+        assert result == "Just one line"
+
+    def test_empty_text(self):
+        """Empty text returns empty string."""
+        assert _trailing_sentences("", 2) == ""
+
+    def test_fewer_sentences_than_n(self):
+        """Requesting more units than exist returns all available."""
+        text = "Only one sentence."
+        result = _trailing_sentences(text, 5)
+        assert result == "Only one sentence."

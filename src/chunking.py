@@ -263,11 +263,21 @@ def _chunk_sentences(
 
 
 def _trailing_sentences(text: str, n: int) -> str:
-    """Extract the last n sentences from text."""
-    sentences = _split_sentences(text)
-    if not sentences:
+    """Extract the last n text units (sentences or lines) from text.
+
+    Uses sentence splitting first; falls back to line splitting when
+    the text lacks sentence-ending punctuation (e.g. list items,
+    newline-terminated prose).
+    """
+    units = _split_sentences(text)
+    # Fall back to line splitting when sentence splitting doesn't break the text
+    if len(units) <= 1 and "\n" in text:
+        lines = [l for l in text.split("\n") if l.strip()]
+        if len(lines) > 1:
+            units = lines
+    if not units:
         return ""
-    tail = sentences[-n:]
+    tail = units[-n:]
     return " ".join(tail)
 
 
@@ -370,12 +380,12 @@ def chunk_markdown(
             section_chunks = _chunk_text_block(
                 block, heading, heading_chain, max_chunk_size
             )
-            # Prepend cross-section overlap to first chunk
+            # Prepend cross-section overlap to first chunk (skip if oversize)
             if prev_trailing and section_chunks:
-                section_chunks[0] = dict(section_chunks[0])
-                section_chunks[0]["text"] = (
-                    prev_trailing + "\n" + section_chunks[0]["text"]
-                )
+                combined = prev_trailing + "\n" + section_chunks[0]["text"]
+                if len(combined) <= max_chunk_size:
+                    section_chunks[0] = dict(section_chunks[0])
+                    section_chunks[0]["text"] = combined
             all_chunks.extend(section_chunks)
             # Save trailing sentences for next section
             if section_chunks:
