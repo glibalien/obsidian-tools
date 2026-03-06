@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from chunking import (
+    OVERLAP_SENTENCES,
     _fixed_chunk_text,
     _split_by_headings,
     _split_sentences,
@@ -1924,3 +1925,46 @@ class TestPrepareFileChunksPrefix:
         c_docs = [d for d in documents if "Reset content" in d]
         assert c_docs
         assert c_docs[0].startswith("[Note > C]")
+
+
+class TestSentenceOverlap:
+    """Tests for sentence carry-forward overlap in _chunk_sentences."""
+
+    def test_overlap_between_chunks(self):
+        """Last 2 sentences of chunk N appear at start of chunk N+1."""
+        sentences = [f"Sentence {i} has some content here." for i in range(20)]
+        text = " ".join(sentences)
+        chunks = chunk_markdown("## S\n\n" + text, max_chunk_size=200)
+        sentence_chunks = [c for c in chunks if c["chunk_type"] == "sentence"]
+        assert len(sentence_chunks) >= 2
+        # Second chunk should start with overlap from first
+        first_text = sentence_chunks[0]["text"]
+        second_text = sentence_chunks[1]["text"]
+        first_sentences = _split_sentences(first_text)
+        overlap = first_sentences[-2:] if len(first_sentences) >= 2 else first_sentences[-1:]
+        for sent in overlap:
+            assert sent in second_text
+
+    def test_first_chunk_no_overlap(self):
+        """First chunk has no carry-forward prefix."""
+        sentences = [f"Sentence {i} is here." for i in range(20)]
+        text = " ".join(sentences)
+        chunks = chunk_markdown("## S\n\n" + text, max_chunk_size=200)
+        assert chunks[0]["text"].startswith("## S")
+
+    def test_single_chunk_no_overlap(self):
+        """A section that fits in one chunk has no overlap artifacts."""
+        text = "## S\n\nShort content here."
+        chunks = chunk_markdown(text)
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "## S\n\nShort content here."
+
+    def test_fragment_keeps_own_overlap(self):
+        """Oversized sentences fall back to _fixed_chunk_text with its own 50-char overlap."""
+        giant = "x" * 3000
+        text = "## S\n\n" + giant
+        chunks = chunk_markdown(text, max_chunk_size=500)
+        fragment_chunks = [c for c in chunks if c["chunk_type"] == "fragment"]
+        assert len(fragment_chunks) >= 2
+        # Fixed chunks have 50-char overlap
+        assert fragment_chunks[0]["text"][-50:] == fragment_chunks[1]["text"][:50]

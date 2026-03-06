@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 # Frontmatter fields excluded from search indexing (display/config only)
 FRONTMATTER_EXCLUDE = {"cssclass", "cssclasses", "aliases", "publish", "permalink"}
 
+OVERLAP_SENTENCES = 2
+
 
 def _fixed_chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """Split text into overlapping chunks by character count (fallback chunker)."""
@@ -180,32 +182,65 @@ def _split_sentences(text: str) -> list[str]:
 def _chunk_sentences(
     text: str, heading: str, heading_chain: list[str], max_chunk_size: int
 ) -> list[dict]:
-    """Accumulate sentences into chunks, falling back to fixed chunks for oversized ones."""
+    """Accumulate sentences into chunks with overlap carry-forward.
+
+    When flushing a buffer, the last OVERLAP_SENTENCES sentences are
+    carried forward as the start of the next chunk for continuity.
+    """
     sentences = _split_sentences(text)
     if not sentences:
         return []
 
     chunks: list[dict] = []
-    current = ""
+    buffer: list[str] = []
+    buf_len = 0
 
     for sentence in sentences:
-        candidate = (current + " " + sentence).strip() if current else sentence
-        if len(candidate) <= max_chunk_size:
-            current = candidate
+        added_len = len(sentence) + (1 if buffer else 0)  # space separator
+        if buf_len + added_len <= max_chunk_size:
+            buffer.append(sentence)
+            buf_len += added_len
         else:
             # Flush current buffer
-            if current:
+            if buffer:
                 chunks.append({
-                    "text": current,
+                    "text": " ".join(buffer),
                     "heading": heading,
                     "heading_chain": heading_chain,
                     "chunk_type": "sentence",
                 })
-                current = ""
-            # Check if this single sentence fits
-            if len(sentence) <= max_chunk_size:
-                current = sentence
+                # Carry forward last N sentences
+                carry = buffer[-OVERLAP_SENTENCES:]
+                buffer = list(carry)
+                buf_len = sum(len(s) for s in buffer) + max(0, len(buffer) - 1)
+
+            # Check if this single sentence fits (with carry-forward)
+            added_len = len(sentence) + (1 if buffer else 0)
+            if buf_len + added_len <= max_chunk_size:
+                buffer.append(sentence)
+                buf_len += added_len
+            elif len(sentence) <= max_chunk_size:
+                # Sentence fits alone but not with carry — flush carry, start fresh
+                if buffer:
+                    chunks.append({
+                        "text": " ".join(buffer),
+                        "heading": heading,
+                        "heading_chain": heading_chain,
+                        "chunk_type": "sentence",
+                    })
+                buffer = [sentence]
+                buf_len = len(sentence)
             else:
+                # Flush any carry-forward before fragments
+                if buffer:
+                    chunks.append({
+                        "text": " ".join(buffer),
+                        "heading": heading,
+                        "heading_chain": heading_chain,
+                        "chunk_type": "sentence",
+                    })
+                    buffer = []
+                    buf_len = 0
                 # Sentence too big — fall back to fixed chunking
                 for fragment in _fixed_chunk_text(sentence, chunk_size=max_chunk_size, overlap=50):
                     if fragment.strip():
@@ -216,9 +251,9 @@ def _chunk_sentences(
                             "chunk_type": "fragment",
                         })
 
-    if current.strip():
+    if buffer and " ".join(buffer).strip():
         chunks.append({
-            "text": current,
+            "text": " ".join(buffer),
             "heading": heading,
             "heading_chain": heading_chain,
             "chunk_type": "sentence",
