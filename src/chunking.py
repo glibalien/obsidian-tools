@@ -116,7 +116,7 @@ def _split_by_headings(text: str) -> list[tuple[str, list[str], str]]:
             in_fence = not in_fence
 
         # Check for heading (only outside code fences)
-        heading_match = None if in_fence else re.match(r"^(#{1,6}) (.+)", line)
+        heading_match = None if in_fence else re.match(r"^(#{1,6}) (.*)", line)
         if heading_match:
             # Save previous section
             content = "\n".join(current_lines)
@@ -125,7 +125,7 @@ def _split_by_headings(text: str) -> list[tuple[str, list[str], str]]:
 
             # Parse heading level and clean name
             level = len(heading_match.group(1))
-            clean_name = heading_match.group(2).strip()
+            clean_name = re.sub(r"\s+#+\s*$", "", heading_match.group(2)).strip()
 
             # Pop stack entries with level >= current
             while stack and stack[-1][0] >= level:

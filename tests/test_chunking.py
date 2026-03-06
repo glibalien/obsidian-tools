@@ -1808,6 +1808,29 @@ class TestSplitByHeadings:
         assert "code content" in sections[0][2]
 
 
+    def test_empty_heading(self):
+        """Headings with no text after the space are still treated as section breaks."""
+        text = "## \n\nContent under empty heading.\n\n## Real\n\nReal content."
+        sections = _split_by_headings(text)
+        assert len(sections) == 2
+        assert sections[0][0] == "##"
+        assert sections[0][1] == [""]
+        assert sections[1][0] == "## Real"
+
+    def test_closing_atx_markers_stripped(self):
+        """Trailing ## closing markers are stripped from heading_chain names."""
+        text = "## Title ## \n\nContent."
+        sections = _split_by_headings(text)
+        assert sections[0][1] == ["Title"]
+
+    def test_closing_markers_nested(self):
+        """Closing markers stripped at all nesting levels."""
+        text = "## Parent ##\n\nP.\n\n### Child ###\n\nC."
+        sections = _split_by_headings(text)
+        assert sections[0][1] == ["Parent"]
+        assert sections[1][1] == ["Parent", "Child"]
+
+
 class TestHeadingChainPropagation:
     """Tests for heading_chain propagation through chunk dicts."""
 
