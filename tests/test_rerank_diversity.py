@@ -183,6 +183,69 @@ class TestDiversify:
         assert len(diverse) == 3
 
 
+class TestHydeConfig:
+    """Config constants for HyDE."""
+
+    def test_hyde_enabled_default(self):
+        with patch("dotenv.load_dotenv"):
+            import config
+            importlib.reload(config)
+        assert config.HYDE_ENABLED is True
+
+    def test_hyde_enabled_false(self, monkeypatch):
+        monkeypatch.setenv("HYDE_ENABLED", "false")
+        with patch("dotenv.load_dotenv"):
+            import config
+            importlib.reload(config)
+        assert config.HYDE_ENABLED is False
+
+
+class TestIsQuestion:
+    """Tests for _is_question heuristic."""
+
+    def test_question_mark(self):
+        from hybrid_search import _is_question
+        assert _is_question("what is this about?") is True
+
+    def test_starts_with_question_word(self):
+        from hybrid_search import _is_question
+        assert _is_question("how does indexing work") is True
+        assert _is_question("what are the main features") is True
+        assert _is_question("why is this important") is True
+        assert _is_question("where do the logs go") is True
+        assert _is_question("when was this created") is True
+        assert _is_question("who wrote this") is True
+        assert _is_question("which model is used") is True
+
+    def test_starts_with_auxiliary_verb(self):
+        from hybrid_search import _is_question
+        assert _is_question("is the server running") is True
+        assert _is_question("are there any errors") is True
+        assert _is_question("does this support PDF") is True
+        assert _is_question("do we have tests for this") is True
+        assert _is_question("can I search by date") is True
+        assert _is_question("could this be improved") is True
+        assert _is_question("would this work with images") is True
+        assert _is_question("should I reindex") is True
+
+    def test_non_question_keyword(self):
+        from hybrid_search import _is_question
+        assert _is_question("meeting notes 2024") is False
+        assert _is_question("python programming") is False
+
+    def test_question_word_not_at_start(self):
+        from hybrid_search import _is_question
+        assert _is_question("notes about what happened") is False
+
+    def test_empty_query(self):
+        from hybrid_search import _is_question
+        assert _is_question("") is False
+
+    def test_whitespace_only_query(self):
+        from hybrid_search import _is_question
+        assert _is_question("   ") is False
+
+
 class TestSearchIntegration:
     """Tests that reranking and diversity are wired into search functions."""
 
@@ -280,3 +343,190 @@ class TestSearchIntegration:
         results = semantic_search("test", n_results=5)
         # MAX_CHUNKS_PER_SOURCE=3, so capped at 3
         assert len(results) == 3
+
+
+class TestGenerateHyde:
+    """Tests for _generate_hyde LLM call."""
+
+    @patch("hybrid_search.openai.OpenAI")
+    def test_returns_hypothetical_answer(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Indexing works by scanning files."
+        mock_client.chat.completions.create.return_value = mock_response
+
+        from hybrid_search import _generate_hyde
+        result = _generate_hyde("how does indexing work?")
+        assert result == "Indexing works by scanning files."
+
+    @patch("hybrid_search.openai.OpenAI")
+    def test_returns_none_on_empty_response(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+        mock_client.chat.completions.create.return_value = mock_response
+
+        from hybrid_search import _generate_hyde
+        assert _generate_hyde("test?") is None
+
+    @patch("hybrid_search.openai.OpenAI")
+    def test_returns_none_on_exception(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+
+        from hybrid_search import _generate_hyde
+        assert _generate_hyde("test?") is None
+
+
+class TestHydeIntegration:
+    """Tests for HyDE integration into semantic search."""
+
+    @patch("hybrid_search._generate_hyde", return_value="hypothetical answer text")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query")
+    def test_question_triggers_dual_search(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """Question queries should trigger HyDE dual search."""
+        mock_embed.side_effect = lambda q: [0.1]
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("how does indexing work?", n_results=5)
+
+        mock_hyde.assert_called_once_with("how does indexing work?")
+        # Two ChromaDB queries: original + hypothetical
+        assert mock_collection.query.call_count == 2
+
+    @patch("hybrid_search._generate_hyde")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_non_question_skips_hyde(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """Non-question queries should skip HyDE entirely."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("meeting notes 2024", n_results=5)
+
+        mock_hyde.assert_not_called()
+        assert mock_collection.query.call_count == 1
+
+    @patch("hybrid_search._generate_hyde", return_value=None)
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hyde_failure_falls_back(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """If HyDE generation fails, fall back to single query."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("how does this work?", n_results=5)
+
+        assert len(results) >= 1
+        assert mock_collection.query.call_count == 1
+
+    @patch("hybrid_search.HYDE_ENABLED", False)
+    @patch("hybrid_search._generate_hyde")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hyde_disabled_skips(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """When HYDE_ENABLED is False, skip even for questions."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("how does this work?", n_results=5)
+
+        mock_hyde.assert_not_called()
+
+    @patch("hybrid_search._generate_hyde", return_value="hypothetical answer text")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query")
+    def test_hyde_embed_failure_falls_back(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """If embed_query fails on HyDE text, fall back to standard results."""
+        from unittest.mock import MagicMock
+
+        # First call (standard query) succeeds, second call (HyDE) raises
+        mock_embed.side_effect = [
+            [0.1],  # standard embed succeeds
+            RuntimeError("embedding failed"),  # HyDE embed fails
+        ]
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("how does indexing work?", n_results=5)
+
+        # Should still return standard results despite HyDE failure
+        assert len(results) >= 1
+        assert results[0]["source"] == "a.md"
+        # Only one ChromaDB query (standard); HyDE query never reached
+        assert mock_collection.query.call_count == 1
+
+    @patch("hybrid_search._generate_hyde", return_value="hypothetical answer text")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hyde_query_failure_falls_back(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """If collection.query fails on HyDE embedding, fall back to standard results."""
+        from unittest.mock import MagicMock
+
+        mock_collection = MagicMock()
+        # First query (standard) succeeds, second (HyDE) raises
+        mock_collection.query.side_effect = [
+            {
+                "documents": [["doc1"]],
+                "metadatas": [[{"source": "a.md", "heading": ""}]],
+            },
+            RuntimeError("ChromaDB error"),
+        ]
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("how does indexing work?", n_results=5)
+
+        # Should still return standard results despite HyDE query failure
+        assert len(results) >= 1
+        assert results[0]["source"] == "a.md"

@@ -2,11 +2,13 @@
 """Hybrid search combining semantic and keyword matching with RRF merge."""
 
 import logging
+import os
 from collections import defaultdict
 
-from chromadb.errors import ChromaError
+import openai
 
-from config import KEYWORD_LIMIT, MAX_CHUNKS_PER_SOURCE, RRF_K
+from bm25_index import query_index as bm25_query
+from config import FIREWORKS_BASE_URL, FIREWORKS_MODEL, HYDE_ENABLED, MAX_CHUNKS_PER_SOURCE, RRF_K
 from services.chroma import embed_query, get_collection, rerank
 
 logger = logging.getLogger(__name__)
@@ -18,22 +20,90 @@ STOPWORDS = {
     "about", "into", "over", "also",
 }
 
+_QUESTION_WORDS = {
+    "who", "what", "where", "when", "why", "how", "which",
+    "is", "are", "does", "do", "can", "could", "would", "should",
+}
+
+
+def _is_question(query: str) -> bool:
+    """Detect whether a query is a question using simple heuristics."""
+    if not query or not query.strip():
+        return False
+    if query.rstrip().endswith("?"):
+        return True
+    first_word = query.split()[0].lower().strip(".,!?;:\"'()[]{}")
+    return first_word in _QUESTION_WORDS
+
+
+_HYDE_PROMPT = (
+    "Write a short paragraph that would answer this question "
+    "in the context of a personal knowledge base:\n{query}"
+)
+
+
+def _generate_hyde(query: str) -> str | None:
+    """Generate a hypothetical document that answers the query.
+
+    Returns None on any failure so the caller falls back to standard search.
+    """
+    try:
+        client = openai.OpenAI(
+            base_url=FIREWORKS_BASE_URL,
+            api_key=os.environ.get("FIREWORKS_API_KEY", ""),
+        )
+        response = client.chat.completions.create(
+            model=FIREWORKS_MODEL,
+            messages=[{"role": "user", "content": _HYDE_PROMPT.format(query=query)}],
+            max_tokens=150,
+            temperature=0.5,
+        )
+        content = response.choices[0].message.content
+        if not content:
+            return None
+        return content
+    except Exception as e:
+        logger.warning("HyDE generation failed: %s", e)
+        return None
+
 
 def _semantic_retrieve(
     query: str, n_results: int = 5, chunk_type: str | None = None
 ) -> list[dict[str, str]]:
-    """Raw semantic retrieval without reranking or diversity."""
+    """Raw semantic retrieval, with optional HyDE for question queries."""
     collection = get_collection()
+
+    # Standard query
     query_embedding = embed_query(query)
     query_kwargs: dict = {"query_embeddings": [query_embedding], "n_results": n_results}
     if chunk_type:
         query_kwargs["where"] = {"chunk_type": chunk_type}
     results = collection.query(**query_kwargs)
 
-    return [
+    standard_results = [
         {"source": metadata["source"], "content": doc, "heading": metadata.get("heading", "")}
         for doc, metadata in zip(results["documents"][0], results["metadatas"][0])
     ]
+
+    # HyDE: generate hypothetical answer, embed, search, merge via RRF
+    if HYDE_ENABLED and _is_question(query):
+        hyde_text = _generate_hyde(query)
+        if hyde_text:
+            try:
+                hyde_embedding = embed_query(hyde_text)
+                hyde_kwargs: dict = {"query_embeddings": [hyde_embedding], "n_results": n_results}
+                if chunk_type:
+                    hyde_kwargs["where"] = {"chunk_type": chunk_type}
+                hyde_raw = collection.query(**hyde_kwargs)
+                hyde_results = [
+                    {"source": m["source"], "content": d, "heading": m.get("heading", "")}
+                    for d, m in zip(hyde_raw["documents"][0], hyde_raw["metadatas"][0])
+                ]
+                return merge_results(standard_results, hyde_results, n_results=n_results)
+            except Exception as e:
+                logger.warning("HyDE retrieval failed, falling back to standard results: %s", e)
+
+    return standard_results
 
 
 def semantic_search(
@@ -66,72 +136,11 @@ def _extract_query_terms(query: str) -> list[str]:
     return terms
 
 
-def _case_variants(terms: list[str]) -> list[str]:
-    """Generate case variants for ChromaDB $contains (which is case-sensitive).
-
-    For each term, produces lowercase and title-case variants, deduplicated.
-    """
-    variants = []
-    seen = set()
-    for t in terms:
-        for v in (t, t.title()):
-            if v not in seen:
-                seen.add(v)
-                variants.append(v)
-    return variants
-
-
 def _keyword_retrieve(
     query: str, n_results: int = 5, chunk_type: str | None = None
 ) -> list[dict[str, str]]:
-    """Raw keyword retrieval without reranking or diversity."""
-    terms = _extract_query_terms(query)
-    if not terms:
-        return []
-
-    collection = get_collection()
-
-    # Build filter with case variants (ChromaDB $contains is case-sensitive)
-    variants = _case_variants(terms)
-    if len(variants) == 1:
-        where_document = {"$contains": variants[0]}
-    else:
-        where_document = {"$or": [{"$contains": v} for v in variants]}
-
-    get_kwargs: dict = {
-        "where_document": where_document,
-        "include": ["documents", "metadatas"],
-        "limit": KEYWORD_LIMIT,
-    }
-    if chunk_type:
-        get_kwargs["where"] = {"chunk_type": chunk_type}
-
-    try:
-        matches = collection.get(**get_kwargs)
-    except ChromaError as e:
-        logger.warning("Keyword search failed: %s", e)
-        return []
-
-    if not matches["ids"]:
-        return []
-
-    # Count matching terms per chunk and build results
-    scored = []
-    for doc, metadata in zip(matches["documents"], matches["metadatas"]):
-        doc_lower = doc.lower()
-        hits = sum(doc_lower.count(t) for t in terms)
-        scored.append({
-            "source": metadata["source"],
-            "content": doc,
-            "heading": metadata.get("heading", ""),
-            "hits": hits,
-        })
-
-    scored.sort(key=lambda x: x["hits"], reverse=True)
-    return [
-        {"source": r["source"], "content": r["content"], "heading": r["heading"]}
-        for r in scored[:n_results]
-    ]
+    """Raw keyword retrieval via BM25 without reranking or diversity."""
+    return bm25_query(query, n_results=n_results, chunk_type=chunk_type)
 
 
 def keyword_search(

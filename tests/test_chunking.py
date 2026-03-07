@@ -372,13 +372,24 @@ class TestSearchHeadingMetadata:
         assert results[0]["heading"] == ""
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
+    @patch("bm25_index.get_collection")
     def test_keyword_search_includes_heading(self, mock_get_collection, _rerank):
+        import bm25_index
+        bm25_index.invalidate()
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": ["Some searchable content"],
-            "metadatas": [{"source": "file.md", "heading": "## Tasks", "chunk_type": "section"}],
+            "documents": [
+                "Some searchable content",
+                "unrelated document about weather patterns",
+                "another document discussing travel plans",
+                "notes from last week team standup meeting",
+            ],
+            "metadatas": [
+                {"source": "file.md", "heading": "## Tasks", "chunk_type": "section"},
+                {"source": "f1.md", "heading": "", "chunk_type": "section"},
+                {"source": "f2.md", "heading": "", "chunk_type": "section"},
+                {"source": "f3.md", "heading": "", "chunk_type": "section"},
+            ],
         }
         mock_get_collection.return_value = mock_collection
 
@@ -444,198 +455,214 @@ class TestChunkTypeFilter:
         assert "where" not in call_kwargs
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
+    @patch("bm25_index.get_collection")
     def test_keyword_search_with_chunk_type(self, mock_get_collection, _rerank):
-        """Keyword search passes chunk_type as where filter."""
+        """Keyword search passes chunk_type filter to BM25."""
+        import bm25_index
+        bm25_index.invalidate()
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": ["frontmatter content"],
-            "metadatas": [{"source": "file.md", "heading": "frontmatter", "chunk_type": "frontmatter"}],
+            "documents": [
+                "frontmatter content here",
+                "section content here too",
+                "unrelated document about weather patterns",
+                "another document discussing travel plans",
+                "notes from last week team standup meeting",
+            ],
+            "metadatas": [
+                {"source": "file.md", "heading": "frontmatter", "chunk_type": "frontmatter"},
+                {"source": "file.md", "heading": "", "chunk_type": "section"},
+                {"source": "f1.md", "heading": "", "chunk_type": "section"},
+                {"source": "f2.md", "heading": "", "chunk_type": "section"},
+                {"source": "f3.md", "heading": "", "chunk_type": "section"},
+            ],
         }
         mock_get_collection.return_value = mock_collection
 
         from hybrid_search import keyword_search
-        keyword_search("content", n_results=5, chunk_type="frontmatter")
+        results = keyword_search("content", n_results=5, chunk_type="frontmatter")
 
-        call_kwargs = mock_collection.get.call_args[1]
-        assert call_kwargs["where"] == {"chunk_type": "frontmatter"}
+        assert len(results) >= 1
+        assert all(r["heading"] == "frontmatter" for r in results)
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
+    @patch("bm25_index.get_collection")
     def test_keyword_search_no_chunk_type(self, mock_get_collection, _rerank):
-        """Keyword search without chunk_type sends no where filter."""
+        """Keyword search without chunk_type returns all chunk types."""
+        import bm25_index
+        bm25_index.invalidate()
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": ["some content"],
-            "metadatas": [{"source": "file.md", "heading": "", "chunk_type": "section"}],
+            "documents": [
+                "some content here",
+                "other content here",
+                "unrelated document about weather patterns",
+                "another document discussing travel plans",
+                "notes from last week team standup meeting",
+            ],
+            "metadatas": [
+                {"source": "file.md", "heading": "", "chunk_type": "section"},
+                {"source": "file2.md", "heading": "frontmatter", "chunk_type": "frontmatter"},
+                {"source": "f1.md", "heading": "", "chunk_type": "section"},
+                {"source": "f2.md", "heading": "", "chunk_type": "section"},
+                {"source": "f3.md", "heading": "", "chunk_type": "section"},
+            ],
         }
         mock_get_collection.return_value = mock_collection
 
         from hybrid_search import keyword_search
-        keyword_search("content", n_results=5)
+        results = keyword_search("content", n_results=5)
 
-        call_kwargs = mock_collection.get.call_args[1]
-        assert "where" not in call_kwargs
+        assert len(results) == 2
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.embed_query", return_value=[0.1])
     @patch("hybrid_search.get_collection")
-    def test_hybrid_search_passes_chunk_type(self, mock_get_collection, mock_embed, _rerank):
+    @patch("bm25_index.get_collection")
+    def test_hybrid_search_passes_chunk_type(self, mock_bm25_collection, mock_get_collection, mock_embed, _rerank):
         """Hybrid search passes chunk_type through to both sub-searches."""
+        import bm25_index
+        bm25_index.invalidate()
+
+        # Semantic search mock
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
             "documents": [["content"]],
             "metadatas": [[{"source": "a.md", "heading": "", "chunk_type": "frontmatter"}]],
         }
-        mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": ["content"],
-            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "frontmatter"}],
-        }
         mock_get_collection.return_value = mock_collection
+
+        # BM25 mock (needs filler docs for positive IDF scores)
+        mock_bm25_col = MagicMock()
+        mock_bm25_col.get.return_value = {
+            "documents": [
+                "content about frontmatter",
+                "unrelated document about weather patterns",
+                "another document discussing travel plans",
+                "notes from last week team standup meeting",
+            ],
+            "metadatas": [
+                {"source": "a.md", "heading": "", "chunk_type": "frontmatter"},
+                {"source": "f1.md", "heading": "", "chunk_type": "section"},
+                {"source": "f2.md", "heading": "", "chunk_type": "section"},
+                {"source": "f3.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_bm25_collection.return_value = mock_bm25_col
 
         from hybrid_search import hybrid_search
         hybrid_search("test query", n_results=5, chunk_type="frontmatter")
 
-        # Both semantic (query) and keyword (get) should have where filter
+        # Semantic search should have where filter
         query_kwargs = mock_collection.query.call_args[1]
-        get_kwargs = mock_collection.get.call_args[1]
         assert query_kwargs["where"] == {"chunk_type": "frontmatter"}
-        assert get_kwargs["where"] == {"chunk_type": "frontmatter"}
 
 
 class TestKeywordSearchOptimization:
-    """Tests for optimized single-query keyword search."""
+    """Tests for BM25-based keyword search."""
 
-    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
-    def test_single_term_includes_case_variants(self, mock_get_collection, _rerank):
-        """Single-term query should include case variants in $or."""
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": ["some content here"],
-            "metadatas": [{"source": "a.md", "heading": "## H", "chunk_type": "section"}],
+    # Filler docs so BM25 corpus is large enough for positive IDF scores.
+    _FILLER_DOCS = [
+        "unrelated document about weather patterns",
+        "another document discussing travel plans",
+        "notes from last week team standup meeting",
+        "quarterly budget review spreadsheet data",
+        "random thoughts journal entry morning coffee",
+    ]
+    _FILLER_META = [
+        {"source": f"filler{i}.md", "heading": "", "chunk_type": "section"}
+        for i in range(5)
+    ]
+
+    def setup_method(self):
+        import bm25_index
+        bm25_index.invalidate()
+
+    def _corpus(self, docs, metas):
+        """Build a collection mock with filler docs for realistic IDF."""
+        return {
+            "documents": docs + self._FILLER_DOCS,
+            "metadatas": metas + self._FILLER_META,
         }
-        mock_get_collection.return_value = mock_collection
-
-        from hybrid_search import keyword_search
-        keyword_search("content", n_results=5)
-
-        call_kwargs = mock_collection.get.call_args[1]
-        where_doc = call_kwargs["where_document"]
-        contains_values = [c["$contains"] for c in where_doc["$or"]]
-        assert "content" in contains_values
-        assert "Content" in contains_values
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
-    def test_multi_term_uses_or_query(self, mock_get_collection, _rerank):
-        """Multi-term query should combine terms with $or."""
+    @patch("bm25_index.get_collection")
+    def test_keyword_search_returns_bm25_results(self, mock_get_collection, _rerank):
+        """Keyword search returns results from BM25 index."""
         mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "ids": ["id1", "id2"],
-            "documents": ["alpha bravo content", "bravo only content"],
-            "metadatas": [
+        mock_collection.get.return_value = self._corpus(
+            ["alpha bravo content", "bravo only content"],
+            [
                 {"source": "a.md", "heading": "", "chunk_type": "section"},
                 {"source": "b.md", "heading": "", "chunk_type": "section"},
             ],
-        }
+        )
         mock_get_collection.return_value = mock_collection
 
         from hybrid_search import keyword_search
         results = keyword_search("alpha bravo", n_results=5)
 
-        call_kwargs = mock_collection.get.call_args[1]
-        where_doc = call_kwargs["where_document"]
-        assert "$or" in where_doc
-        contains_values = [c["$contains"] for c in where_doc["$or"]]
-        assert "alpha" in contains_values
-        assert "Alpha" in contains_values
-        assert "bravo" in contains_values
-        assert "Bravo" in contains_values
+        assert len(results) >= 1
+        sources = [r["source"] for r in results]
+        assert "a.md" in sources
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
-    def test_multi_term_ranked_by_hit_count(self, mock_get_collection, _rerank):
-        """Results should be ranked by number of matching terms."""
+    @patch("bm25_index.get_collection")
+    def test_keyword_search_case_insensitive(self, mock_get_collection, _rerank):
+        """BM25 keyword search is case-insensitive via tokenization."""
         mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "ids": ["id1", "id2"],
-            "documents": ["alpha bravo content", "bravo only content"],
-            "metadatas": [
-                {"source": "a.md", "heading": "", "chunk_type": "section"},
-                {"source": "b.md", "heading": "", "chunk_type": "section"},
-            ],
-        }
+        mock_collection.get.return_value = self._corpus(
+            ["Adam Bird is here for a meeting"],
+            [{"source": "a.md", "heading": "", "chunk_type": "section"}],
+        )
         mock_get_collection.return_value = mock_collection
 
         from hybrid_search import keyword_search
-        results = keyword_search("alpha bravo", n_results=5)
-
-        # a.md matches both terms, b.md matches one
+        # Query in lowercase should match title-case content
+        results = keyword_search("adam bird", n_results=5)
+        assert len(results) >= 1
         assert results[0]["source"] == "a.md"
-        assert results[1]["source"] == "b.md"
 
     @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
-    def test_query_uses_limit(self, mock_get_collection, _rerank):
-        """Query should include a limit parameter."""
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {"ids": [], "documents": [], "metadatas": []}
-        mock_get_collection.return_value = mock_collection
-
-        from hybrid_search import keyword_search
-        keyword_search("something", n_results=5)
-
-        call_kwargs = mock_collection.get.call_args[1]
-        assert "limit" in call_kwargs
-        assert call_kwargs["limit"] == 200
-
-    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
-    def test_term_frequency_ranking(self, mock_get_collection, _rerank):
-        """Results ranked by term frequency, not just presence."""
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "ids": ["id1", "id2"],
-            "documents": [
-                "project mentioned once",
-                "project project project mentioned many times project",
-            ],
-            "metadatas": [
-                {"source": "once.md", "heading": "", "chunk_type": "section"},
-                {"source": "many.md", "heading": "", "chunk_type": "section"},
-            ],
-        }
-        mock_get_collection.return_value = mock_collection
-
-        from hybrid_search import keyword_search
-        results = keyword_search("project", n_results=5)
-
-        # many.md has 4 occurrences, once.md has 1
-        assert results[0]["source"] == "many.md"
-        assert results[1]["source"] == "once.md"
-
-    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
+    @patch("bm25_index.get_collection")
     def test_keyword_results_not_truncated(self, mock_get_collection, _rerank):
-        """Keyword results return full chunk content, not truncated to 500 chars."""
-        long_content = "x" * 1000
+        """Keyword results return full chunk content, not truncated."""
+        long_content = "keyword " * 200  # Long content with matching term
         mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": [long_content],
-            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "section"}],
-        }
+        mock_collection.get.return_value = self._corpus(
+            [long_content],
+            [{"source": "a.md", "heading": "", "chunk_type": "section"}],
+        )
         mock_get_collection.return_value = mock_collection
 
         from hybrid_search import keyword_search
-        results = keyword_search("xxx", n_results=5)
+        results = keyword_search("keyword", n_results=5)
 
-        assert len(results[0]["content"]) == 1000
+        assert len(results[0]["content"]) == len(long_content)
+
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("bm25_index.get_collection")
+    def test_idf_ranks_rare_terms_higher(self, mock_get_collection, _rerank):
+        """BM25 IDF weighting ranks rare terms higher than common ones."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = self._corpus(
+            [
+                "common common common words here",
+                "common words and rare unique term",
+            ],
+            [
+                {"source": "common_only.md", "heading": "", "chunk_type": "section"},
+                {"source": "has_rare.md", "heading": "", "chunk_type": "section"},
+            ],
+        )
+        mock_get_collection.return_value = mock_collection
+
+        from hybrid_search import keyword_search
+        # Searching for "rare" should rank has_rare.md first (or only)
+        results = keyword_search("rare", n_results=5)
+
+        assert len(results) >= 1
+        assert results[0]["source"] == "has_rare.md"
 
     def test_expanded_stopwords(self):
         """Common English words are filtered from queries."""
@@ -652,36 +679,6 @@ class TestKeywordSearchOptimization:
         assert "for" not in terms
         assert "project" in terms
         assert "testing" in terms
-
-    @pytest.mark.parametrize(
-        ("query", "expected_variants"),
-        [
-            ("Adam Bird", ["adam", "Adam", "bird", "Bird"]),
-            ("Adam", ["adam", "Adam"]),
-            ("adam bird", ["adam", "Adam", "bird", "Bird"]),
-        ],
-        ids=["mixed_case_multi", "single_term", "lowercase_multi"],
-    )
-    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
-    @patch("hybrid_search.get_collection")
-    def test_case_insensitive_contains(self, mock_get_collection, _rerank, query, expected_variants):
-        """Keyword search should include case variants in $contains query."""
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "ids": ["id1"],
-            "documents": ["Adam Bird is here"],
-            "metadatas": [{"source": "a.md", "heading": "", "chunk_type": "section"}],
-        }
-        mock_get_collection.return_value = mock_collection
-
-        from hybrid_search import keyword_search
-        keyword_search(query, n_results=5)
-
-        call_kwargs = mock_collection.get.call_args[1]
-        where_doc = call_kwargs["where_document"]
-        contains_values = [c["$contains"] for c in where_doc["$or"]]
-        for variant in expected_variants:
-            assert variant in contains_values
 
 
 class TestStripWikilinkBrackets:
@@ -1185,6 +1182,7 @@ class TestIndexVaultManifest:
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
              patch("index_vault.mark_run"), \
+             patch("index_vault.touch_bm25_stamp"), \
              patch("builtins.open", side_effect=OSError("disk full")):
             mock_coll.return_value.count.return_value = 5
             index_vault(full=False)
