@@ -1,5 +1,6 @@
 """Tests for BM25 index module."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -489,15 +490,17 @@ class TestCrossProcessFreshness:
 
 
 class TestInvalidateCalledByIndexer:
-    """Verify index_vault calls bm25_index.invalidate()."""
+    """Verify index_vault calls bm25 invalidation."""
 
     @patch("index_vault.embed_documents", return_value=[])
     @patch("index_vault.get_collection")
     @patch("index_vault.get_vault_files", return_value=[])
+    @patch("index_vault.touch_bm25_stamp")
     @patch("index_vault.invalidate_bm25")
     def test_index_vault_invalidates_bm25(
-        self, mock_invalidate, mock_files, mock_coll, mock_embed
+        self, mock_invalidate, mock_stamp, mock_files, mock_coll, mock_embed
     ):
+        """In-process invalidate is always called."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {"ids": [], "metadatas": []}
         mock_collection.count.return_value = 0
@@ -507,3 +510,48 @@ class TestInvalidateCalledByIndexer:
         index_vault(full=True)
 
         mock_invalidate.assert_called_once()
+
+    @patch("index_vault.embed_documents")
+    @patch("index_vault.get_collection")
+    @patch("index_vault.get_vault_files")
+    @patch("index_vault.touch_bm25_stamp")
+    @patch("index_vault.invalidate_bm25")
+    def test_stamp_touched_on_successful_upserts(
+        self, mock_invalidate, mock_stamp, mock_files, mock_coll, mock_embed
+    ):
+        """Stamp should be touched when DB mutations succeed."""
+        tmp_file = Path("/tmp/test_bm25_stamp.md")
+        tmp_file.write_text("# Test\nContent here for indexing")
+        try:
+            mock_files.return_value = [tmp_file]
+            mock_embed.return_value = [[0.1]]
+            mock_collection = MagicMock()
+            mock_collection.get.return_value = {"ids": [], "metadatas": []}
+            mock_collection.count.return_value = 1
+            mock_coll.return_value = mock_collection
+
+            from index_vault import index_vault
+            index_vault(full=True)
+
+            mock_stamp.assert_called_once()
+        finally:
+            tmp_file.unlink(missing_ok=True)
+
+    @patch("index_vault.embed_documents", return_value=[])
+    @patch("index_vault.get_collection")
+    @patch("index_vault.get_vault_files", return_value=[])
+    @patch("index_vault.touch_bm25_stamp")
+    @patch("index_vault.invalidate_bm25")
+    def test_stamp_not_touched_when_no_mutations(
+        self, mock_invalidate, mock_stamp, mock_files, mock_coll, mock_embed
+    ):
+        """Stamp should NOT be touched when no DB mutations occurred."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.count.return_value = 0
+        mock_coll.return_value = mock_collection
+
+        from index_vault import index_vault
+        index_vault(full=True)
+
+        mock_stamp.assert_not_called()

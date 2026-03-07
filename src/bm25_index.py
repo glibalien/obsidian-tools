@@ -79,10 +79,28 @@ def _build_index() -> tuple:
     return bm25, doc_metadata
 
 
+_BM25_STAMP = ".bm25_stamp"
+
+
+def get_stamp_path() -> str:
+    """Return path to the BM25 invalidation stamp file."""
+    return os.path.join(CHROMA_PATH, _BM25_STAMP)
+
+
+def touch_stamp() -> None:
+    """Write the BM25 stamp file to signal cross-process cache invalidation.
+
+    Called by index_vault after any successful ChromaDB mutation.
+    """
+    os.makedirs(CHROMA_PATH, exist_ok=True)
+    with open(get_stamp_path(), "w") as f:
+        f.write("")
+
+
 def _get_marker_mtime() -> float | None:
-    """Get mtime of the indexer's last-run marker for cross-process freshness."""
+    """Get mtime of the BM25 stamp for cross-process freshness."""
     try:
-        return os.path.getmtime(os.path.join(CHROMA_PATH, ".last_indexed"))
+        return os.path.getmtime(get_stamp_path())
     except OSError:
         return None
 

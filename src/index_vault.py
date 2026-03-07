@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
 from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, UPSERT_BATCH_SIZE, setup_logging
-from bm25_index import invalidate as invalidate_bm25
+from bm25_index import invalidate as invalidate_bm25, touch_stamp as touch_bm25_stamp
 from services.chroma import embed_documents, get_collection, purge_database
 from services.vault import get_vault_files
 
@@ -311,6 +311,12 @@ def index_vault(full: bool = False) -> None:
         logger.warning("Skipping last-run update due to %s failure(s) — next run will retry", failed)
     else:
         mark_run(scan_start)
+
+    # Invalidate BM25 cache if any DB mutations occurred (deletes, upserts, prunes).
+    # touch_bm25_stamp signals cross-process; invalidate_bm25 handles same-process.
+    db_mutated = bool(sources_to_delete - delete_failed) or (total_chunks > 0 and upsert_failures < n_batches) or pruned > 0
+    if db_mutated:
+        touch_bm25_stamp()
     invalidate_bm25()
     logger.info("Done. Indexed %s new/modified files (%s failed). Pruned %s deleted source(s). Total chunks: %s",
                 indexed, failed, pruned, collection.count())

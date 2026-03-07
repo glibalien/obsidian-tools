@@ -1182,6 +1182,7 @@ class TestIndexVaultManifest:
              patch("index_vault.get_collection") as mock_coll, \
              patch("index_vault.prune_deleted_files", return_value=0) as mock_prune, \
              patch("index_vault.mark_run"), \
+             patch("index_vault.touch_bm25_stamp"), \
              patch("builtins.open", side_effect=OSError("disk full")):
             mock_coll.return_value.count.return_value = 5
             index_vault(full=False)
