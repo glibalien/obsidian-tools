@@ -374,3 +374,24 @@ class TestInvalidate:
         bm25_index.invalidate()
         assert bm25_index._bm25 is None
         assert bm25_index._doc_metadata is None
+
+
+class TestInvalidateCalledByIndexer:
+    """Verify index_vault calls bm25_index.invalidate()."""
+
+    @patch("index_vault.embed_documents", return_value=[])
+    @patch("index_vault.get_collection")
+    @patch("index_vault.get_vault_files", return_value=[])
+    @patch("index_vault.invalidate_bm25")
+    def test_index_vault_invalidates_bm25(
+        self, mock_invalidate, mock_files, mock_coll, mock_embed
+    ):
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.count.return_value = 0
+        mock_coll.return_value = mock_collection
+
+        from index_vault import index_vault
+        index_vault(full=True)
+
+        mock_invalidate.assert_called_once()

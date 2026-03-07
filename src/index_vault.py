@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from chunking import _parse_frontmatter, chunk_markdown
 from config import VAULT_PATH, CHROMA_PATH, INDEX_WORKERS, UPSERT_BATCH_SIZE, setup_logging
+from bm25_index import invalidate as invalidate_bm25
 from services.chroma import embed_documents, get_collection, purge_database
 from services.vault import get_vault_files
 
@@ -310,6 +311,7 @@ def index_vault(full: bool = False) -> None:
         logger.warning("Skipping last-run update due to %s failure(s) — next run will retry", failed)
     else:
         mark_run(scan_start)
+    invalidate_bm25()
     logger.info("Done. Indexed %s new/modified files (%s failed). Pruned %s deleted source(s). Total chunks: %s",
                 indexed, failed, pruned, collection.count())
 
