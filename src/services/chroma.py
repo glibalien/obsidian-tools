@@ -161,11 +161,13 @@ def rerank(query: str, results: list[dict]) -> list[dict]:
     pairs = [(query, r["content"]) for r in results]
     try:
         scores = model.predict(pairs)
+        scored = sorted(
+            zip(scores, results), key=lambda x: float(x[0]), reverse=True
+        )
     except Exception as e:
         logger.warning("Reranking failed: %s", e)
         return results
 
-    scored = sorted(zip(scores, results), key=lambda x: x[0], reverse=True)
     return [r for _, r in scored]
 
 
