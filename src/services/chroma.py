@@ -16,7 +16,7 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 from chromadb.telemetry.product.posthog import Posthog as _Posthog
 _Posthog.capture = lambda self, event: None  # type: ignore[assignment]
 
-from config import CHROMA_PATH, EMBEDDING_MODEL
+from config import CHROMA_PATH, EMBEDDING_MODEL, RERANK_ENABLED, RERANK_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,8 @@ _lock = threading.RLock()
 _client = None
 _collection = None
 _embedding_function = None
+_reranker = None
+_reranker_failed = False
 
 # Nomic models require task prefixes for optimal quality.
 _NOMIC_MODEL = "nomic" in EMBEDDING_MODEL.lower()
@@ -111,6 +113,62 @@ def embed_query(text: str) -> list:
     return ef([text])[0]
 
 
+def get_reranker():
+    """Get or create the cross-encoder reranker (lazy singleton, thread-safe).
+
+    Returns None if the model fails to load (sets _reranker_failed flag).
+    """
+    global _reranker, _reranker_failed
+    if _reranker_failed:
+        return None
+    if _reranker is None:
+        with _lock:
+            if _reranker is None and not _reranker_failed:
+                try:
+                    from sentence_transformers import CrossEncoder
+                    _reranker = CrossEncoder(
+                        RERANK_MODEL,
+                        device="cuda" if _cuda_available() else "cpu",
+                    )
+                except Exception as e:
+                    _reranker_failed = True
+                    logger.error("Failed to load reranker model %s: %s", RERANK_MODEL, e)
+                    return None
+    return _reranker
+
+
+def rerank(query: str, results: list[dict]) -> list[dict]:
+    """Rerank search results using a cross-encoder model.
+
+    Scores (query, content) pairs and sorts by score descending.
+    Falls back to original ordering if reranking is disabled or the
+    model failed to load.
+
+    Args:
+        query: The search query.
+        results: List of result dicts (must have 'content' key).
+
+    Returns:
+        Results sorted by cross-encoder score, or unchanged if skipped.
+    """
+    if not results or not RERANK_ENABLED or _reranker_failed:
+        return results
+
+    model = get_reranker()
+    if model is None:
+        return results
+
+    pairs = [(query, r["content"]) for r in results]
+    try:
+        scores = model.predict(pairs)
+    except Exception as e:
+        logger.warning("Reranking failed: %s", e)
+        return results
+
+    scored = sorted(zip(scores, results), key=lambda x: x[0], reverse=True)
+    return [r for _, r in scored]
+
+
 def get_client() -> chromadb.PersistentClient:
     """Get or create ChromaDB client (lazy singleton, thread-safe)."""
     global _client
@@ -151,7 +209,9 @@ def purge_database() -> None:
 
 def reset():
     """Reset singletons (for testing)."""
-    global _client, _collection, _embedding_function
+    global _client, _collection, _embedding_function, _reranker, _reranker_failed
     _client = None
     _collection = None
     _embedding_function = None
+    _reranker = None
+    _reranker_failed = False
