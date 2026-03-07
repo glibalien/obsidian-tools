@@ -241,6 +241,10 @@ class TestIsQuestion:
         from hybrid_search import _is_question
         assert _is_question("") is False
 
+    def test_whitespace_only_query(self):
+        from hybrid_search import _is_question
+        assert _is_question("   ") is False
+
 
 class TestSearchIntegration:
     """Tests that reranking and diversity are wired into search functions."""

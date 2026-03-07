@@ -28,7 +28,7 @@ _QUESTION_WORDS = {
 
 def _is_question(query: str) -> bool:
     """Detect whether a query is a question using simple heuristics."""
-    if not query:
+    if not query or not query.strip():
         return False
     if query.rstrip().endswith("?"):
         return True
