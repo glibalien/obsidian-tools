@@ -618,3 +618,50 @@ class TestInvalidateCalledByIndexer:
         index_vault(full=True)
 
         mock_stamp.assert_not_called()
+
+    def test_reset_flow_touches_stamp_after_purge(self):
+        """The --reset code path calls touch_bm25_stamp() after purge_database().
+
+        Without this, a cross-process BM25 cache that was built when no stamp
+        existed (_built_at_mtime = None) would see None→None after the reset
+        and keep serving stale results from the wiped DB.
+        """
+        import ast
+        from pathlib import Path
+
+        source = Path(__file__).resolve().parent.parent / "src" / "index_vault.py"
+        tree = ast.parse(source.read_text())
+
+        # Find the __main__ guard
+        main_block = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and isinstance(node.test, ast.Compare):
+                if (isinstance(node.test.left, ast.Name) and
+                        node.test.left.id == "__name__"):
+                    main_block = node
+                    break
+
+        assert main_block is not None, "__main__ block not found"
+
+        # Collect function call names in order within the reset branch
+        reset_branch = None
+        for node in ast.walk(main_block):
+            if isinstance(node, ast.If) and isinstance(node.test, ast.Name):
+                if node.test.id == "reset_db":
+                    reset_branch = node
+                    break
+
+        assert reset_branch is not None, "reset_db branch not found"
+
+        calls = []
+        for node in ast.walk(reset_branch):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    calls.append(node.func.id)
+
+        assert "purge_database" in calls, "purge_database not called in reset branch"
+        assert "touch_bm25_stamp" in calls, "touch_bm25_stamp not called in reset branch"
+        # Stamp must come after purge
+        purge_idx = calls.index("purge_database")
+        stamp_idx = calls.index("touch_bm25_stamp")
+        assert stamp_idx > purge_idx, "touch_bm25_stamp must come after purge_database"

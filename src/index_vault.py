@@ -329,6 +329,7 @@ if __name__ == "__main__":
     if reset_db:
         print("Deleting ChromaDB database and rebuilding from scratch...")
         purge_database()
+        touch_bm25_stamp()
         full_reindex = True
     elif full_reindex:
         print("Running full reindex...")
