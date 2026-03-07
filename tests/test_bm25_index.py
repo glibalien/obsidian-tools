@@ -351,6 +351,36 @@ class TestQueryIndex:
         assert len(results) == 3
 
     @patch("bm25_index.get_collection")
+    def test_zero_idf_matches_still_returned(self, mock_get_collection):
+        """Matches with zero BM25 IDF (term in exactly half the corpus) must be returned.
+
+        BM25 IDF = log((N - n + 0.5) / (n + 0.5)). When n = N/2 (e.g. 1 of 2 docs),
+        IDF = 0 and the score is 0, but the document genuinely contains the term.
+        """
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "documents": [
+                "python programming tutorial",
+                "cooking recipes for beginners",
+            ],
+            "metadatas": [
+                {"source": "/vault/python.md", "heading": "", "chunk_type": "section"},
+                {"source": "/vault/cooking.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        import bm25_index
+        # "python" appears in 1 of 2 docs → IDF ≈ 0 → score ≈ 0
+        results = bm25_index.query_index("python", n_results=5)
+        # The matching doc should still be returned
+        assert len(results) >= 1
+        sources = [r["source"] for r in results]
+        assert "/vault/python.md" in sources
+        # The non-matching doc should not appear
+        assert "/vault/cooking.md" not in sources
+
+    @patch("bm25_index.get_collection")
     def test_missing_heading_defaults_to_empty(self, mock_get_collection):
         """When metadata has no heading key, default to empty string."""
         mock_collection = MagicMock()

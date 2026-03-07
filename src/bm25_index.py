@@ -21,6 +21,7 @@ STOPWORDS = {
 _lock = threading.RLock()
 _bm25 = None
 _doc_metadata = None
+_token_to_docs: dict[str, set[int]] = {}
 _built_at_mtime: float | None = None
 
 
@@ -36,7 +37,7 @@ def _tokenize(text: str) -> list[str]:
 
 def _empty_index() -> tuple:
     """Return an empty BM25 index."""
-    return BM25Okapi([[""]]), []
+    return BM25Okapi([[""]]), [], {}
 
 
 def _build_index() -> tuple[bool, tuple]:
@@ -62,6 +63,14 @@ def _build_index() -> tuple[bool, tuple]:
 
     tokenized = [_tokenize(doc) for doc in documents]
 
+    # Build inverted index: token -> set of doc indices that contain it.
+    # Used at query time to identify matching docs regardless of BM25 score
+    # (IDF can be zero when a term appears in exactly half the corpus).
+    token_to_docs: dict[str, set[int]] = {}
+    for idx, tokens in enumerate(tokenized):
+        for token in set(tokens):  # dedupe per doc
+            token_to_docs.setdefault(token, set()).add(idx)
+
     # BM25Okapi requires non-empty token lists; use [""] for empty docs
     corpus = [tokens if tokens else [""] for tokens in tokenized]
     bm25 = BM25Okapi(corpus)
@@ -76,7 +85,7 @@ def _build_index() -> tuple[bool, tuple]:
         })
 
     logger.info("Built BM25 index with %d documents", len(doc_metadata))
-    return True, (bm25, doc_metadata)
+    return True, (bm25, doc_metadata, token_to_docs)
 
 
 _BM25_STAMP = ".bm25_stamp"
@@ -112,20 +121,20 @@ def _get_index() -> tuple:
     rebuilds when stale. Failed builds are not cached so the next
     call retries (transient ChromaDB errors don't stick).
     """
-    global _bm25, _doc_metadata, _built_at_mtime
+    global _bm25, _doc_metadata, _token_to_docs, _built_at_mtime
     marker_mtime = _get_marker_mtime()
     if _bm25 is None or marker_mtime != _built_at_mtime:
         with _lock:
             marker_mtime = _get_marker_mtime()
             if _bm25 is None or marker_mtime != _built_at_mtime:
-                ok, (bm25, docs) = _build_index()
+                ok, (bm25, docs, t2d) = _build_index()
                 if ok:
-                    _bm25, _doc_metadata = bm25, docs
+                    _bm25, _doc_metadata, _token_to_docs = bm25, docs, t2d
                     _built_at_mtime = marker_mtime
                 else:
                     # Don't cache — next call will retry
-                    return bm25, docs
-    return _bm25, _doc_metadata
+                    return bm25, docs, t2d
+    return _bm25, _doc_metadata, _token_to_docs
 
 
 def query_index(
@@ -146,17 +155,22 @@ def query_index(
     if not tokens:
         return []
 
-    bm25, doc_metadata = _get_index()
+    bm25, doc_metadata, token_to_docs = _get_index()
     if not doc_metadata:
         return []
 
     scores = bm25.get_scores(tokens)
 
-    # Filter out non-matching docs (score == 0 means no query terms matched).
-    # Keep negative scores — BM25 IDF goes negative when a term appears in
-    # more than half the corpus, but the document still matched.
+    # Use inverted index to find docs containing at least one query token.
+    # Score-based filtering (s != 0) is insufficient because BM25 IDF can be
+    # zero when a term appears in exactly half the corpus, producing score 0
+    # for genuine matches.
+    matching = set()
+    for token in tokens:
+        matching |= token_to_docs.get(token, set())
+
     scored = sorted(
-        ((idx, s) for idx, s in enumerate(scores) if s != 0),
+        ((idx, scores[idx]) for idx in matching),
         key=lambda x: x[1],
         reverse=True,
     )
@@ -179,9 +193,10 @@ def query_index(
 
 def invalidate() -> None:
     """Invalidate the cached BM25 index, forcing a rebuild on next query."""
-    global _bm25, _doc_metadata, _built_at_mtime
+    global _bm25, _doc_metadata, _token_to_docs, _built_at_mtime
     with _lock:
         _bm25 = None
         _doc_metadata = None
+        _token_to_docs = {}
         _built_at_mtime = None
         logger.debug("BM25 index invalidated")
