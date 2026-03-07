@@ -1,10 +1,12 @@
 """BM25 index built lazily from ChromaDB collection."""
 
 import logging
+import os
 import threading
 
 from rank_bm25 import BM25Okapi
 
+from config import CHROMA_PATH
 from services.chroma import get_collection
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,7 @@ STOPWORDS = {
 _lock = threading.RLock()
 _bm25 = None
 _doc_metadata = None
+_built_at_mtime: float | None = None
 
 
 def _tokenize(text: str) -> list[str]:
@@ -76,13 +79,28 @@ def _build_index() -> tuple:
     return bm25, doc_metadata
 
 
+def _get_marker_mtime() -> float | None:
+    """Get mtime of the indexer's last-run marker for cross-process freshness."""
+    try:
+        return os.path.getmtime(os.path.join(CHROMA_PATH, ".last_indexed"))
+    except OSError:
+        return None
+
+
 def _get_index() -> tuple:
-    """Get or build the BM25 index (lazy singleton, thread-safe)."""
-    global _bm25, _doc_metadata
-    if _bm25 is None:
+    """Get or build the BM25 index (lazy singleton, thread-safe).
+
+    Checks the indexer's .last_indexed marker to detect cross-process
+    reindexing and rebuilds when stale.
+    """
+    global _bm25, _doc_metadata, _built_at_mtime
+    marker_mtime = _get_marker_mtime()
+    if _bm25 is None or marker_mtime != _built_at_mtime:
         with _lock:
-            if _bm25 is None:
+            marker_mtime = _get_marker_mtime()
+            if _bm25 is None or marker_mtime != _built_at_mtime:
                 _bm25, _doc_metadata = _build_index()
+                _built_at_mtime = marker_mtime
     return _bm25, _doc_metadata
 
 
@@ -137,8 +155,9 @@ def query_index(
 
 def invalidate() -> None:
     """Invalidate the cached BM25 index, forcing a rebuild on next query."""
-    global _bm25, _doc_metadata
+    global _bm25, _doc_metadata, _built_at_mtime
     with _lock:
         _bm25 = None
         _doc_metadata = None
+        _built_at_mtime = None
         logger.debug("BM25 index invalidated")

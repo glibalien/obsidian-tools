@@ -408,6 +408,84 @@ class TestInvalidate:
         bm25_index.invalidate()
         assert bm25_index._bm25 is None
         assert bm25_index._doc_metadata is None
+        assert bm25_index._built_at_mtime is None
+
+
+class TestCrossProcessFreshness:
+    """Tests for cross-process cache invalidation via .last_indexed marker."""
+
+    def setup_method(self):
+        import bm25_index
+        bm25_index.invalidate()
+
+    @patch("bm25_index.get_collection")
+    @patch("bm25_index._get_marker_mtime")
+    def test_marker_mtime_change_triggers_rebuild(
+        self, mock_marker, mock_get_collection
+    ):
+        """When .last_indexed mtime changes, BM25 index should rebuild."""
+        mock_collection = MagicMock()
+        first_data = {
+            "documents": ["python programming tutorial"],
+            "metadatas": [
+                {"source": "/vault/v1.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        second_data = {
+            "documents": [
+                "python programming tutorial",
+                "python advanced concepts deep dive",
+            ],
+            "metadatas": [
+                {"source": "/vault/v1.md", "heading": "", "chunk_type": "section"},
+                {"source": "/vault/v2.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_collection.get.side_effect = [first_data, second_data]
+        mock_get_collection.return_value = mock_collection
+
+        import bm25_index
+
+        # First query: marker at mtime 1000
+        mock_marker.return_value = 1000.0
+        results1 = bm25_index.query_index("python programming")
+        assert mock_collection.get.call_count == 1
+
+        # Same mtime — no rebuild
+        bm25_index.query_index("python programming")
+        assert mock_collection.get.call_count == 1
+
+        # Marker mtime changes (indexer ran in another process)
+        mock_marker.return_value = 2000.0
+        results2 = bm25_index.query_index("python concepts")
+        assert mock_collection.get.call_count == 2
+
+    @patch("bm25_index.get_collection")
+    @patch("bm25_index._get_marker_mtime")
+    def test_marker_appearing_triggers_rebuild(
+        self, mock_marker, mock_get_collection
+    ):
+        """When marker goes from absent to present, BM25 should rebuild."""
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "documents": ["python programming tutorial"],
+            "metadatas": [
+                {"source": "/vault/v1.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        import bm25_index
+
+        # No marker file yet
+        mock_marker.return_value = None
+        bm25_index.query_index("python programming")
+        assert mock_collection.get.call_count == 1
+
+        # Marker appears (indexer ran for the first time)
+        mock_marker.return_value = 1000.0
+        bm25_index.query_index("python programming")
+        assert mock_collection.get.call_count == 2
 
 
 class TestInvalidateCalledByIndexer:
