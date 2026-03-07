@@ -190,6 +190,26 @@ class TestQueryIndex:
         results = bm25_index.query_index("python")
         assert results == []
 
+    @patch("bm25_index.get_collection")
+    def test_runtime_error_propagates(self, mock_get_collection):
+        """RuntimeError (e.g. model mismatch) should propagate, not be swallowed."""
+        mock_get_collection.side_effect = RuntimeError("Embedding model mismatch")
+
+        import bm25_index
+        import pytest
+        with pytest.raises(RuntimeError, match="Embedding model mismatch"):
+            bm25_index.query_index("python")
+
+    @patch("bm25_index.get_collection")
+    def test_value_error_propagates(self, mock_get_collection):
+        """ValueError (config errors) should propagate, not be swallowed."""
+        mock_get_collection.side_effect = ValueError("Invalid config")
+
+        import bm25_index
+        import pytest
+        with pytest.raises(ValueError, match="Invalid config"):
+            bm25_index.query_index("python")
+
     @patch("bm25_index._get_marker_mtime", return_value=None)
     @patch("bm25_index.get_collection")
     def test_chroma_failure_retries_on_next_call(self, mock_get_collection, _mock_marker):

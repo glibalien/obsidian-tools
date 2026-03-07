@@ -50,6 +50,8 @@ def _build_index() -> tuple[bool, tuple]:
     try:
         collection = get_collection()
         data = collection.get(include=["documents", "metadatas"])
+    except (RuntimeError, ValueError):
+        raise  # config errors (model mismatch, etc.) must surface
     except Exception as e:
         logger.warning("Failed to load documents for BM25 index: %s", e)
         return False, _empty_index()
