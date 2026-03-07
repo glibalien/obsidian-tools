@@ -108,3 +108,67 @@ class TestRerank:
         results = [{"source": "a.md", "content": "text", "heading": ""}]
         ranked = rerank("query", results)
         assert ranked == results
+
+
+class TestDiversify:
+    """Tests for source-level diversity filtering."""
+
+    def test_caps_chunks_per_source(self):
+        from hybrid_search import _diversify
+        results = [
+            {"source": "a.md", "content": f"chunk{i}", "heading": ""} for i in range(5)
+        ]
+        diverse = _diversify(results, max_per_source=3)
+        assert len(diverse) == 3
+        assert all(r["source"] == "a.md" for r in diverse)
+
+    def test_backfills_from_other_sources(self):
+        from hybrid_search import _diversify
+        results = [
+            {"source": "a.md", "content": "a1", "heading": ""},
+            {"source": "a.md", "content": "a2", "heading": ""},
+            {"source": "a.md", "content": "a3", "heading": ""},
+            {"source": "a.md", "content": "a4", "heading": ""},
+            {"source": "b.md", "content": "b1", "heading": ""},
+            {"source": "b.md", "content": "b2", "heading": ""},
+        ]
+        diverse = _diversify(results, max_per_source=2)
+        sources = [r["source"] for r in diverse]
+        assert sources.count("a.md") == 2
+        assert sources.count("b.md") == 2
+
+    def test_preserves_ranking_order(self):
+        """Within the cap, original ranking order is preserved."""
+        from hybrid_search import _diversify
+        results = [
+            {"source": "a.md", "content": "a1", "heading": ""},
+            {"source": "b.md", "content": "b1", "heading": ""},
+            {"source": "a.md", "content": "a2", "heading": ""},
+            {"source": "b.md", "content": "b2", "heading": ""},
+        ]
+        diverse = _diversify(results, max_per_source=2)
+        assert [r["content"] for r in diverse] == ["a1", "b1", "a2", "b2"]
+
+    def test_zero_max_disables(self):
+        """max_per_source=0 disables diversity (pass-through)."""
+        from hybrid_search import _diversify
+        results = [
+            {"source": "a.md", "content": f"chunk{i}", "heading": ""} for i in range(5)
+        ]
+        diverse = _diversify(results, max_per_source=0)
+        assert len(diverse) == 5
+
+    def test_empty_results(self):
+        from hybrid_search import _diversify
+        assert _diversify([], max_per_source=3) == []
+
+    def test_fewer_results_than_cap(self):
+        """When all sources are under the cap, nothing is dropped."""
+        from hybrid_search import _diversify
+        results = [
+            {"source": "a.md", "content": "a1", "heading": ""},
+            {"source": "b.md", "content": "b1", "heading": ""},
+            {"source": "c.md", "content": "c1", "heading": ""},
+        ]
+        diverse = _diversify(results, max_per_source=3)
+        assert len(diverse) == 3

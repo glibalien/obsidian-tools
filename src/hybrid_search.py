@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from chromadb.errors import ChromaError
 
-from config import KEYWORD_LIMIT, RRF_K
+from config import KEYWORD_LIMIT, MAX_CHUNKS_PER_SOURCE, RRF_K
 from services.chroma import embed_query, get_collection
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,32 @@ def keyword_search(
 def _dedup_key(result: dict[str, str]) -> tuple[str, str]:
     """Create a deduplication key from a result dict."""
     return (result["source"], result["content"][:100])
+
+
+def _diversify(results: list[dict], max_per_source: int = MAX_CHUNKS_PER_SOURCE) -> list[dict]:
+    """Limit chunks per source file to enforce result diversity.
+
+    Iterates results in rank order, skipping chunks from sources that
+    have already reached the cap. This preserves ranking order while
+    ensuring no single source dominates the result set.
+
+    Args:
+        results: Ranked search results (must have 'source' key).
+        max_per_source: Maximum chunks per source. 0 disables filtering.
+
+    Returns:
+        Filtered results with at most max_per_source per source.
+    """
+    if not max_per_source:
+        return results
+
+    counts: dict[str, int] = defaultdict(int)
+    diverse = []
+    for r in results:
+        if counts[r["source"]] < max_per_source:
+            diverse.append(r)
+            counts[r["source"]] += 1
+    return diverse
 
 
 def merge_results(
