@@ -185,6 +185,39 @@ class TestQueryIndex:
         results = bm25_index.query_index("python")
         assert results == []
 
+    @patch("bm25_index._get_marker_mtime", return_value=None)
+    @patch("bm25_index.get_collection")
+    def test_chroma_failure_retries_on_next_call(self, mock_get_collection, _mock_marker):
+        """Failed build should not be cached — next call should retry."""
+        import bm25_index
+
+        # First call: ChromaDB fails
+        mock_get_collection.side_effect = Exception("DB locked")
+        results1 = bm25_index.query_index("python")
+        assert results1 == []
+        assert mock_get_collection.call_count == 1
+
+        # Second call: ChromaDB recovers
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "documents": [
+                "python programming tutorial",
+                "cooking recipes for beginners",
+                "music theory and composition",
+            ],
+            "metadatas": [
+                {"source": "a.md", "heading": "", "chunk_type": "section"},
+                {"source": "b.md", "heading": "", "chunk_type": "section"},
+                {"source": "c.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.side_effect = None
+        mock_get_collection.return_value = mock_collection
+
+        results2 = bm25_index.query_index("python programming")
+        assert len(results2) >= 1
+        assert results2[0]["source"] == "a.md"
+
     @patch("bm25_index.get_collection")
     def test_empty_collection_returns_empty(self, mock_get_collection):
         """Empty ChromaDB collection should return empty results."""

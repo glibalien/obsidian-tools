@@ -39,26 +39,26 @@ def _empty_index() -> tuple:
     return BM25Okapi([[""]]), []
 
 
-def _build_index() -> tuple:
+def _build_index() -> tuple[bool, tuple]:
     """Load all documents from ChromaDB and build a BM25 index.
 
     Returns:
-        Tuple of (BM25Okapi instance, list of metadata dicts).
-        Returns an empty index on ChromaDB failure.
+        (success, (BM25Okapi, doc_metadata)) — success is False on
+        ChromaDB failure so the caller can avoid caching the result.
     """
     try:
         collection = get_collection()
         data = collection.get(include=["documents", "metadatas"])
     except Exception as e:
         logger.warning("Failed to load documents for BM25 index: %s", e)
-        return _empty_index()
+        return False, _empty_index()
 
     documents = data["documents"]
     metadatas = data["metadatas"]
 
     if not documents:
         logger.info("Empty collection, creating placeholder BM25 index")
-        return _empty_index()
+        return True, _empty_index()
 
     tokenized = [_tokenize(doc) for doc in documents]
 
@@ -76,7 +76,7 @@ def _build_index() -> tuple:
         })
 
     logger.info("Built BM25 index with %d documents", len(doc_metadata))
-    return bm25, doc_metadata
+    return True, (bm25, doc_metadata)
 
 
 _BM25_STAMP = ".bm25_stamp"
@@ -108,8 +108,9 @@ def _get_marker_mtime() -> float | None:
 def _get_index() -> tuple:
     """Get or build the BM25 index (lazy singleton, thread-safe).
 
-    Checks the indexer's .last_indexed marker to detect cross-process
-    reindexing and rebuilds when stale.
+    Checks the BM25 stamp to detect cross-process reindexing and
+    rebuilds when stale. Failed builds are not cached so the next
+    call retries (transient ChromaDB errors don't stick).
     """
     global _bm25, _doc_metadata, _built_at_mtime
     marker_mtime = _get_marker_mtime()
@@ -117,8 +118,13 @@ def _get_index() -> tuple:
         with _lock:
             marker_mtime = _get_marker_mtime()
             if _bm25 is None or marker_mtime != _built_at_mtime:
-                _bm25, _doc_metadata = _build_index()
-                _built_at_mtime = marker_mtime
+                ok, (bm25, docs) = _build_index()
+                if ok:
+                    _bm25, _doc_metadata = bm25, docs
+                    _built_at_mtime = marker_mtime
+                else:
+                    # Don't cache — next call will retry
+                    return bm25, docs
     return _bm25, _doc_metadata
 
 
