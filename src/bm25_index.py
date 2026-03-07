@@ -31,22 +31,31 @@ def _tokenize(text: str) -> list[str]:
     return tokens
 
 
+def _empty_index() -> tuple:
+    """Return an empty BM25 index."""
+    return BM25Okapi([[""]]), []
+
+
 def _build_index() -> tuple:
     """Load all documents from ChromaDB and build a BM25 index.
 
     Returns:
         Tuple of (BM25Okapi instance, list of metadata dicts).
+        Returns an empty index on ChromaDB failure.
     """
-    collection = get_collection()
-    data = collection.get(include=["documents", "metadatas"])
+    try:
+        collection = get_collection()
+        data = collection.get(include=["documents", "metadatas"])
+    except Exception as e:
+        logger.warning("Failed to load documents for BM25 index: %s", e)
+        return _empty_index()
 
     documents = data["documents"]
     metadatas = data["metadatas"]
 
     if not documents:
         logger.info("Empty collection, creating placeholder BM25 index")
-        bm25 = BM25Okapi([[""]])
-        return bm25, []
+        return _empty_index()
 
     tokenized = [_tokenize(doc) for doc in documents]
 

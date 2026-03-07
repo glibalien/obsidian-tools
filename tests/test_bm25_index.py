@@ -176,6 +176,15 @@ class TestQueryIndex:
         assert results == []
 
     @patch("bm25_index.get_collection")
+    def test_chroma_failure_returns_empty(self, mock_get_collection):
+        """ChromaDB failure should degrade gracefully to empty results."""
+        mock_get_collection.side_effect = Exception("DB locked")
+
+        import bm25_index
+        results = bm25_index.query_index("python")
+        assert results == []
+
+    @patch("bm25_index.get_collection")
     def test_empty_collection_returns_empty(self, mock_get_collection):
         """Empty ChromaDB collection should return empty results."""
         mock_collection = MagicMock()
