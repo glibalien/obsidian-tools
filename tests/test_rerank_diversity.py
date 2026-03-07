@@ -158,6 +158,15 @@ class TestDiversify:
         diverse = _diversify(results, max_per_source=0)
         assert len(diverse) == 5
 
+    def test_negative_max_disables(self):
+        """max_per_source=-1 disables diversity (pass-through, not empty)."""
+        from hybrid_search import _diversify
+        results = [
+            {"source": "a.md", "content": f"chunk{i}", "heading": ""} for i in range(3)
+        ]
+        diverse = _diversify(results, max_per_source=-1)
+        assert len(diverse) == 3
+
     def test_empty_results(self):
         from hybrid_search import _diversify
         assert _diversify([], max_per_source=3) == []

@@ -168,15 +168,15 @@ def _diversify(results: list[dict], max_per_source: int | None = None) -> list[d
 
     Args:
         results: Ranked search results (must have 'source' key).
-        max_per_source: Maximum chunks per source. 0 disables filtering.
-            Defaults to MAX_CHUNKS_PER_SOURCE from config.
+        max_per_source: Maximum chunks per source. 0 or negative disables
+            filtering. Defaults to MAX_CHUNKS_PER_SOURCE from config.
 
     Returns:
         Filtered results with at most max_per_source per source.
     """
     if max_per_source is None:
         max_per_source = MAX_CHUNKS_PER_SOURCE
-    if not max_per_source:
+    if max_per_source <= 0:
         return results
 
     counts: dict[str, int] = defaultdict(int)
