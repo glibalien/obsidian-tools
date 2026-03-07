@@ -340,9 +340,10 @@ class TestIndexFileMetadata:
 class TestSearchHeadingMetadata:
     """Tests for heading metadata in search results."""
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
     @patch("hybrid_search.embed_query", return_value=[0.1])
-    def test_semantic_search_includes_heading(self, mock_embed, mock_get_collection):
+    def test_semantic_search_includes_heading(self, mock_embed, mock_get_collection, _rerank):
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
             "documents": [["Some content"]],
@@ -354,9 +355,10 @@ class TestSearchHeadingMetadata:
         results = semantic_search("test query", n_results=1)
         assert results[0]["heading"] == "## Notes"
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
     @patch("hybrid_search.embed_query", return_value=[0.1])
-    def test_semantic_search_missing_heading_defaults(self, mock_embed, mock_get_collection):
+    def test_semantic_search_missing_heading_defaults(self, mock_embed, mock_get_collection, _rerank):
         """Old chunks without heading metadata should get a default."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -369,8 +371,9 @@ class TestSearchHeadingMetadata:
         results = semantic_search("test query", n_results=1)
         assert results[0]["heading"] == ""
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_keyword_search_includes_heading(self, mock_get_collection):
+    def test_keyword_search_includes_heading(self, mock_get_collection, _rerank):
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
             "ids": ["id1"],
@@ -383,9 +386,10 @@ class TestSearchHeadingMetadata:
         results = keyword_search("searchable content", n_results=1)
         assert results[0]["heading"] == "## Tasks"
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
     @patch("hybrid_search.embed_query", return_value=[0.1, 0.2])
-    def test_semantic_search_uses_embed_query(self, mock_embed, mock_get_collection):
+    def test_semantic_search_uses_embed_query(self, mock_embed, mock_get_collection, _rerank):
         """semantic_search uses embed_query and passes query_embeddings."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {"documents": [[]], "metadatas": [[]]}
@@ -402,9 +406,10 @@ class TestSearchHeadingMetadata:
 class TestChunkTypeFilter:
     """Tests for chunk_type filtering in search."""
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.embed_query", return_value=[0.1])
     @patch("hybrid_search.get_collection")
-    def test_semantic_search_with_chunk_type(self, mock_get_collection, mock_embed):
+    def test_semantic_search_with_chunk_type(self, mock_get_collection, mock_embed, _rerank):
         """Semantic search passes chunk_type as where filter."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -420,9 +425,10 @@ class TestChunkTypeFilter:
         assert call_kwargs["where"] == {"chunk_type": "frontmatter"}
         assert len(results) == 1
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.embed_query", return_value=[0.1])
     @patch("hybrid_search.get_collection")
-    def test_semantic_search_no_chunk_type(self, mock_get_collection, mock_embed):
+    def test_semantic_search_no_chunk_type(self, mock_get_collection, mock_embed, _rerank):
         """Semantic search without chunk_type sends no where filter."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -437,8 +443,9 @@ class TestChunkTypeFilter:
         call_kwargs = mock_collection.query.call_args[1]
         assert "where" not in call_kwargs
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_keyword_search_with_chunk_type(self, mock_get_collection):
+    def test_keyword_search_with_chunk_type(self, mock_get_collection, _rerank):
         """Keyword search passes chunk_type as where filter."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
@@ -454,8 +461,9 @@ class TestChunkTypeFilter:
         call_kwargs = mock_collection.get.call_args[1]
         assert call_kwargs["where"] == {"chunk_type": "frontmatter"}
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_keyword_search_no_chunk_type(self, mock_get_collection):
+    def test_keyword_search_no_chunk_type(self, mock_get_collection, _rerank):
         """Keyword search without chunk_type sends no where filter."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
@@ -471,8 +479,10 @@ class TestChunkTypeFilter:
         call_kwargs = mock_collection.get.call_args[1]
         assert "where" not in call_kwargs
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.embed_query", return_value=[0.1])
     @patch("hybrid_search.get_collection")
-    def test_hybrid_search_passes_chunk_type(self, mock_get_collection):
+    def test_hybrid_search_passes_chunk_type(self, mock_get_collection, mock_embed, _rerank):
         """Hybrid search passes chunk_type through to both sub-searches."""
         mock_collection = MagicMock()
         mock_collection.query.return_value = {
@@ -499,8 +509,9 @@ class TestChunkTypeFilter:
 class TestKeywordSearchOptimization:
     """Tests for optimized single-query keyword search."""
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_single_term_includes_case_variants(self, mock_get_collection):
+    def test_single_term_includes_case_variants(self, mock_get_collection, _rerank):
         """Single-term query should include case variants in $or."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
@@ -519,8 +530,9 @@ class TestKeywordSearchOptimization:
         assert "content" in contains_values
         assert "Content" in contains_values
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_multi_term_uses_or_query(self, mock_get_collection):
+    def test_multi_term_uses_or_query(self, mock_get_collection, _rerank):
         """Multi-term query should combine terms with $or."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
@@ -545,8 +557,9 @@ class TestKeywordSearchOptimization:
         assert "bravo" in contains_values
         assert "Bravo" in contains_values
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_multi_term_ranked_by_hit_count(self, mock_get_collection):
+    def test_multi_term_ranked_by_hit_count(self, mock_get_collection, _rerank):
         """Results should be ranked by number of matching terms."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
@@ -566,8 +579,9 @@ class TestKeywordSearchOptimization:
         assert results[0]["source"] == "a.md"
         assert results[1]["source"] == "b.md"
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_query_uses_limit(self, mock_get_collection):
+    def test_query_uses_limit(self, mock_get_collection, _rerank):
         """Query should include a limit parameter."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {"ids": [], "documents": [], "metadatas": []}
@@ -580,10 +594,9 @@ class TestKeywordSearchOptimization:
         assert "limit" in call_kwargs
         assert call_kwargs["limit"] == 200
 
-
-
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_term_frequency_ranking(self, mock_get_collection):
+    def test_term_frequency_ranking(self, mock_get_collection, _rerank):
         """Results ranked by term frequency, not just presence."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
@@ -606,8 +619,9 @@ class TestKeywordSearchOptimization:
         assert results[0]["source"] == "many.md"
         assert results[1]["source"] == "once.md"
 
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_keyword_results_not_truncated(self, mock_get_collection):
+    def test_keyword_results_not_truncated(self, mock_get_collection, _rerank):
         """Keyword results return full chunk content, not truncated to 500 chars."""
         long_content = "x" * 1000
         mock_collection = MagicMock()
@@ -648,8 +662,9 @@ class TestKeywordSearchOptimization:
         ],
         ids=["mixed_case_multi", "single_term", "lowercase_multi"],
     )
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
     @patch("hybrid_search.get_collection")
-    def test_case_insensitive_contains(self, mock_get_collection, query, expected_variants):
+    def test_case_insensitive_contains(self, mock_get_collection, _rerank, query, expected_variants):
         """Keyword search should include case variants in $contains query."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
