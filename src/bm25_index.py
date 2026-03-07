@@ -101,13 +101,17 @@ def query_index(
 
     scores = bm25.get_scores(tokens)
 
-    # Pair scores with indices, sort descending
-    scored = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+    # Filter out non-matching docs (score == 0 means no query terms matched).
+    # Keep negative scores — BM25 IDF goes negative when a term appears in
+    # more than half the corpus, but the document still matched.
+    scored = sorted(
+        ((idx, s) for idx, s in enumerate(scores) if s != 0),
+        key=lambda x: x[1],
+        reverse=True,
+    )
 
     results = []
-    for idx, score in scored:
-        if score <= 0:
-            break
+    for idx, _score in scored:
         meta = doc_metadata[idx]
         if chunk_type and meta["chunk_type"] != chunk_type:
             continue

@@ -257,8 +257,8 @@ class TestQueryIndex:
         assert results[0]["source"] == "/vault/test.md"
 
     @patch("bm25_index.get_collection")
-    def test_zero_score_results_excluded(self, mock_get_collection):
-        """Results with BM25 score <= 0 should not be returned."""
+    def test_non_matching_docs_excluded(self, mock_get_collection):
+        """Documents with no matching terms (score 0) should not be returned."""
         mock_collection = MagicMock()
         mock_collection.get.return_value = {
             "documents": [
@@ -281,6 +281,31 @@ class TestQueryIndex:
         assert "/vault/python.md" in sources
         assert "/vault/cooking.md" not in sources
         assert "/vault/music.md" not in sources
+
+    @patch("bm25_index.get_collection")
+    def test_negative_idf_matches_still_returned(self, mock_get_collection):
+        """Matches with negative BM25 scores (common terms) should still be returned."""
+        # When a term appears in >50% of docs, IDF goes negative.
+        # Build a corpus where "common" appears in all docs.
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "documents": [
+                "common word here",
+                "common word there",
+                "common word everywhere",
+            ],
+            "metadatas": [
+                {"source": "/vault/a.md", "heading": "", "chunk_type": "section"},
+                {"source": "/vault/b.md", "heading": "", "chunk_type": "section"},
+                {"source": "/vault/c.md", "heading": "", "chunk_type": "section"},
+            ],
+        }
+        mock_get_collection.return_value = mock_collection
+
+        import bm25_index
+        results = bm25_index.query_index("common", n_results=5)
+        # All 3 docs match "common" — should all be returned even with negative IDF
+        assert len(results) == 3
 
     @patch("bm25_index.get_collection")
     def test_missing_heading_defaults_to_empty(self, mock_get_collection):
