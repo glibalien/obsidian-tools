@@ -172,3 +172,102 @@ class TestDiversify:
         ]
         diverse = _diversify(results, max_per_source=3)
         assert len(diverse) == 3
+
+
+class TestSearchIntegration:
+    """Tests that reranking and diversity are wired into search functions."""
+
+    @patch("hybrid_search.rerank")
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_semantic_search_calls_rerank(self, mock_embed, mock_coll, mock_rerank):
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1", "doc2"]],
+            "metadatas": [[
+                {"source": "a.md", "heading": ""},
+                {"source": "b.md", "heading": ""},
+            ]],
+        }
+        mock_coll.return_value = mock_collection
+        mock_rerank.side_effect = lambda q, r: r  # pass-through
+
+        from hybrid_search import semantic_search
+        semantic_search("test", n_results=2)
+        mock_rerank.assert_called_once()
+
+    @patch("hybrid_search.rerank")
+    @patch("hybrid_search.get_collection")
+    def test_keyword_search_calls_rerank(self, mock_coll, mock_rerank):
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {
+            "ids": ["1", "2"],
+            "documents": ["keyword match one", "keyword match two"],
+            "metadatas": [
+                {"source": "a.md", "heading": ""},
+                {"source": "b.md", "heading": ""},
+            ],
+        }
+        mock_coll.return_value = mock_collection
+        mock_rerank.side_effect = lambda q, r: r
+
+        from hybrid_search import keyword_search
+        keyword_search("keyword match", n_results=2)
+        mock_rerank.assert_called_once()
+
+    @patch("hybrid_search.rerank")
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hybrid_search_calls_rerank(self, mock_embed, mock_coll, mock_rerank):
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_collection.get.return_value = {
+            "ids": ["1"],
+            "documents": ["doc1"],
+            "metadatas": [{"source": "a.md", "heading": ""}],
+        }
+        mock_coll.return_value = mock_collection
+        mock_rerank.side_effect = lambda q, r: r
+
+        from hybrid_search import hybrid_search
+        hybrid_search("test", n_results=1)
+        mock_rerank.assert_called_once()
+
+    @patch("hybrid_search.rerank")
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hybrid_search_fetches_4x_candidates(self, mock_embed, mock_coll, mock_rerank):
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {"documents": [[]], "metadatas": [[]]}
+        mock_collection.get.return_value = {"ids": [], "documents": [], "metadatas": []}
+        mock_coll.return_value = mock_collection
+        mock_rerank.side_effect = lambda q, r: r
+
+        from hybrid_search import hybrid_search
+        hybrid_search("test", n_results=5)
+        # _semantic_retrieve should request 4x = 20 candidates
+        mock_collection.query.assert_called_once()
+        assert mock_collection.query.call_args[1]["n_results"] == 20
+
+    @patch("hybrid_search.MAX_CHUNKS_PER_SOURCE", 3)
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_diversity_applied_after_rerank(self, mock_embed, mock_coll, mock_rerank):
+        """Source diversity caps results even after reranking."""
+        docs = [f"doc{i}" for i in range(5)]
+        metas = [{"source": "a.md", "heading": ""} for _ in range(5)]
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [docs],
+            "metadatas": [metas],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("test", n_results=5)
+        # MAX_CHUNKS_PER_SOURCE=3, so capped at 3
+        assert len(results) == 3
