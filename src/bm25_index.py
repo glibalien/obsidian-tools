@@ -151,6 +151,8 @@ def query_index(
         List of dicts with 'source', 'content', and 'heading' keys,
         sorted by BM25 score descending.
     """
+    if n_results <= 0:
+        return []
     tokens = _tokenize(query)
     if not tokens:
         return []

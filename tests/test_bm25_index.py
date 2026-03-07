@@ -176,6 +176,11 @@ class TestQueryIndex:
         results = bm25_index.query_index("")
         assert results == []
 
+    def test_zero_n_results_returns_empty(self):
+        """n_results=0 should return empty list."""
+        import bm25_index
+        assert bm25_index.query_index("python", n_results=0) == []
+
     @patch("bm25_index.get_collection")
     def test_chroma_failure_returns_empty(self, mock_get_collection):
         """ChromaDB failure should degrade gracefully to empty results."""
