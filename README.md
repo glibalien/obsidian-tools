@@ -8,13 +8,13 @@
 
 Your vault gets indexed into a vector database. An LLM agent then uses [MCP tools](https://modelcontextprotocol.io/) to search, read, and modify your notes — combining semantic understanding with keyword matching to find what you need.
 
-**Search & Discovery** — Hybrid semantic + keyword search with [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf), link graph traversal (backlinks, outlinks), frontmatter queries, date range filtering, folder browsing
+**Search & Discovery** — Hybrid semantic + keyword search with [BM25](https://en.wikipedia.org/wiki/Okapi_BM25) scoring, [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf), [HyDE](https://arxiv.org/abs/2212.10496) (Hypothetical Document Embeddings) for question-type queries, cross-encoder reranking, and per-source diversity limits. Link graph traversal (backlinks, outlinks), frontmatter queries, date range filtering, folder browsing.
 
-**Vault Management** — Read, create, move files; edit specific markdown sections by heading; update frontmatter fields; batch operations for bulk changes
+**Vault Management** — Read, create, move, merge files; edit specific markdown sections by heading; update frontmatter fields. Batch operations (create, move, merge, frontmatter update) with a built-in confirmation flow — the agent previews affected files and waits for approval before executing.
 
 **File Readers** — Audio transcription via Whisper, image description via vision model, Office document extraction (.docx, .xlsx, .pptx), PDF text extraction, all auto-dispatched through `read_file`
 
-**AI-Powered Analysis** — Summarize notes via LLM, research topics found in a note (web + vault search, page extraction, synthesized findings appended as a `## Research` section)
+**AI-Powered Analysis** — Summarize notes via LLM. Research pipeline: extract topics from a note or research an ad-hoc subject, gather findings from web search + vault search + page extraction, synthesize into a `## Research` section or a new note.
 
 **Integrations** — Web search via DuckDuckGo, interaction logging to daily notes, persistent user preferences
 
@@ -22,10 +22,11 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 
 ![Architecture diagram](obsidian-tools-architecture.svg)
 
-1. **Indexer** scans your vault and creates embeddings in ChromaDB, splitting notes by headings, paragraphs, and sentences for precise retrieval
-2. **MCP Server** exposes 18 tools for searching, reading, and modifying vault content
-3. **LLM Agent** (powered by [Fireworks AI](https://fireworks.ai/)) orchestrates the tools to answer your questions
-4. **Interfaces** — chat in Obsidian via the sidebar plugin, from the terminal via the CLI agent, or programmatically via the HTTP API
+1. **Indexer** scans your vault and creates embeddings in ChromaDB (using [nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)), splitting notes by headings, paragraphs, and sentences with heading hierarchy prefixes (`[Note > Section > Subsection]`) and cross-section overlap for continuity
+2. **Search pipeline** combines semantic search (ChromaDB) with BM25 keyword scoring via [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf). Question-type queries get [HyDE](https://arxiv.org/abs/2212.10496) augmentation (LLM generates a hypothetical answer, which is embedded alongside the original query). Results are reranked by a cross-encoder model and deduplicated per source.
+3. **MCP Server** exposes 19 tools for searching, reading, and modifying vault content
+4. **LLM Agent** (powered by [Fireworks AI](https://fireworks.ai/)) orchestrates the tools to answer your questions
+5. **Interfaces** — chat in Obsidian via the sidebar plugin, from the terminal via the CLI agent, or programmatically via the HTTP API
 
 ## Requirements
 
@@ -137,7 +138,7 @@ To keep the index up to date automatically, see [Running as a Service](#running-
 
 **Obsidian Plugin** (recommended for daily use)
 
-The `plugin/` directory contains a chat sidebar that connects to the API server.
+The `plugin/` directory contains a chat sidebar that connects to the API server. It includes a built-in batch operation confirmation system — when the agent wants to modify many files at once, the plugin renders a preview of affected files with Confirm/Cancel buttons so you stay in control.
 
 ```bash
 cd plugin && npm install && npm run build
@@ -204,6 +205,7 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 | `read_file` | Read any vault file — markdown (with embed expansion), audio (Whisper), images (vision), Office docs, PDFs |
 | `get_note_info` | Lightweight metadata — frontmatter, headings, size, timestamps, link counts |
 | `create_file` | Create a new note with optional YAML frontmatter |
+| `batch_create_files` | Create multiple files in one operation |
 | `edit_file` | Edit file content — prepend, append, or target a specific section by heading |
 | `move_file` | Move a file within the vault |
 | `batch_move_files` | Move multiple files — explicit list or query-based targeting by frontmatter/folder |
@@ -215,7 +217,7 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 | `compare_folders` | Compare two folders by filename — find duplicates and unique files |
 | `log_interaction` | Log interactions to daily notes |
 | `summarize_file` | LLM-powered summarization — appends a `## Summary` section to the note |
-| `research_note` | Research topics in a note — web search, vault search, page extraction, LLM synthesis into `## Research` |
+| `research` | Research topics in a note or an ad-hoc subject — web + vault search, page extraction, LLM synthesis |
 | `manage_preferences` | List, add, or remove persistent user preferences |
 | `web_search` | Search the web via DuckDuckGo |
 
@@ -323,13 +325,14 @@ src/
 ├── api_server.py        # FastAPI HTTP wrapper with session management
 ├── agent.py             # CLI chat agent with tool result continuation
 ├── config.py            # Shared configuration
-├── chunking.py          # Structure-aware markdown chunking
-├── hybrid_search.py     # Semantic + keyword search with RRF
+├── chunking.py          # Structure-aware markdown chunking (headings, paragraphs, sentences)
+├── bm25_index.py        # In-memory BM25 keyword index (lazy singleton from ChromaDB docs)
+├── hybrid_search.py     # Semantic + BM25 search with RRF, HyDE, reranking, source diversity
 ├── search_vault.py      # Search interface
-├── index_vault.py       # Structure-aware vault indexer
+├── index_vault.py       # Vault indexer (incremental, parallel chunking, batched upserts)
 ├── log_chat.py          # Daily note logging
 ├── services/
-│   ├── chroma.py        # ChromaDB connection management
+│   ├── chroma.py        # ChromaDB connection, embedding helpers, cross-encoder reranker
 │   ├── compaction.py    # Tool message compaction for token management
 │   └── vault.py         # Path resolution, response helpers, utilities
 └── tools/
