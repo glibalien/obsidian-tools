@@ -143,6 +143,8 @@ def index_file(md_file: Path) -> None:
         _, ids, documents, metadatas = result
         embeddings = embed_documents(documents)
         collection.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
+    touch_bm25_stamp()
+    invalidate_bm25()
 
 
 def prune_deleted_files(valid_sources: set[str], indexed_sources: set[str] | None = None) -> int:

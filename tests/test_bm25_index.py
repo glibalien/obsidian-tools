@@ -665,3 +665,24 @@ class TestInvalidateCalledByIndexer:
         purge_idx = calls.index("purge_database")
         stamp_idx = calls.index("touch_bm25_stamp")
         assert stamp_idx > purge_idx, "touch_bm25_stamp must come after purge_database"
+
+    @patch("index_vault.embed_documents", return_value=[[0.1]])
+    @patch("index_vault.get_collection")
+    @patch("index_vault.touch_bm25_stamp")
+    @patch("index_vault.invalidate_bm25")
+    def test_index_file_invalidates_bm25(
+        self, mock_invalidate, mock_stamp, mock_coll, mock_embed, tmp_path
+    ):
+        """index_file should invalidate BM25 cache after DB mutations."""
+        md_file = tmp_path / "note.md"
+        md_file.write_text("# Test\nSome content here")
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": []}
+        mock_coll.return_value = mock_collection
+
+        from index_vault import index_file
+        index_file(md_file)
+
+        mock_stamp.assert_called_once()
+        mock_invalidate.assert_called_once()
