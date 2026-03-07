@@ -2,10 +2,13 @@
 """Hybrid search combining semantic and keyword matching with RRF merge."""
 
 import logging
+import os
 from collections import defaultdict
 
+import openai
+
 from bm25_index import query_index as bm25_query
-from config import MAX_CHUNKS_PER_SOURCE, RRF_K
+from config import FIREWORKS_BASE_URL, FIREWORKS_MODEL, HYDE_ENABLED, MAX_CHUNKS_PER_SOURCE, RRF_K
 from services.chroma import embed_query, get_collection, rerank
 
 logger = logging.getLogger(__name__)
@@ -33,21 +36,71 @@ def _is_question(query: str) -> bool:
     return first_word in _QUESTION_WORDS
 
 
+_HYDE_PROMPT = (
+    "Write a short paragraph that would answer this question "
+    "in the context of a personal knowledge base:\n{query}"
+)
+
+
+def _generate_hyde(query: str) -> str | None:
+    """Generate a hypothetical document that answers the query.
+
+    Returns None on any failure so the caller falls back to standard search.
+    """
+    try:
+        client = openai.OpenAI(
+            base_url=FIREWORKS_BASE_URL,
+            api_key=os.environ.get("FIREWORKS_API_KEY", ""),
+        )
+        response = client.chat.completions.create(
+            model=FIREWORKS_MODEL,
+            messages=[{"role": "user", "content": _HYDE_PROMPT.format(query=query)}],
+            max_tokens=150,
+            temperature=0.5,
+        )
+        content = response.choices[0].message.content
+        if not content:
+            return None
+        return content
+    except Exception as e:
+        logger.warning("HyDE generation failed: %s", e)
+        return None
+
+
 def _semantic_retrieve(
     query: str, n_results: int = 5, chunk_type: str | None = None
 ) -> list[dict[str, str]]:
-    """Raw semantic retrieval without reranking or diversity."""
+    """Raw semantic retrieval, with optional HyDE for question queries."""
     collection = get_collection()
+
+    # Standard query
     query_embedding = embed_query(query)
     query_kwargs: dict = {"query_embeddings": [query_embedding], "n_results": n_results}
     if chunk_type:
         query_kwargs["where"] = {"chunk_type": chunk_type}
     results = collection.query(**query_kwargs)
 
-    return [
+    standard_results = [
         {"source": metadata["source"], "content": doc, "heading": metadata.get("heading", "")}
         for doc, metadata in zip(results["documents"][0], results["metadatas"][0])
     ]
+
+    # HyDE: generate hypothetical answer, embed, search, merge via RRF
+    if HYDE_ENABLED and _is_question(query):
+        hyde_text = _generate_hyde(query)
+        if hyde_text:
+            hyde_embedding = embed_query(hyde_text)
+            hyde_kwargs: dict = {"query_embeddings": [hyde_embedding], "n_results": n_results}
+            if chunk_type:
+                hyde_kwargs["where"] = {"chunk_type": chunk_type}
+            hyde_raw = collection.query(**hyde_kwargs)
+            hyde_results = [
+                {"source": m["source"], "content": d, "heading": m.get("heading", "")}
+                for d, m in zip(hyde_raw["documents"][0], hyde_raw["metadatas"][0])
+            ]
+            return merge_results(standard_results, hyde_results, n_results=n_results)
+
+    return standard_results
 
 
 def semantic_search(

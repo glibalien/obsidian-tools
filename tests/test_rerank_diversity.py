@@ -339,3 +339,131 @@ class TestSearchIntegration:
         results = semantic_search("test", n_results=5)
         # MAX_CHUNKS_PER_SOURCE=3, so capped at 3
         assert len(results) == 3
+
+
+class TestGenerateHyde:
+    """Tests for _generate_hyde LLM call."""
+
+    @patch("hybrid_search.openai.OpenAI")
+    def test_returns_hypothetical_answer(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Indexing works by scanning files."
+        mock_client.chat.completions.create.return_value = mock_response
+
+        from hybrid_search import _generate_hyde
+        result = _generate_hyde("how does indexing work?")
+        assert result == "Indexing works by scanning files."
+
+    @patch("hybrid_search.openai.OpenAI")
+    def test_returns_none_on_empty_response(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+        mock_client.chat.completions.create.return_value = mock_response
+
+        from hybrid_search import _generate_hyde
+        assert _generate_hyde("test?") is None
+
+    @patch("hybrid_search.openai.OpenAI")
+    def test_returns_none_on_exception(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+
+        from hybrid_search import _generate_hyde
+        assert _generate_hyde("test?") is None
+
+
+class TestHydeIntegration:
+    """Tests for HyDE integration into semantic search."""
+
+    @patch("hybrid_search._generate_hyde", return_value="hypothetical answer text")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query")
+    def test_question_triggers_dual_search(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """Question queries should trigger HyDE dual search."""
+        mock_embed.side_effect = lambda q: [0.1]
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("how does indexing work?", n_results=5)
+
+        mock_hyde.assert_called_once_with("how does indexing work?")
+        # Two ChromaDB queries: original + hypothetical
+        assert mock_collection.query.call_count == 2
+
+    @patch("hybrid_search._generate_hyde")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_non_question_skips_hyde(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """Non-question queries should skip HyDE entirely."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("meeting notes 2024", n_results=5)
+
+        mock_hyde.assert_not_called()
+        assert mock_collection.query.call_count == 1
+
+    @patch("hybrid_search._generate_hyde", return_value=None)
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hyde_failure_falls_back(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """If HyDE generation fails, fall back to single query."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("how does this work?", n_results=5)
+
+        assert len(results) >= 1
+        assert mock_collection.query.call_count == 1
+
+    @patch("hybrid_search.HYDE_ENABLED", False)
+    @patch("hybrid_search._generate_hyde")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hyde_disabled_skips(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """When HYDE_ENABLED is False, skip even for questions."""
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        semantic_search("how does this work?", n_results=5)
+
+        mock_hyde.assert_not_called()
