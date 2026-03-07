@@ -17,6 +17,21 @@ STOPWORDS = {
     "about", "into", "over", "also",
 }
 
+_QUESTION_WORDS = {
+    "who", "what", "where", "when", "why", "how", "which",
+    "is", "are", "does", "do", "can", "could", "would", "should",
+}
+
+
+def _is_question(query: str) -> bool:
+    """Detect whether a query is a question using simple heuristics."""
+    if not query:
+        return False
+    if query.rstrip().endswith("?"):
+        return True
+    first_word = query.split()[0].lower().strip(".,!?;:\"'()[]{}")
+    return first_word in _QUESTION_WORDS
+
 
 def _semantic_retrieve(
     query: str, n_results: int = 5, chunk_type: str | None = None

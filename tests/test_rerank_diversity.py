@@ -183,6 +183,65 @@ class TestDiversify:
         assert len(diverse) == 3
 
 
+class TestHydeConfig:
+    """Config constants for HyDE."""
+
+    def test_hyde_enabled_default(self):
+        with patch("dotenv.load_dotenv"):
+            import config
+            importlib.reload(config)
+        assert config.HYDE_ENABLED is True
+
+    def test_hyde_enabled_false(self, monkeypatch):
+        monkeypatch.setenv("HYDE_ENABLED", "false")
+        with patch("dotenv.load_dotenv"):
+            import config
+            importlib.reload(config)
+        assert config.HYDE_ENABLED is False
+
+
+class TestIsQuestion:
+    """Tests for _is_question heuristic."""
+
+    def test_question_mark(self):
+        from hybrid_search import _is_question
+        assert _is_question("what is this about?") is True
+
+    def test_starts_with_question_word(self):
+        from hybrid_search import _is_question
+        assert _is_question("how does indexing work") is True
+        assert _is_question("what are the main features") is True
+        assert _is_question("why is this important") is True
+        assert _is_question("where do the logs go") is True
+        assert _is_question("when was this created") is True
+        assert _is_question("who wrote this") is True
+        assert _is_question("which model is used") is True
+
+    def test_starts_with_auxiliary_verb(self):
+        from hybrid_search import _is_question
+        assert _is_question("is the server running") is True
+        assert _is_question("are there any errors") is True
+        assert _is_question("does this support PDF") is True
+        assert _is_question("do we have tests for this") is True
+        assert _is_question("can I search by date") is True
+        assert _is_question("could this be improved") is True
+        assert _is_question("would this work with images") is True
+        assert _is_question("should I reindex") is True
+
+    def test_non_question_keyword(self):
+        from hybrid_search import _is_question
+        assert _is_question("meeting notes 2024") is False
+        assert _is_question("python programming") is False
+
+    def test_question_word_not_at_start(self):
+        from hybrid_search import _is_question
+        assert _is_question("notes about what happened") is False
+
+    def test_empty_query(self):
+        from hybrid_search import _is_question
+        assert _is_question("") is False
+
+
 class TestSearchIntegration:
     """Tests that reranking and diversity are wired into search functions."""
 
