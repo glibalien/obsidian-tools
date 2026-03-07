@@ -89,16 +89,19 @@ def _semantic_retrieve(
     if HYDE_ENABLED and _is_question(query):
         hyde_text = _generate_hyde(query)
         if hyde_text:
-            hyde_embedding = embed_query(hyde_text)
-            hyde_kwargs: dict = {"query_embeddings": [hyde_embedding], "n_results": n_results}
-            if chunk_type:
-                hyde_kwargs["where"] = {"chunk_type": chunk_type}
-            hyde_raw = collection.query(**hyde_kwargs)
-            hyde_results = [
-                {"source": m["source"], "content": d, "heading": m.get("heading", "")}
-                for d, m in zip(hyde_raw["documents"][0], hyde_raw["metadatas"][0])
-            ]
-            return merge_results(standard_results, hyde_results, n_results=n_results)
+            try:
+                hyde_embedding = embed_query(hyde_text)
+                hyde_kwargs: dict = {"query_embeddings": [hyde_embedding], "n_results": n_results}
+                if chunk_type:
+                    hyde_kwargs["where"] = {"chunk_type": chunk_type}
+                hyde_raw = collection.query(**hyde_kwargs)
+                hyde_results = [
+                    {"source": m["source"], "content": d, "heading": m.get("heading", "")}
+                    for d, m in zip(hyde_raw["documents"][0], hyde_raw["metadatas"][0])
+                ]
+                return merge_results(standard_results, hyde_results, n_results=n_results)
+            except Exception as e:
+                logger.warning("HyDE retrieval failed, falling back to standard results: %s", e)
 
     return standard_results
 

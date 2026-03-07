@@ -471,3 +471,62 @@ class TestHydeIntegration:
         semantic_search("how does this work?", n_results=5)
 
         mock_hyde.assert_not_called()
+
+    @patch("hybrid_search._generate_hyde", return_value="hypothetical answer text")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query")
+    def test_hyde_embed_failure_falls_back(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """If embed_query fails on HyDE text, fall back to standard results."""
+        from unittest.mock import MagicMock
+
+        # First call (standard query) succeeds, second call (HyDE) raises
+        mock_embed.side_effect = [
+            [0.1],  # standard embed succeeds
+            RuntimeError("embedding failed"),  # HyDE embed fails
+        ]
+        mock_collection = MagicMock()
+        mock_collection.query.return_value = {
+            "documents": [["doc1"]],
+            "metadatas": [[{"source": "a.md", "heading": ""}]],
+        }
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("how does indexing work?", n_results=5)
+
+        # Should still return standard results despite HyDE failure
+        assert len(results) >= 1
+        assert results[0]["source"] == "a.md"
+        # Only one ChromaDB query (standard); HyDE query never reached
+        assert mock_collection.query.call_count == 1
+
+    @patch("hybrid_search._generate_hyde", return_value="hypothetical answer text")
+    @patch("hybrid_search.rerank", side_effect=lambda q, r: r)
+    @patch("hybrid_search.get_collection")
+    @patch("hybrid_search.embed_query", return_value=[0.1])
+    def test_hyde_query_failure_falls_back(
+        self, mock_embed, mock_coll, mock_rerank, mock_hyde
+    ):
+        """If collection.query fails on HyDE embedding, fall back to standard results."""
+        from unittest.mock import MagicMock
+
+        mock_collection = MagicMock()
+        # First query (standard) succeeds, second (HyDE) raises
+        mock_collection.query.side_effect = [
+            {
+                "documents": [["doc1"]],
+                "metadatas": [[{"source": "a.md", "heading": ""}]],
+            },
+            RuntimeError("ChromaDB error"),
+        ]
+        mock_coll.return_value = mock_collection
+
+        from hybrid_search import semantic_search
+        results = semantic_search("how does indexing work?", n_results=5)
+
+        # Should still return standard results despite HyDE query failure
+        assert len(results) >= 1
+        assert results[0]["source"] == "a.md"
