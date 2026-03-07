@@ -64,7 +64,6 @@ BATCH_CONFIRM_THRESHOLD = 5  # Require confirmation above this many files
 
 # Hybrid search
 RRF_K = 60  # Reciprocal rank fusion constant
-KEYWORD_LIMIT = 200  # Max chunks to scan for keyword matching
 
 # Reranking
 RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")

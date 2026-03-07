@@ -4,9 +4,8 @@
 import logging
 from collections import defaultdict
 
-from chromadb.errors import ChromaError
-
-from config import KEYWORD_LIMIT, MAX_CHUNKS_PER_SOURCE, RRF_K
+from bm25_index import query_index as bm25_query
+from config import MAX_CHUNKS_PER_SOURCE, RRF_K
 from services.chroma import embed_query, get_collection, rerank
 
 logger = logging.getLogger(__name__)
@@ -66,72 +65,11 @@ def _extract_query_terms(query: str) -> list[str]:
     return terms
 
 
-def _case_variants(terms: list[str]) -> list[str]:
-    """Generate case variants for ChromaDB $contains (which is case-sensitive).
-
-    For each term, produces lowercase and title-case variants, deduplicated.
-    """
-    variants = []
-    seen = set()
-    for t in terms:
-        for v in (t, t.title()):
-            if v not in seen:
-                seen.add(v)
-                variants.append(v)
-    return variants
-
-
 def _keyword_retrieve(
     query: str, n_results: int = 5, chunk_type: str | None = None
 ) -> list[dict[str, str]]:
-    """Raw keyword retrieval without reranking or diversity."""
-    terms = _extract_query_terms(query)
-    if not terms:
-        return []
-
-    collection = get_collection()
-
-    # Build filter with case variants (ChromaDB $contains is case-sensitive)
-    variants = _case_variants(terms)
-    if len(variants) == 1:
-        where_document = {"$contains": variants[0]}
-    else:
-        where_document = {"$or": [{"$contains": v} for v in variants]}
-
-    get_kwargs: dict = {
-        "where_document": where_document,
-        "include": ["documents", "metadatas"],
-        "limit": KEYWORD_LIMIT,
-    }
-    if chunk_type:
-        get_kwargs["where"] = {"chunk_type": chunk_type}
-
-    try:
-        matches = collection.get(**get_kwargs)
-    except ChromaError as e:
-        logger.warning("Keyword search failed: %s", e)
-        return []
-
-    if not matches["ids"]:
-        return []
-
-    # Count matching terms per chunk and build results
-    scored = []
-    for doc, metadata in zip(matches["documents"], matches["metadatas"]):
-        doc_lower = doc.lower()
-        hits = sum(doc_lower.count(t) for t in terms)
-        scored.append({
-            "source": metadata["source"],
-            "content": doc,
-            "heading": metadata.get("heading", ""),
-            "hits": hits,
-        })
-
-    scored.sort(key=lambda x: x["hits"], reverse=True)
-    return [
-        {"source": r["source"], "content": r["content"], "heading": r["heading"]}
-        for r in scored[:n_results]
-    ]
+    """Raw keyword retrieval via BM25 without reranking or diversity."""
+    return bm25_query(query, n_results=n_results, chunk_type=chunk_type)
 
 
 def keyword_search(
