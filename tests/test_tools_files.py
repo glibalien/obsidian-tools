@@ -28,6 +28,7 @@ from tools.files import (
     merge_files,
     move_file,
     read_file,
+    transcribe_to_file,
 )
 
 
@@ -2379,3 +2380,93 @@ class TestBatchCreateFiles:
             batch_create_files(files=files, skip_existing=False, confirm=True)
         )
         assert result.get("confirmation_required") is True
+
+
+class TestTranscribeToFile:
+    """Tests for transcribe_to_file tool."""
+
+    @patch("tools.readers.OpenAI")
+    def test_successful_transcription(self, mock_openai_class, vault_config, monkeypatch):
+        """Transcribes audio and creates a new note with the transcript."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.segments = [
+            {"speaker_id": "0", "text": "Hello.", "start": 0.0, "end": 3.0},
+        ]
+        mock_response.text = "Hello."
+        mock_client.audio.transcriptions.create.return_value = mock_response
+
+        result = json.loads(transcribe_to_file("Attachments/meeting.m4a", "meeting-transcript.md"))
+        assert result["success"] is True
+        assert result["path"] == "meeting-transcript.md"
+        assert result["length"] > 0
+
+        output = vault_config / "meeting-transcript.md"
+        assert output.exists()
+        content = output.read_text()
+        assert "**Speaker 0**" in content
+
+    def test_rejects_non_audio_file(self, vault_config):
+        """Non-audio files are rejected."""
+        note = vault_config / "note.md"
+        note.write_text("hello")
+
+        result = json.loads(transcribe_to_file("note.md", "transcript.md"))
+        assert result["success"] is False
+        assert "audio" in result["error"].lower()
+
+    def test_missing_audio_file(self, vault_config):
+        """Missing audio file returns error."""
+        result = json.loads(transcribe_to_file("nonexistent.m4a", "transcript.md"))
+        assert result["success"] is False
+
+    def test_output_already_exists(self, vault_config, monkeypatch):
+        """Rejects if output file already exists."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        existing = vault_config / "transcript.md"
+        existing.write_text("existing content")
+
+        result = json.loads(transcribe_to_file("Attachments/rec.m4a", "transcript.md"))
+        assert result["success"] is False
+        assert "exists" in result["error"].lower()
+
+    @patch("tools.readers.OpenAI")
+    def test_transcription_failure_propagates(self, mock_openai_class, vault_config, monkeypatch):
+        """API errors from handle_audio are propagated."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "bad.m4a"
+        audio.write_bytes(b"fake")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.audio.transcriptions.create.side_effect = Exception("API error")
+
+        result = json.loads(transcribe_to_file("Attachments/bad.m4a", "transcript.md"))
+        assert result["success"] is False
+
+    @patch("tools.readers.OpenAI")
+    def test_attachments_fallback(self, mock_openai_class, vault_config, monkeypatch):
+        """Bare audio filename resolves via Attachments directory fallback."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "call.m4a"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.segments = [
+            {"speaker_id": "0", "text": "Hello.", "start": 0.0, "end": 3.0},
+        ]
+        mock_response.text = "Hello."
+        mock_client.audio.transcriptions.create.return_value = mock_response
+
+        result = json.loads(transcribe_to_file("call.m4a", "call-transcript.md"))
+        assert result["success"] is True
+        assert (vault_config / "call-transcript.md").exists()

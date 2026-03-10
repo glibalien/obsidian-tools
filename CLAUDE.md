@@ -66,6 +66,7 @@ All tools return JSON via `ok()`/`err()`. List tools support `limit`/`offset` pa
 |----------|---------|----------------|
 | `find_notes` | Unified discovery (search + filter + date) | `query`, `mode` ("hybrid"/"semantic"/"keyword"), `folder`, `recursive` (false), `frontmatter` (array of FilterCondition, AND), `date_start`/`date_end` (YYYY-MM-DD), `date_type` ("modified"/"created"), `sort` ("relevance"/"name"/"modified"/"created"), `include_fields`, `n_results` (20), `offset` |
 | `read_file` | Read any vault file (text, audio, image, Office, PDF) | `path`, `offset` (0), `length` (30000). Auto-dispatches by extension: audio→Whisper, image→vision model, .docx/.xlsx/.pptx→text extraction, .pdf→PyMuPDF page-delimited extraction. Markdown files auto-expand `![[...]]` embeds inline (1 level deep, binary results cached by mtime). |
+| `transcribe_to_file` | Transcribe audio to a new vault note | `path`, `output_path` |
 | `get_note_info` | Lightweight metadata (frontmatter, headings, size, timestamps, link counts) | `path` |
 | `update_frontmatter` | Modify note metadata | `path`, `field`, `value` (str\|list), `operation` ("set"/"remove"/"append"/"rename") |
 | `batch_update_frontmatter` | Bulk frontmatter update | `field`, `value`, `operation` ("set"/"remove"/"append"/"rename"), `paths` OR `target_field`/`target_value`/`target_filters` (query-based) OR `folder`, `confirm` |

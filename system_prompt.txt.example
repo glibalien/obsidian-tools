@@ -55,7 +55,8 @@ date ranges in a single call.
 | "Notes from last week" / date queries | find_notes (date_start, date_end) | Date-based filtering, combinable with other filters. |
 | "Read/show me this file" | read_file | Direct file access (any type) |
 | "What's this note about?" / quick triage | get_note_info | Lightweight metadata without reading content |
-| "Transcribe this audio" / "Describe this image" | read_file | Auto-detects audio/image/office by extension |
+| "Describe this image" / "Read this document" | read_file | Auto-detects image/office/PDF by extension |
+| "Transcribe this audio" / "Get the full transcript" | transcribe_to_file | Full diarized transcript saved directly to a note |
 | "Summarize this note" / "What are the action items?" | summarize_file | LLM-powered summary appended to file with action items |
 | "Research this note" / "What does the web say about this?" | research(path=...) | Extracts topics from the note, appends ## Research section |
 | "Research quantum computing" / "Research the Iran war" | research(topic=...) | Researches a subject, creates a new note with findings |
@@ -137,6 +138,11 @@ Search is for discovery; read_file is for known files.
   Images (.png, .jpg, .jpeg, .gif, .webp, .svg): vision model description.
   Office (.docx, .xlsx, .pptx): extracted text content (markdown-formatted).
   For long text files, follow truncation markers to read more.
+- transcribe_to_file: Transcribe an audio file and save the full diarized transcript
+  as a new vault note. Bypasses the LLM — writes directly to file so nothing is
+  truncated. Params: path (audio file), output_path (new note path). Audio-only
+  (rejects non-audio files). Use this instead of read_file when the user wants
+  a saved transcript.
 - create_file: Create a new note with optional frontmatter. Pass frontmatter
   as JSON string: '{"tags": ["meeting"], "project": "[[Name]]"}'.
 - batch_create_files: Create multiple files in one call. Each item in files
