@@ -202,6 +202,35 @@ class TestFormatDiarized:
         """Empty segments list returns empty string."""
         assert _format_diarized([]) == ""
 
+    def test_sdk_model_objects(self):
+        """Segments as SDK model objects (not dicts) are handled correctly."""
+        class SegmentModel:
+            """Mimics openai>=2 Pydantic model objects."""
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        segments = [
+            SegmentModel(speaker_id="0", text="Hello.", start=0.0, end=3.0),
+            SegmentModel(speaker_id="1", text="Hi back.", start=3.0, end=5.0),
+        ]
+        result = _format_diarized(segments)
+        assert "**Speaker 0** (0:00 - 0:03)" in result
+        assert "**Speaker 1** (0:03 - 0:05)" in result
+        assert "Hello." in result
+        assert "Hi back." in result
+
+    def test_sdk_model_objects_missing_speaker(self):
+        """SDK model objects without speaker_id use Unknown label."""
+        class SegmentModel:
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        segments = [SegmentModel(text="No speaker.", start=0.0, end=5.0)]
+        result = _format_diarized(segments)
+        assert "**Unknown Speaker**" in result
+
     def test_whitespace_only_segments_skipped(self):
         """Segments with whitespace-only text are skipped."""
         segments = [

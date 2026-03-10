@@ -33,13 +33,14 @@ def _format_timestamp(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
-def _format_diarized(segments: list[dict]) -> str:
+def _format_diarized(segments: list) -> str:
     """Format Whisper segments with speaker labels and timestamps.
 
     Merges consecutive segments from the same speaker into single blocks.
+    Accepts both plain dicts and SDK model objects (openai>=2).
 
     Args:
-        segments: List of Whisper segment dicts with speaker_id, text, start, end.
+        segments: List of Whisper segment dicts or model objects.
 
     Returns:
         Formatted transcript string with speaker labels and timestamps.
@@ -49,6 +50,9 @@ def _format_diarized(segments: list[dict]) -> str:
 
     merged: list[dict] = []
     for seg in segments:
+        # Normalize SDK model objects to dicts
+        if not isinstance(seg, dict):
+            seg = seg.model_dump() if hasattr(seg, "model_dump") else vars(seg)
         speaker = seg.get("speaker_id")
         text = seg.get("text", "").strip()
         if not text:
