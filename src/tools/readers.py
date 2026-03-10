@@ -23,6 +23,61 @@ OFFICE_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
 PDF_EXTENSIONS = {".pdf"}
 
 
+def _format_timestamp(seconds: float) -> str:
+    """Format seconds as M:SS or H:MM:SS."""
+    total = int(seconds)
+    h, remainder = divmod(total, 3600)
+    m, s = divmod(remainder, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _format_diarized(segments: list[dict]) -> str:
+    """Format Whisper segments with speaker labels and timestamps.
+
+    Merges consecutive segments from the same speaker into single blocks.
+
+    Args:
+        segments: List of Whisper segment dicts with speaker_id, text, start, end.
+
+    Returns:
+        Formatted transcript string with speaker labels and timestamps.
+    """
+    if not segments:
+        return ""
+
+    merged: list[dict] = []
+    for seg in segments:
+        speaker = seg.get("speaker_id")
+        text = seg.get("text", "").strip()
+        if not text:
+            continue
+        if merged and merged[-1]["speaker"] == speaker:
+            merged[-1]["text"] += " " + text
+            merged[-1]["end"] = seg.get("end", merged[-1]["end"])
+        else:
+            merged.append({
+                "speaker": speaker,
+                "text": text,
+                "start": seg.get("start", 0.0),
+                "end": seg.get("end", 0.0),
+            })
+
+    parts = []
+    for block in merged:
+        speaker = block["speaker"]
+        start = _format_timestamp(block["start"])
+        end = _format_timestamp(block["end"])
+        if speaker is not None:
+            label = f"**Speaker {speaker}** ({start} - {end})"
+        else:
+            label = f"**Unknown Speaker** ({start} - {end})"
+        parts.append(f"{label}\n{block['text']}")
+
+    return "\n\n".join(parts)
+
+
 def handle_audio(file_path: Path) -> str:
     """Transcribe an audio file using Fireworks Whisper API."""
     api_key = os.getenv("FIREWORKS_API_KEY")
@@ -43,12 +98,20 @@ def handle_audio(file_path: Path) -> str:
                 model=WHISPER_MODEL,
                 file=f,
                 response_format="verbose_json",
-                timestamp_granularities=["word"],
+                timestamp_granularities=["word", "segment"],
                 extra_body={"diarize": True},
             )
         elapsed = time.perf_counter() - start
         logger.info("Transcribed %s in %.2fs", file_path.name, elapsed)
-        return ok(transcript=response.text)
+
+        # Use diarized segments if available, fall back to plain text
+        segments = getattr(response, "segments", None)
+        if segments:
+            transcript = _format_diarized(segments)
+        else:
+            transcript = response.text
+
+        return ok(transcript=transcript)
     except Exception as e:
         logger.warning("Transcription failed for %s: %s", file_path.name, e)
         return err(f"Transcription failed: {e}")

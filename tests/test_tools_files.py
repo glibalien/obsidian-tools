@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from pptx import Presentation
 
 from services.vault import FilterCondition, clear_pending_previews
-from tools.readers import handle_audio, handle_image, handle_office, handle_pdf
+from tools.readers import handle_audio, handle_image, handle_office, handle_pdf, _format_diarized
 from tools.files import (
     _embed_cache,
     _expand_embeds,
@@ -154,6 +154,65 @@ class TestReadFile:
         assert "> [Embedded:" not in result["content"]
 
 
+class TestFormatDiarized:
+    """Tests for _format_diarized segment formatter."""
+
+    def test_basic_speaker_formatting(self):
+        """Segments are formatted with speaker labels and timestamps."""
+        segments = [
+            {"speaker_id": "0", "text": "Hello there.", "start": 0.0, "end": 5.5},
+            {"speaker_id": "1", "text": "Hi, how are you?", "start": 5.5, "end": 10.0},
+        ]
+        result = _format_diarized(segments)
+        assert "**Speaker 0** (0:00 - 0:05)" in result
+        assert "Hello there." in result
+        assert "**Speaker 1** (0:05 - 0:10)" in result
+        assert "Hi, how are you?" in result
+
+    def test_merges_consecutive_same_speaker(self):
+        """Consecutive segments from the same speaker are merged."""
+        segments = [
+            {"speaker_id": "0", "text": "First part.", "start": 0.0, "end": 5.0},
+            {"speaker_id": "0", "text": "Second part.", "start": 5.0, "end": 10.0},
+            {"speaker_id": "1", "text": "Response.", "start": 10.0, "end": 15.0},
+        ]
+        result = _format_diarized(segments)
+        assert result.count("**Speaker") == 2
+        assert "**Speaker 0** (0:00 - 0:10)" in result
+        assert "First part. Second part." in result
+
+    def test_missing_speaker_id_uses_unknown(self):
+        """Segments without speaker_id use 'Unknown' label."""
+        segments = [
+            {"text": "No speaker info.", "start": 0.0, "end": 5.0},
+        ]
+        result = _format_diarized(segments)
+        assert "**Unknown Speaker**" in result
+
+    def test_hour_plus_timestamps(self):
+        """Timestamps over an hour include hours."""
+        segments = [
+            {"speaker_id": "0", "text": "Late segment.", "start": 3661.0, "end": 3720.0},
+        ]
+        result = _format_diarized(segments)
+        assert "**Speaker 0** (1:01:01 - 1:02:00)" in result
+
+    def test_empty_segments_returns_empty_string(self):
+        """Empty segments list returns empty string."""
+        assert _format_diarized([]) == ""
+
+    def test_whitespace_only_segments_skipped(self):
+        """Segments with whitespace-only text are skipped."""
+        segments = [
+            {"speaker_id": "0", "text": "Real text.", "start": 0.0, "end": 5.0},
+            {"speaker_id": "1", "text": "   ", "start": 5.0, "end": 8.0},
+            {"speaker_id": "2", "text": "More text.", "start": 8.0, "end": 12.0},
+        ]
+        result = _format_diarized(segments)
+        assert result.count("**Speaker") == 2
+        assert "**Speaker 1**" not in result
+
+
 class TestReadFileAudio:
     """Tests for read_file dispatching to audio handler."""
 
@@ -177,6 +236,7 @@ class TestReadFileAudio:
         mock_openai_class.return_value = mock_client
         mock_response = MagicMock()
         mock_response.text = "Hello world"
+        mock_response.segments = None
         mock_client.audio.transcriptions.create.return_value = mock_response
 
         result = json.loads(read_file("Attachments/test.m4a"))
@@ -207,6 +267,48 @@ class TestReadFileAudio:
             result = json.loads(read_file(f"Attachments/test{ext}"))
             assert result["success"] is False
             assert "FIREWORKS_API_KEY" in result["error"], f"Extension {ext} not dispatched to audio handler"
+
+
+    @patch("tools.readers.OpenAI")
+    def test_audio_diarized_formatting(self, mock_openai_class, vault_config, monkeypatch):
+        """Audio transcription uses diarized formatting when segments available."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "test.m4a"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.text = "Hello there. Hi back."
+        mock_response.segments = [
+            {"speaker_id": "0", "text": "Hello there.", "start": 0.0, "end": 3.0},
+            {"speaker_id": "1", "text": "Hi back.", "start": 3.0, "end": 5.0},
+        ]
+        mock_client.audio.transcriptions.create.return_value = mock_response
+
+        result = json.loads(read_file("Attachments/test.m4a"))
+        assert result["success"] is True
+        assert "**Speaker 0**" in result["transcript"]
+        assert "**Speaker 1**" in result["transcript"]
+        assert "Hello there." in result["transcript"]
+
+    @patch("tools.readers.OpenAI")
+    def test_audio_fallback_no_segments(self, mock_openai_class, vault_config, monkeypatch):
+        """Falls back to response.text when segments not available."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "test.m4a"
+        audio.write_bytes(b"fake audio")
+
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.text = "Plain transcript"
+        mock_response.segments = None
+        mock_client.audio.transcriptions.create.return_value = mock_response
+
+        result = json.loads(read_file("Attachments/test.m4a"))
+        assert result["success"] is True
+        assert result["transcript"] == "Plain transcript"
 
 
 class TestReadFileAttachmentsFallback:
@@ -1510,6 +1612,7 @@ class TestBinaryHandlerLogging:
 
         mock_response = MagicMock()
         mock_response.text = "Hello world"
+        mock_response.segments = None
 
         with patch("tools.readers.OpenAI") as mock_openai_cls:
             mock_client = MagicMock()
