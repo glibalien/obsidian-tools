@@ -237,6 +237,18 @@ class TestBuildToolStub:
         assert result["path"] == "notes/meeting.md"
         assert result["summary_length"] == 1234
 
+    def test_build_transcribe_to_file_stub(self):
+        """Stub for transcribe_to_file keeps path and length."""
+        content = json.dumps({
+            "success": True,
+            "path": "transcript.md",
+            "length": 5000,
+        })
+        result = json.loads(build_tool_stub(content, "transcribe_to_file"))
+        assert result["status"] == "success"
+        assert result["path"] == "transcript.md"
+        assert result["length"] == 5000
+
     def test_unknown_tool_falls_back_to_generic(self):
         """Unknown tool name uses generic stub builder."""
         content = json.dumps({"success": True, "path": "new/note.md"})

@@ -23,6 +23,7 @@ from tools.files import (
     get_note_info,
     move_file,
     read_file,
+    transcribe_to_file,
 )
 from tools.frontmatter import (
     batch_update_frontmatter,
@@ -58,6 +59,7 @@ mcp.tool()(web_search)
 
 # File tools
 mcp.tool()(read_file)
+mcp.tool()(transcribe_to_file)
 mcp.tool()(get_note_info)
 mcp.tool()(create_file)
 mcp.tool()(batch_create_files)

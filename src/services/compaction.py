@@ -176,6 +176,15 @@ def _build_research_stub(data: dict) -> str:
     return json.dumps(stub)
 
 
+def _build_transcribe_to_file_stub(data: dict) -> str:
+    """Compact transcribe_to_file: keep path and length."""
+    stub = _base_stub(data)
+    for key in ("path", "length"):
+        if key in data:
+            stub[key] = data[key]
+    return json.dumps(stub)
+
+
 def _build_batch_create_files_stub(data: dict) -> str:
     """Compact batch_create_files: keep counts only."""
     stub = _base_stub(data)
@@ -190,6 +199,7 @@ def _build_batch_create_files_stub(data: dict) -> str:
 
 _TOOL_STUB_BUILDERS: dict[str, Callable[[dict], str]] = {
     "batch_create_files": _build_batch_create_files_stub,
+    "transcribe_to_file": _build_transcribe_to_file_stub,
     "find_notes": _build_find_notes_stub,
     "read_file": _build_read_file_stub,
     "web_search": _build_web_search_stub,

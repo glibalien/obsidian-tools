@@ -421,6 +421,57 @@ def read_file(path: str, offset: int = 0, length: int = 30000) -> str:
     return ok(content="".join(parts))
 
 
+def transcribe_to_file(path: str, output_path: str) -> str:
+    """Transcribe an audio file and save the transcript as a new vault note.
+
+    Bypasses LLM relay — writes the full diarized transcript directly to a file.
+
+    Args:
+        path: Path to the audio file (relative to vault or absolute).
+        output_path: Path for the new transcript note (relative to vault root).
+
+    Returns:
+        JSON with path and character count on success.
+    """
+    path = path.replace("\xa0", " ")
+    output_path = output_path.replace("\xa0", " ")
+
+    # Validate audio extension before resolving
+    ext = Path(path).suffix.lower()
+    if ext not in AUDIO_EXTENSIONS:
+        return err(f"Not an audio file (supported: {', '.join(sorted(AUDIO_EXTENSIONS))})")
+
+    # Resolve audio file (with Attachments fallback)
+    file_path, error = resolve_file(path)
+    if error:
+        file_path, att_error = resolve_file(path, base_path=config.ATTACHMENTS_DIR)
+        if att_error:
+            return err(error)
+
+    # Check output doesn't already exist
+    try:
+        out_resolved = resolve_vault_path(output_path)
+    except ValueError as e:
+        return err(str(e))
+    if out_resolved.exists():
+        return err(f"Output file already exists: {output_path}")
+
+    # Transcribe
+    raw = handle_audio(file_path)
+    result = json.loads(raw)
+    if not result.get("success"):
+        return err(result.get("error", "Transcription failed"))
+
+    transcript = result["transcript"]
+
+    # Write via create_file
+    create_result = json.loads(create_file(output_path, transcript))
+    if not create_result.get("success"):
+        return err(create_result.get("error", "Failed to create output file"))
+
+    return ok(path=output_path, length=len(transcript))
+
+
 def create_file(
     path: str,
     content: str = "",
