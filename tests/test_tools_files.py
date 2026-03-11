@@ -2635,3 +2635,77 @@ class TestPersistentEmbedCache:
             _expand_embeds("![[bad.m4a]]", vault_config / "parent.md")
 
         assert _cache_read(audio) is None
+
+    def test_read_file_uses_disk_cache(self, vault_config, monkeypatch):
+        """read_file returns cached result for audio without calling API."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "Cached transcript")
+        _embed_cache.clear()
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            result = json.loads(read_file("Attachments/rec.m4a"))
+            mock_audio.assert_not_called()
+
+        assert result["success"] is True
+        assert result["transcript"] == "Cached transcript"
+
+    def test_read_file_writes_disk_cache(self, vault_config, monkeypatch):
+        """read_file populates disk cache after calling handler."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.readers.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.segments = None
+            mock_response.text = "Fresh transcript"
+            mock_client.audio.transcriptions.create.return_value = mock_response
+
+            _embed_cache.clear()
+            result = json.loads(read_file("Attachments/rec.m4a"))
+
+        assert result["success"] is True
+        # Verify disk cache was populated
+        cached = _cache_read(audio)
+        assert cached == "Fresh transcript"
+
+    def test_read_file_image_uses_disk_cache(self, vault_config, monkeypatch):
+        """read_file returns cached result for images with description key."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        img = vault_config / "Attachments" / "photo.png"
+        img.write_bytes(b"fake png")
+        mtime = img.stat().st_mtime
+
+        _cache_write(img, mtime, "A photo of a cat")
+        _embed_cache.clear()
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_image") as mock_image:
+            result = json.loads(read_file("Attachments/photo.png"))
+            mock_image.assert_not_called()
+
+        assert result["success"] is True
+        assert result["description"] == "A photo of a cat"
+
+    def test_read_file_error_not_cached(self, vault_config, monkeypatch):
+        """read_file does not cache handler error responses."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "bad.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": false, "error": "Transcription failed"}'
+            _embed_cache.clear()
+            result = json.loads(read_file("Attachments/bad.m4a"))
+
+        assert result["success"] is False
+        assert _cache_read(audio) is None

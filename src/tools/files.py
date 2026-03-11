@@ -49,6 +49,15 @@ logger = logging.getLogger(__name__)
 
 _BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS | PDF_EXTENSIONS
 
+# Maps binary extension sets to the JSON response key used by ok()
+_BINARY_RESPONSE_KEYS: dict[str, str] = {}
+for _ext in AUDIO_EXTENSIONS:
+    _BINARY_RESPONSE_KEYS[_ext] = "transcript"
+for _ext in IMAGE_EXTENSIONS:
+    _BINARY_RESPONSE_KEYS[_ext] = "description"
+for _ext in OFFICE_EXTENSIONS | PDF_EXTENSIONS:
+    _BINARY_RESPONSE_KEYS[_ext] = "content"
+
 _BLOCK_ID_RE = re.compile(r"\s\^(\S+)\s*$")
 
 
@@ -181,6 +190,61 @@ def _cache_write(file_path: Path, mtime: float, content: str) -> None:
         oldest = next(iter(_embed_cache))
         del _embed_cache[oldest]
     _embed_cache[(str(file_path), mtime)] = content
+
+
+def _read_binary(file_path: Path, ext: str) -> str:
+    """Read a binary file with persistent cache support.
+
+    Checks cache first, calls appropriate handler on miss,
+    writes result to cache, and returns ok() JSON with the correct key.
+
+    Args:
+        file_path: Resolved absolute path to the binary file.
+        ext: Lowercase file extension (e.g. ".m4a").
+
+    Returns:
+        JSON string via ok() with the appropriate response key.
+    """
+    # Check persistent cache (in-memory then disk)
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        mtime = None
+
+    if mtime is not None:
+        cache_key = (str(file_path), mtime)
+        if cache_key in _embed_cache:
+            content = _embed_cache[cache_key]
+            return ok(**{_BINARY_RESPONSE_KEYS[ext]: content})
+
+        disk_hit = _cache_read(file_path)
+        if disk_hit is not None:
+            return ok(**{_BINARY_RESPONSE_KEYS[ext]: disk_hit})
+
+    # Cache miss — call handler
+    if ext in AUDIO_EXTENSIONS:
+        raw = handle_audio(file_path)
+    elif ext in IMAGE_EXTENSIONS:
+        raw = handle_image(file_path)
+    elif ext in OFFICE_EXTENSIONS:
+        raw = handle_office(file_path)
+    elif ext in PDF_EXTENSIONS:
+        raw = handle_pdf(file_path)
+    else:
+        return err(f"Unsupported binary type: {ext}")
+
+    # Extract content and cache on success
+    result = json.loads(raw)
+    if result.get("success") and mtime is not None:
+        content = (
+            result.get("transcript")
+            or result.get("description")
+            or result.get("content")
+            or ""
+        )
+        _cache_write(file_path, mtime, content)
+
+    return raw
 
 
 def _expand_embeds(content: str, source_path: Path) -> str:
@@ -461,19 +525,10 @@ def read_file(path: str, offset: int = 0, length: int = 30000) -> str:
         else:
             return err(error)
 
-    # Extension-based dispatch for non-text files
+    # Extension-based dispatch for non-text files (with persistent cache)
     ext = file_path.suffix.lower()
-    if ext in AUDIO_EXTENSIONS:
-        return handle_audio(file_path)
-
-    if ext in IMAGE_EXTENSIONS:
-        return handle_image(file_path)
-
-    if ext in OFFICE_EXTENSIONS:
-        return handle_office(file_path)
-
-    if ext in PDF_EXTENSIONS:
-        return handle_pdf(file_path)
+    if ext in _BINARY_EXTENSIONS:
+        return _read_binary(file_path, ext)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
