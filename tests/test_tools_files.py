@@ -2588,6 +2588,39 @@ class TestPersistentEmbedCache:
         cache_file = vault_config / ".embed_cache" / f"{expected_key}.json"
         assert cache_file.exists()
 
+    def test_cache_works_with_symlinked_vault(self, tmp_path, monkeypatch):
+        """Cache works when VAULT_PATH contains symlinks."""
+        import config
+        import services.vault
+        import tools.links
+
+        # Create real vault dir and a symlink to it
+        real_vault = tmp_path / "real_vault"
+        real_vault.mkdir()
+        attachments = real_vault / "Attachments"
+        attachments.mkdir()
+        symlink_vault = tmp_path / "symlink_vault"
+        symlink_vault.symlink_to(real_vault)
+
+        # Patch VAULT_PATH to the symlink (unresolved)
+        monkeypatch.setattr(config, "VAULT_PATH", symlink_vault)
+        monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+        monkeypatch.setattr(config, "ATTACHMENTS_DIR", attachments)
+        monkeypatch.setattr(services.vault, "VAULT_PATH", symlink_vault)
+        monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+        monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+
+        # Create a file via the resolved path (as resolve_file would)
+        audio = real_vault / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        # _cache_write and _cache_read should work despite path mismatch
+        _cache_write(audio, mtime, "transcript via symlink")
+        _embed_cache.clear()
+        result = _cache_read(audio)
+        assert result == "transcript via symlink"
+
     def test_expand_binary_writes_disk_cache(self, vault_config, monkeypatch):
         """_expand_binary writes result to disk cache on miss."""
         monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")

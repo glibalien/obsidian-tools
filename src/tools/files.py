@@ -113,7 +113,7 @@ _EMBED_CACHE_DIR = ".embed_cache"
 
 def _cache_key(file_path: Path) -> str:
     """Compute cache filename from vault-relative POSIX path."""
-    rel = file_path.relative_to(config.VAULT_PATH).as_posix()
+    rel = file_path.relative_to(Path(config.VAULT_PATH).resolve()).as_posix()
     return hashlib.sha256(rel.encode()).hexdigest()
 
 
@@ -134,8 +134,8 @@ def _cache_read(file_path: Path) -> str | None:
     except OSError:
         return None
 
-    cache_file = Path(config.VAULT_PATH) / _EMBED_CACHE_DIR / f"{_cache_key(file_path)}.json"
     try:
+        cache_file = Path(config.VAULT_PATH) / _EMBED_CACHE_DIR / f"{_cache_key(file_path)}.json"
         data = json.loads(cache_file.read_text(encoding="utf-8"))
         if data.get("mtime") == mtime:
             content = data["content"]
@@ -182,7 +182,7 @@ def _cache_write(file_path: Path, mtime: float, content: str) -> None:
             except OSError:
                 pass
             raise
-    except OSError:
+    except (OSError, ValueError):
         logger.warning("Failed to write embed cache for %s", file_path.name)
 
     # Populate in-memory cache (with eviction)
