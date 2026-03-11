@@ -24,7 +24,7 @@ Your vault gets indexed into a vector database. An LLM agent then uses [MCP tool
 
 1. **Indexer** scans your vault and creates embeddings in ChromaDB (using [nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)), splitting notes by headings, paragraphs, and sentences with heading hierarchy prefixes (`[Note > Section > Subsection]`) and cross-section overlap for continuity
 2. **Search pipeline** combines semantic search (ChromaDB) with BM25 keyword scoring via [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf). Question-type queries get [HyDE](https://arxiv.org/abs/2212.10496) augmentation (LLM generates a hypothetical answer, which is embedded alongside the original query). Results are reranked by a cross-encoder model and deduplicated per source.
-3. **MCP Server** exposes 19 tools for searching, reading, and modifying vault content
+3. **MCP Server** exposes 20 tools for searching, reading, and modifying vault content
 4. **LLM Agent** (powered by [Fireworks AI](https://fireworks.ai/)) orchestrates the tools to answer your questions
 5. **Interfaces** — chat in Obsidian via the sidebar plugin, from the terminal via the CLI agent, or programmatically via the HTTP API
 
@@ -203,6 +203,7 @@ The installer copies `system_prompt.txt.example` to `system_prompt.txt` (gitigno
 |------|-------------|
 | `find_notes` | Unified discovery — hybrid/semantic/keyword search, frontmatter filters, date ranges, folder browsing |
 | `read_file` | Read any vault file — markdown (with embed expansion), audio (Whisper), images (vision), Office docs, PDFs |
+| `transcribe_to_file` | Transcribe audio to a new vault note with diarized speaker segments |
 | `get_note_info` | Lightweight metadata — frontmatter, headings, size, timestamps, link counts |
 | `create_file` | Create a new note with optional YAML frontmatter |
 | `batch_create_files` | Create multiple files in one operation |
