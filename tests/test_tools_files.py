@@ -2709,3 +2709,48 @@ class TestPersistentEmbedCache:
 
         assert result["success"] is False
         assert _cache_read(audio) is None
+
+    def test_transcribe_to_file_uses_disk_cache(self, vault_config, monkeypatch):
+        """transcribe_to_file uses cached transcript without calling API."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "Cached diarized transcript")
+        _embed_cache.clear()
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            result = json.loads(transcribe_to_file("Attachments/meeting.m4a", "transcript.md"))
+            mock_audio.assert_not_called()
+
+        assert result["success"] is True
+        output = vault_config / "transcript.md"
+        assert output.exists()
+        assert output.read_text() == "Cached diarized transcript"
+
+    def test_transcribe_to_file_writes_disk_cache(self, vault_config, monkeypatch):
+        """transcribe_to_file populates disk cache after API call."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.readers.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.segments = [
+                {"speaker_id": "0", "text": "Hello.", "start": 0.0, "end": 3.0},
+            ]
+            mock_response.text = "Hello."
+            mock_client.audio.transcriptions.create.return_value = mock_response
+
+            _embed_cache.clear()
+            result = json.loads(transcribe_to_file("Attachments/meeting.m4a", "transcript.md"))
+
+        assert result["success"] is True
+        cached = _cache_read(audio)
+        assert cached is not None
+        assert "**Speaker 0**" in cached

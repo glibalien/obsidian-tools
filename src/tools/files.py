@@ -598,13 +598,28 @@ def transcribe_to_file(path: str, output_path: str) -> str:
     if out_resolved.exists():
         return err(f"Output file already exists: {output_path}")
 
-    # Transcribe
-    raw = handle_audio(file_path)
-    result = json.loads(raw)
-    if not result.get("success"):
-        return err(result.get("error", "Transcription failed"))
+    # Check cache first, then transcribe on miss
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        mtime = None
 
-    transcript = result["transcript"]
+    transcript = None
+    if mtime is not None:
+        cache_key = (str(file_path), mtime)
+        if cache_key in _embed_cache:
+            transcript = _embed_cache[cache_key]
+        else:
+            transcript = _cache_read(file_path)
+
+    if transcript is None:
+        raw = handle_audio(file_path)
+        result = json.loads(raw)
+        if not result.get("success"):
+            return err(result.get("error", "Transcription failed"))
+        transcript = result["transcript"]
+        if mtime is not None:
+            _cache_write(file_path, mtime, transcript)
 
     # Write via create_file
     create_result = json.loads(create_file(output_path, transcript))
