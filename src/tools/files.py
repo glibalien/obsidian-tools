@@ -295,7 +295,7 @@ def _resolve_embed_file(lookup_name: str, ext: str) -> Path | None:
 
 
 def _expand_binary(file_path: Path, reference: str) -> str:
-    """Expand a binary embed (audio/image/office) with caching."""
+    """Expand a binary embed (audio/image/office/pdf) with caching."""
     path_str = str(file_path)
     try:
         mtime = file_path.stat().st_mtime
@@ -305,40 +305,43 @@ def _expand_binary(file_path: Path, reference: str) -> str:
     cache_key = (path_str, mtime)
     if cache_key in _embed_cache:
         logger.debug("Cache hit: %s", file_path.name)
-        expanded = _embed_cache[cache_key]
+        return _format_embed(reference, _embed_cache[cache_key])
+
+    # Check persistent disk cache
+    disk_hit = _cache_read(file_path)
+    if disk_hit is not None:
+        logger.debug("Disk cache hit: %s", file_path.name)
+        return _format_embed(reference, disk_hit)
+
+    # Full miss — call handler
+    ext = file_path.suffix.lower()
+    if ext in AUDIO_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling audio handler", file_path.name)
+        raw = handle_audio(file_path)
+    elif ext in IMAGE_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling image handler", file_path.name)
+        raw = handle_image(file_path)
+    elif ext in OFFICE_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling office handler", file_path.name)
+        raw = handle_office(file_path)
+    elif ext in PDF_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling pdf handler", file_path.name)
+        raw = handle_pdf(file_path)
     else:
-        ext = file_path.suffix.lower()
-        if ext in AUDIO_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling audio handler", file_path.name)
-            raw = handle_audio(file_path)
-        elif ext in IMAGE_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling image handler", file_path.name)
-            raw = handle_image(file_path)
-        elif ext in OFFICE_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling office handler", file_path.name)
-            raw = handle_office(file_path)
-        elif ext in PDF_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling pdf handler", file_path.name)
-            raw = handle_pdf(file_path)
-        else:
-            return f"> [Embed error: {reference} — Unsupported binary type]"
+        return f"> [Embed error: {reference} — Unsupported binary type]"
 
-        result = json.loads(raw)
-        if not result.get("success"):
-            return f"> [Embed error: {reference} — {result.get('error', 'Unknown error')}]"
+    result = json.loads(raw)
+    if not result.get("success"):
+        return f"> [Embed error: {reference} — {result.get('error', 'Unknown error')}]"
 
-        expanded = (
-            result.get("transcript")
-            or result.get("description")
-            or result.get("content")
-            or ""
-        )
-        # Evict oldest entries if cache is full
-        if len(_embed_cache) >= _EMBED_CACHE_MAX:
-            oldest = next(iter(_embed_cache))
-            del _embed_cache[oldest]
-        _embed_cache[cache_key] = expanded
+    expanded = (
+        result.get("transcript")
+        or result.get("description")
+        or result.get("content")
+        or ""
+    )
 
+    _cache_write(file_path, mtime, expanded)
     return _format_embed(reference, expanded)
 
 

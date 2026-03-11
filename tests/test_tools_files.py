@@ -2587,3 +2587,51 @@ class TestPersistentEmbedCache:
         expected_key = hashlib.sha256(rel.encode()).hexdigest()
         cache_file = vault_config / ".embed_cache" / f"{expected_key}.json"
         assert cache_file.exists()
+
+    def test_expand_binary_writes_disk_cache(self, vault_config, monkeypatch):
+        """_expand_binary writes result to disk cache on miss."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Hello"}'
+            _embed_cache.clear()
+            _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+
+        # Verify disk cache was written
+        result = _cache_read(audio)
+        assert result == "Hello"
+
+    def test_expand_binary_reads_disk_cache(self, vault_config, monkeypatch):
+        """_expand_binary uses disk cache when in-memory cache is empty."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        # Pre-populate disk cache
+        _cache_write(audio, mtime, "Cached transcript")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            _embed_cache.clear()
+            result = _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+            mock_audio.assert_not_called()
+
+        assert "Cached transcript" in result
+
+    def test_error_response_not_cached(self, vault_config, monkeypatch):
+        """Handler errors are not written to disk cache."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "bad.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": false, "error": "Transcription failed"}'
+            _embed_cache.clear()
+            _expand_embeds("![[bad.m4a]]", vault_config / "parent.md")
+
+        assert _cache_read(audio) is None
