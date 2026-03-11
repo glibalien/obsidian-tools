@@ -1,7 +1,9 @@
 """Tests for tools/files.py - file operations."""
 
+import hashlib
 import json
 import logging
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,6 +14,8 @@ from pptx import Presentation
 from services.vault import FilterCondition, clear_pending_previews
 from tools.readers import handle_audio, handle_image, handle_office, handle_pdf, _format_diarized
 from tools.files import (
+    _cache_read,
+    _cache_write,
     _embed_cache,
     _expand_embeds,
     _extract_block,
@@ -2499,3 +2503,87 @@ class TestTranscribeToFile:
         result = json.loads(transcribe_to_file("call.m4a", "call-transcript.md"))
         assert result["success"] is True
         assert (vault_config / "call-transcript.md").exists()
+
+
+class TestPersistentEmbedCache:
+    """Tests for disk-backed embed cache helpers."""
+
+    def test_cache_write_and_read(self, vault_config):
+        """Written cache entry is readable."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "Hello world transcript")
+        result = _cache_read(audio)
+        assert result == "Hello world transcript"
+
+    def test_cache_read_miss_no_file(self, vault_config):
+        """Returns None when no cache file exists."""
+        missing = vault_config / "Attachments" / "missing.m4a"
+        assert _cache_read(missing) is None
+
+    def test_cache_read_stale_mtime(self, vault_config):
+        """Returns None when cached mtime doesn't match current file."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        old_mtime = audio.stat().st_mtime
+
+        _cache_write(audio, old_mtime, "Old transcript")
+
+        time.sleep(0.05)
+        audio.write_bytes(b"modified")
+
+        assert _cache_read(audio) is None
+
+    def test_cache_read_corrupt_json(self, vault_config):
+        """Returns None on corrupt cache file."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+
+        cache_dir = vault_config / ".embed_cache"
+        cache_dir.mkdir(exist_ok=True)
+        rel = audio.relative_to(vault_config).as_posix()
+        key = hashlib.sha256(rel.encode()).hexdigest()
+        (cache_dir / f"{key}.json").write_text("not valid json{{{")
+
+        assert _cache_read(audio) is None
+
+    def test_cache_write_creates_directory(self, vault_config):
+        """Cache directory is created on first write."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        cache_dir = vault_config / ".embed_cache"
+        assert not cache_dir.exists()
+
+        _cache_write(audio, mtime, "transcript")
+        assert cache_dir.is_dir()
+
+    def test_cache_populates_in_memory(self, vault_config):
+        """Cache read populates in-memory _embed_cache."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "transcript")
+        _embed_cache.clear()
+
+        result = _cache_read(audio)
+        assert result == "transcript"
+        assert (str(audio), mtime) in _embed_cache
+
+    def test_cache_cross_platform_key(self, vault_config):
+        """Cache key uses POSIX path for cross-platform consistency."""
+        audio = vault_config / "Attachments" / "sub" / "rec.m4a"
+        audio.parent.mkdir(parents=True, exist_ok=True)
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "transcript")
+
+        rel = audio.relative_to(vault_config).as_posix()
+        expected_key = hashlib.sha256(rel.encode()).hexdigest()
+        cache_file = vault_config / ".embed_cache" / f"{expected_key}.json"
+        assert cache_file.exists()

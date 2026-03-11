@@ -3,7 +3,9 @@
 import hashlib
 import json
 import logging
+import os
 import re
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
@@ -97,6 +99,88 @@ _embed_cache: dict[tuple[str, float], str] = {}
 _EMBED_RE = re.compile(r"!\[\[([^\]]+)\]\]")
 _INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1")
 _EMBED_CACHE_MAX = 128
+_EMBED_CACHE_DIR = ".embed_cache"
+
+
+def _cache_key(file_path: Path) -> str:
+    """Compute cache filename from vault-relative POSIX path."""
+    rel = file_path.relative_to(config.VAULT_PATH).as_posix()
+    return hashlib.sha256(rel.encode()).hexdigest()
+
+
+def _cache_read(file_path: Path) -> str | None:
+    """Read from persistent embed cache.
+
+    Checks disk cache for a valid (mtime-matching) entry. Populates
+    in-memory cache on hit.
+
+    Args:
+        file_path: Absolute path to the source binary file.
+
+    Returns:
+        Cached content string, or None on miss.
+    """
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        return None
+
+    cache_file = Path(config.VAULT_PATH) / _EMBED_CACHE_DIR / f"{_cache_key(file_path)}.json"
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        if data.get("mtime") == mtime:
+            content = data["content"]
+            # Evict oldest in-memory entry if full
+            if len(_embed_cache) >= _EMBED_CACHE_MAX:
+                oldest = next(iter(_embed_cache))
+                del _embed_cache[oldest]
+            _embed_cache[(str(file_path), mtime)] = content
+            return content
+    except OSError:
+        pass  # Cache file doesn't exist yet — normal cold start
+    except (ValueError, json.JSONDecodeError, KeyError, TypeError):
+        logger.warning("Corrupt embed cache entry for %s", file_path.name)
+
+    return None
+
+
+def _cache_write(file_path: Path, mtime: float, content: str) -> None:
+    """Write to persistent embed cache.
+
+    Writes atomically (temp file + rename) and populates in-memory cache.
+
+    Args:
+        file_path: Absolute path to the source binary file.
+        mtime: Source file's st_mtime at processing time.
+        content: Extracted text/transcript/description string.
+    """
+    cache_dir = Path(config.VAULT_PATH) / _EMBED_CACHE_DIR
+    try:
+        cache_dir.mkdir(exist_ok=True)
+        cache_file = cache_dir / f"{_cache_key(file_path)}.json"
+        data = json.dumps({"mtime": mtime, "content": content})
+        fd = tempfile.NamedTemporaryFile(
+            mode="w", dir=cache_dir, suffix=".tmp", delete=False, encoding="utf-8",
+        )
+        try:
+            fd.write(data)
+            fd.close()
+            os.replace(fd.name, cache_file)
+        except BaseException:
+            fd.close()
+            try:
+                os.unlink(fd.name)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        logger.warning("Failed to write embed cache for %s", file_path.name)
+
+    # Populate in-memory cache (with eviction)
+    if len(_embed_cache) >= _EMBED_CACHE_MAX:
+        oldest = next(iter(_embed_cache))
+        del _embed_cache[oldest]
+    _embed_cache[(str(file_path), mtime)] = content
 
 
 def _expand_embeds(content: str, source_path: Path) -> str:
