@@ -5,6 +5,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+import config
 from config import EXCLUDED_DIRS, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -120,10 +121,10 @@ def _extract_outlinks(file_path: Path) -> list[dict] | None:
     if not matches:
         return []
 
-    stem_map, path_map = _build_note_path_map()
+    stem_map, path_map, file_map = _build_note_path_map()
     unique_names = sorted(set(matches))
     return [
-        {"name": name, "path": _resolve_link(name, stem_map, path_map)}
+        {"name": name, "path": _resolve_link(name, stem_map, path_map, file_map)}
         for name in unique_names
     ]
 
@@ -183,47 +184,74 @@ def _is_shortest_stem_path(stem: str, rel_path: str) -> bool:
     return True
 
 
-def _build_note_path_map() -> tuple[dict[str, str], dict[str, str]]:
+def _build_note_path_map() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """Build mappings for resolving wikilink names to vault paths.
 
     Returns:
-        Tuple of (stem_map, path_map):
-        - stem_map: lowercase stem → relative path (shortest wins for collisions)
+        Tuple of (stem_map, path_map, file_map):
+        - stem_map: lowercase stem → relative path (shortest wins, .md only)
         - path_map: lowercase relative path without .md → relative path (all files)
+        - file_map: lowercase filename → relative path (non-.md files, shortest wins)
     """
     stem_map: dict[str, str] = {}
     path_map: dict[str, str] = {}
+    file_map: dict[str, str] = {}
+
     for md_file in get_vault_files():
         rel_path = get_relative_path(md_file)
-        # Normalize separators for cross-platform matching
         normalized = rel_path.replace("\\", "/")
         stem = md_file.stem.lower()
         if stem not in stem_map or len(rel_path) < len(stem_map[stem]):
             stem_map[stem] = rel_path
-        # Store without .md for folder-qualified lookup
         key = normalized[:-3].lower() if normalized.endswith(".md") else normalized.lower()
         path_map[key] = rel_path
-    return stem_map, path_map
+
+    # Index non-markdown files for attachment/embed resolution
+    vault = Path(config.VAULT_PATH)
+    for f in vault.rglob("*"):
+        if not f.is_file() or f.suffix.lower() == ".md":
+            continue
+        if any(excluded in f.parts for excluded in EXCLUDED_DIRS):
+            continue
+        rel_path = get_relative_path(f)
+        fname = f.name.lower()
+        if fname not in file_map or len(rel_path) < len(file_map[fname]):
+            file_map[fname] = rel_path
+        # Also store by relative path for folder-qualified links
+        normalized = rel_path.replace("\\", "/").lower()
+        path_map[normalized] = rel_path
+
+    return stem_map, path_map, file_map
 
 
 def _resolve_link(
-    name: str, stem_map: dict[str, str], path_map: dict[str, str]
+    name: str,
+    stem_map: dict[str, str],
+    path_map: dict[str, str],
+    file_map: dict[str, str] | None = None,
 ) -> str | None:
     """Resolve a wikilink name to a relative vault path.
 
-    Handles #heading suffixes and folder-prefixed links.
+    Handles #heading suffixes, folder-prefixed links, and non-markdown files.
     """
-    # Strip #heading suffix for resolution
     base_name = name.split("#")[0] if "#" in name else name
 
-    # Try as bare stem (most common case)
+    # Try as bare stem (most common case — .md notes)
     resolved = stem_map.get(base_name.lower())
     if resolved:
         return resolved
 
-    # Try as folder-qualified path (e.g. [[Projects/note1]])
+    # Try as folder-qualified path (e.g. [[Projects/note1]] or [[Media/doc.pdf]])
     normalized = base_name.replace("\\", "/").lower()
-    return path_map.get(normalized)
+    resolved = path_map.get(normalized)
+    if resolved:
+        return resolved
+
+    # Try as non-markdown filename (e.g. [[recording.m4a]])
+    if file_map:
+        return file_map.get(base_name.lower())
+
+    return None
 
 
 def compare_folders(

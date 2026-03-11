@@ -190,6 +190,64 @@ class TestFindOutlinks:
         # Folder-qualified link resolves to the specific path
         assert by_name["sub/foo"] == "sub/foo.md"
 
+    def test_find_outlinks_resolves_attachment_files(self, vault_config):
+        """Should resolve non-markdown file embeds to their vault paths."""
+        # Attachments dir already created by vault_config fixture
+        (vault_config / "Attachments" / "recording.m4a").write_bytes(b"fake audio")
+        (vault_config / "embed_test.md").write_text(
+            "Listen: ![[recording.m4a]]"
+        )
+        result = json.loads(find_links("embed_test.md", direction="outlinks"))
+        assert result["success"] is True
+        link = result["results"][0]
+        assert link["name"] == "recording.m4a"
+        assert link["path"] == "Attachments/recording.m4a"
+
+    def test_find_outlinks_resolves_attachment_shortest_path(self, vault_config):
+        """Should resolve attachment embeds to shortest path (Obsidian convention)."""
+        # Same filename in two directories — shorter path wins
+        (vault_config / "image.png").write_bytes(b"fake png")
+        deep = vault_config / "deep" / "nested"
+        deep.mkdir(parents=True)
+        (deep / "image.png").write_bytes(b"fake png 2")
+        (vault_config / "img_test.md").write_text("![[image.png]]")
+        result = json.loads(find_links("img_test.md", direction="outlinks"))
+        link = result["results"][0]
+        assert link["name"] == "image.png"
+        assert link["path"] == "image.png"  # root is shortest
+
+    def test_find_outlinks_resolves_folder_qualified_attachment(self, vault_config):
+        """Should resolve folder-qualified attachment links."""
+        media = vault_config / "Media"
+        media.mkdir()
+        (media / "doc.pdf").write_bytes(b"fake pdf")
+        (vault_config / "pdf_test.md").write_text("See ![[Media/doc.pdf]]")
+        result = json.loads(find_links("pdf_test.md", direction="outlinks"))
+        link = result["results"][0]
+        assert link["name"] == "Media/doc.pdf"
+        assert link["path"] == "Media/doc.pdf"
+
+    def test_find_outlinks_md_note_wins_over_same_stem_file(self, vault_config):
+        """Bare [[name]] should resolve to .md note, not a same-stem non-md file."""
+        (vault_config / "report.md").write_text("# Report note")
+        (vault_config / "Attachments" / "report.pdf").write_bytes(b"fake pdf")
+        (vault_config / "stem_test.md").write_text("See [[report]]")
+        result = json.loads(find_links("stem_test.md", direction="outlinks"))
+        link = result["results"][0]
+        assert link["name"] == "report"
+        assert link["path"] == "report.md"  # .md wins via stem_map
+
+    def test_find_outlinks_excludes_dotfiles(self, vault_config):
+        """Files in excluded directories should not appear in resolution."""
+        obsidian = vault_config / ".obsidian"
+        obsidian.mkdir(exist_ok=True)
+        (obsidian / "workspace.json").write_text("{}")
+        (vault_config / "excluded_test.md").write_text("![[workspace.json]]")
+        result = json.loads(find_links("excluded_test.md", direction="outlinks"))
+        link = result["results"][0]
+        assert link["name"] == "workspace.json"
+        assert link["path"] is None  # should not resolve to excluded dir
+
 
 class TestCompareFolders:
     """Tests for compare_folders tool."""
