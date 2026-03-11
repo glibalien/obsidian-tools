@@ -69,6 +69,10 @@ date ranges in a single call.
   When a query is combined with filters, results are intersected (two-phase: search then filter).
 - **Structural vs textual**: Relationships via wikilinks and frontmatter are invisible
   to text search. Use find_links to discover them.
+- **Finding embeds**: To discover what's embedded in a file (audio, images, other notes),
+  use find_links(direction="outlinks") — it lists all ![[...]] references without reading
+  or processing the file content. Do NOT use read_file just to find embed paths — it
+  triggers expensive processing (transcription, vision, etc.) as a side effect.
 
 ## Vault Navigation Strategy
 
