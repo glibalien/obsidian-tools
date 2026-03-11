@@ -2541,7 +2541,7 @@ class TestPersistentEmbedCache:
         audio = vault_config / "Attachments" / "rec.m4a"
         audio.write_bytes(b"fake")
 
-        cache_dir = vault_config / ".embed_cache"
+        cache_dir = vault_config / "embed_cache"
         cache_dir.mkdir(exist_ok=True)
         rel = audio.relative_to(vault_config).as_posix()
         key = hashlib.sha256(rel.encode()).hexdigest()
@@ -2555,7 +2555,7 @@ class TestPersistentEmbedCache:
         audio.write_bytes(b"fake")
         mtime = audio.stat().st_mtime
 
-        cache_dir = vault_config / ".embed_cache"
+        cache_dir = vault_config / "embed_cache"
         assert not cache_dir.exists()
 
         _cache_write(audio, mtime, "transcript")
@@ -2585,7 +2585,7 @@ class TestPersistentEmbedCache:
 
         rel = audio.relative_to(vault_config).as_posix()
         expected_key = hashlib.sha256(rel.encode()).hexdigest()
-        cache_file = vault_config / ".embed_cache" / f"{expected_key}.json"
+        cache_file = vault_config / "embed_cache" / f"{expected_key}.json"
         assert cache_file.exists()
 
     def test_cache_works_with_symlinked_vault(self, tmp_path, monkeypatch):
@@ -2604,11 +2604,11 @@ class TestPersistentEmbedCache:
 
         # Patch VAULT_PATH to the symlink (unresolved)
         monkeypatch.setattr(config, "VAULT_PATH", symlink_vault)
-        monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+        monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian", "embed_cache"})
         monkeypatch.setattr(config, "ATTACHMENTS_DIR", attachments)
         monkeypatch.setattr(services.vault, "VAULT_PATH", symlink_vault)
-        monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
-        monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+        monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian", "embed_cache"})
+        monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian", "embed_cache"})
 
         # Create a file via the resolved path (as resolve_file would)
         audio = real_vault / "Attachments" / "rec.m4a"

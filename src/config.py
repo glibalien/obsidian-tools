@@ -21,7 +21,7 @@ else:
     CHROMA_PATH = str(Path(_chroma_env).expanduser())
 
 # Directories to exclude when scanning vault
-EXCLUDED_DIRS = {'.venv', '.chroma_db', '.trash', '.obsidian', '.git', '.embed_cache'}
+EXCLUDED_DIRS = {'.venv', '.chroma_db', '.trash', '.obsidian', '.git', 'embed_cache'}
 
 # Preferences file location (user preferences stored as bullet points)
 PREFERENCES_FILE = VAULT_PATH / "Preferences.md"

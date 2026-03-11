@@ -108,7 +108,7 @@ _embed_cache: dict[tuple[str, float], str] = {}
 _EMBED_RE = re.compile(r"!\[\[([^\]]+)\]\]")
 _INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1")
 _EMBED_CACHE_MAX = 128
-_EMBED_CACHE_DIR = ".embed_cache"
+_EMBED_CACHE_DIR = "embed_cache"
 
 
 def _cache_key(file_path: Path) -> str:
