@@ -116,16 +116,16 @@ def vault_config(temp_vault, monkeypatch):
 
     # Patch in config module
     monkeypatch.setattr(config, "VAULT_PATH", temp_vault)
-    monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian"})
+    monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
     monkeypatch.setattr(config, "ATTACHMENTS_DIR", attachments_dir)
     monkeypatch.setattr(config, "CHROMA_PATH", temp_chroma)
 
     # Patch in services.vault (which imports from config at load time)
     monkeypatch.setattr(services.vault, "VAULT_PATH", temp_vault)
-    monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian"})
+    monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
 
     # Patch in tools modules that import from config
-    monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian"})
+    monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
 
     return temp_vault
 

@@ -1,7 +1,9 @@
 """Tests for tools/files.py - file operations."""
 
+import hashlib
 import json
 import logging
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,6 +14,8 @@ from pptx import Presentation
 from services.vault import FilterCondition, clear_pending_previews
 from tools.readers import handle_audio, handle_image, handle_office, handle_pdf, _format_diarized
 from tools.files import (
+    _cache_read,
+    _cache_write,
     _embed_cache,
     _expand_embeds,
     _extract_block,
@@ -2499,3 +2503,287 @@ class TestTranscribeToFile:
         result = json.loads(transcribe_to_file("call.m4a", "call-transcript.md"))
         assert result["success"] is True
         assert (vault_config / "call-transcript.md").exists()
+
+
+class TestPersistentEmbedCache:
+    """Tests for disk-backed embed cache helpers."""
+
+    def test_cache_write_and_read(self, vault_config):
+        """Written cache entry is readable."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "Hello world transcript")
+        result = _cache_read(audio)
+        assert result == "Hello world transcript"
+
+    def test_cache_read_miss_no_file(self, vault_config):
+        """Returns None when no cache file exists."""
+        missing = vault_config / "Attachments" / "missing.m4a"
+        assert _cache_read(missing) is None
+
+    def test_cache_read_stale_mtime(self, vault_config):
+        """Returns None when cached mtime doesn't match current file."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        old_mtime = audio.stat().st_mtime
+
+        _cache_write(audio, old_mtime, "Old transcript")
+
+        time.sleep(0.05)
+        audio.write_bytes(b"modified")
+
+        assert _cache_read(audio) is None
+
+    def test_cache_read_corrupt_json(self, vault_config):
+        """Returns None on corrupt cache file."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+
+        cache_dir = vault_config / ".embed_cache"
+        cache_dir.mkdir(exist_ok=True)
+        rel = audio.relative_to(vault_config).as_posix()
+        key = hashlib.sha256(rel.encode()).hexdigest()
+        (cache_dir / f"{key}.json").write_text("not valid json{{{")
+
+        assert _cache_read(audio) is None
+
+    def test_cache_write_creates_directory(self, vault_config):
+        """Cache directory is created on first write."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        cache_dir = vault_config / ".embed_cache"
+        assert not cache_dir.exists()
+
+        _cache_write(audio, mtime, "transcript")
+        assert cache_dir.is_dir()
+
+    def test_cache_populates_in_memory(self, vault_config):
+        """Cache read populates in-memory _embed_cache."""
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "transcript")
+        _embed_cache.clear()
+
+        result = _cache_read(audio)
+        assert result == "transcript"
+        assert (str(audio), mtime) in _embed_cache
+
+    def test_cache_cross_platform_key(self, vault_config):
+        """Cache key uses POSIX path for cross-platform consistency."""
+        audio = vault_config / "Attachments" / "sub" / "rec.m4a"
+        audio.parent.mkdir(parents=True, exist_ok=True)
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "transcript")
+
+        rel = audio.relative_to(vault_config).as_posix()
+        expected_key = hashlib.sha256(rel.encode()).hexdigest()
+        cache_file = vault_config / ".embed_cache" / f"{expected_key}.json"
+        assert cache_file.exists()
+
+    def test_cache_works_with_symlinked_vault(self, tmp_path, monkeypatch):
+        """Cache works when VAULT_PATH contains symlinks."""
+        import config
+        import services.vault
+        import tools.links
+
+        # Create real vault dir and a symlink to it
+        real_vault = tmp_path / "real_vault"
+        real_vault.mkdir()
+        attachments = real_vault / "Attachments"
+        attachments.mkdir()
+        symlink_vault = tmp_path / "symlink_vault"
+        symlink_vault.symlink_to(real_vault)
+
+        # Patch VAULT_PATH to the symlink (unresolved)
+        monkeypatch.setattr(config, "VAULT_PATH", symlink_vault)
+        monkeypatch.setattr(config, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+        monkeypatch.setattr(config, "ATTACHMENTS_DIR", attachments)
+        monkeypatch.setattr(services.vault, "VAULT_PATH", symlink_vault)
+        monkeypatch.setattr(services.vault, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+        monkeypatch.setattr(tools.links, "EXCLUDED_DIRS", {".git", ".obsidian", ".embed_cache"})
+
+        # Create a file via the resolved path (as resolve_file would)
+        audio = real_vault / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        # _cache_write and _cache_read should work despite path mismatch
+        _cache_write(audio, mtime, "transcript via symlink")
+        _embed_cache.clear()
+        result = _cache_read(audio)
+        assert result == "transcript via symlink"
+
+    def test_expand_binary_writes_disk_cache(self, vault_config, monkeypatch):
+        """_expand_binary writes result to disk cache on miss."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": true, "transcript": "Hello"}'
+            _embed_cache.clear()
+            _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+
+        # Verify disk cache was written
+        result = _cache_read(audio)
+        assert result == "Hello"
+
+    def test_expand_binary_reads_disk_cache(self, vault_config, monkeypatch):
+        """_expand_binary uses disk cache when in-memory cache is empty."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        # Pre-populate disk cache
+        _cache_write(audio, mtime, "Cached transcript")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            _embed_cache.clear()
+            result = _expand_embeds("![[rec.m4a]]", vault_config / "parent.md")
+            mock_audio.assert_not_called()
+
+        assert "Cached transcript" in result
+
+    def test_error_response_not_cached(self, vault_config, monkeypatch):
+        """Handler errors are not written to disk cache."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "bad.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": false, "error": "Transcription failed"}'
+            _embed_cache.clear()
+            _expand_embeds("![[bad.m4a]]", vault_config / "parent.md")
+
+        assert _cache_read(audio) is None
+
+    def test_read_file_uses_disk_cache(self, vault_config, monkeypatch):
+        """read_file returns cached result for audio without calling API."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "Cached transcript")
+        _embed_cache.clear()
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            result = json.loads(read_file("Attachments/rec.m4a"))
+            mock_audio.assert_not_called()
+
+        assert result["success"] is True
+        assert result["transcript"] == "Cached transcript"
+
+    def test_read_file_writes_disk_cache(self, vault_config, monkeypatch):
+        """read_file populates disk cache after calling handler."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "rec.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.readers.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.segments = None
+            mock_response.text = "Fresh transcript"
+            mock_client.audio.transcriptions.create.return_value = mock_response
+
+            _embed_cache.clear()
+            result = json.loads(read_file("Attachments/rec.m4a"))
+
+        assert result["success"] is True
+        # Verify disk cache was populated
+        cached = _cache_read(audio)
+        assert cached == "Fresh transcript"
+
+    def test_read_file_image_uses_disk_cache(self, vault_config, monkeypatch):
+        """read_file returns cached result for images with description key."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        img = vault_config / "Attachments" / "photo.png"
+        img.write_bytes(b"fake png")
+        mtime = img.stat().st_mtime
+
+        _cache_write(img, mtime, "A photo of a cat")
+        _embed_cache.clear()
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_image") as mock_image:
+            result = json.loads(read_file("Attachments/photo.png"))
+            mock_image.assert_not_called()
+
+        assert result["success"] is True
+        assert result["description"] == "A photo of a cat"
+
+    def test_read_file_error_not_cached(self, vault_config, monkeypatch):
+        """read_file does not cache handler error responses."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "bad.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            mock_audio.return_value = '{"success": false, "error": "Transcription failed"}'
+            _embed_cache.clear()
+            result = json.loads(read_file("Attachments/bad.m4a"))
+
+        assert result["success"] is False
+        assert _cache_read(audio) is None
+
+    def test_transcribe_to_file_uses_disk_cache(self, vault_config, monkeypatch):
+        """transcribe_to_file uses cached transcript without calling API."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"fake")
+        mtime = audio.stat().st_mtime
+
+        _cache_write(audio, mtime, "Cached diarized transcript")
+        _embed_cache.clear()
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.files.handle_audio") as mock_audio:
+            result = json.loads(transcribe_to_file("Attachments/meeting.m4a", "transcript.md"))
+            mock_audio.assert_not_called()
+
+        assert result["success"] is True
+        output = vault_config / "transcript.md"
+        assert output.exists()
+        assert output.read_text() == "Cached diarized transcript"
+
+    def test_transcribe_to_file_writes_disk_cache(self, vault_config, monkeypatch):
+        """transcribe_to_file populates disk cache after API call."""
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        audio = vault_config / "Attachments" / "meeting.m4a"
+        audio.write_bytes(b"fake")
+
+        from unittest.mock import patch as _patch
+        with _patch("tools.readers.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.segments = [
+                {"speaker_id": "0", "text": "Hello.", "start": 0.0, "end": 3.0},
+            ]
+            mock_response.text = "Hello."
+            mock_client.audio.transcriptions.create.return_value = mock_response
+
+            _embed_cache.clear()
+            result = json.loads(transcribe_to_file("Attachments/meeting.m4a", "transcript.md"))
+
+        assert result["success"] is True
+        cached = _cache_read(audio)
+        assert cached is not None
+        assert "**Speaker 0**" in cached

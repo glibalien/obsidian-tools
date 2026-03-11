@@ -75,7 +75,7 @@ def test_chroma_path_absolute(monkeypatch, tmp_path):
 
 def test_excluded_dirs_contents(monkeypatch):
     config = _reload(monkeypatch)
-    assert config.EXCLUDED_DIRS == {'.venv', '.chroma_db', '.trash', '.obsidian', '.git'}
+    assert config.EXCLUDED_DIRS == {'.venv', '.chroma_db', '.trash', '.obsidian', '.git', '.embed_cache'}
 
 
 # ---------------------------------------------------------------------------

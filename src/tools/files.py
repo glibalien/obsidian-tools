@@ -3,7 +3,9 @@
 import hashlib
 import json
 import logging
+import os
 import re
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
@@ -46,6 +48,15 @@ from services.vault import (
 logger = logging.getLogger(__name__)
 
 _BINARY_EXTENSIONS = AUDIO_EXTENSIONS | IMAGE_EXTENSIONS | OFFICE_EXTENSIONS | PDF_EXTENSIONS
+
+# Maps binary extension sets to the JSON response key used by ok()
+_BINARY_RESPONSE_KEYS: dict[str, str] = {}
+for _ext in AUDIO_EXTENSIONS:
+    _BINARY_RESPONSE_KEYS[_ext] = "transcript"
+for _ext in IMAGE_EXTENSIONS:
+    _BINARY_RESPONSE_KEYS[_ext] = "description"
+for _ext in OFFICE_EXTENSIONS | PDF_EXTENSIONS:
+    _BINARY_RESPONSE_KEYS[_ext] = "content"
 
 _BLOCK_ID_RE = re.compile(r"\s\^(\S+)\s*$")
 
@@ -97,6 +108,143 @@ _embed_cache: dict[tuple[str, float], str] = {}
 _EMBED_RE = re.compile(r"!\[\[([^\]]+)\]\]")
 _INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1")
 _EMBED_CACHE_MAX = 128
+_EMBED_CACHE_DIR = ".embed_cache"
+
+
+def _cache_key(file_path: Path) -> str:
+    """Compute cache filename from vault-relative POSIX path."""
+    rel = file_path.relative_to(Path(config.VAULT_PATH).resolve()).as_posix()
+    return hashlib.sha256(rel.encode()).hexdigest()
+
+
+def _cache_read(file_path: Path) -> str | None:
+    """Read from persistent embed cache.
+
+    Checks disk cache for a valid (mtime-matching) entry. Populates
+    in-memory cache on hit.
+
+    Args:
+        file_path: Absolute path to the source binary file.
+
+    Returns:
+        Cached content string, or None on miss.
+    """
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        return None
+
+    try:
+        cache_file = Path(config.VAULT_PATH) / _EMBED_CACHE_DIR / f"{_cache_key(file_path)}.json"
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        if data.get("mtime") == mtime:
+            content = data["content"]
+            # Evict oldest in-memory entry if full
+            if len(_embed_cache) >= _EMBED_CACHE_MAX:
+                oldest = next(iter(_embed_cache))
+                del _embed_cache[oldest]
+            _embed_cache[(str(file_path), mtime)] = content
+            return content
+    except OSError:
+        pass  # Cache file doesn't exist yet — normal cold start
+    except (ValueError, json.JSONDecodeError, KeyError, TypeError):
+        logger.warning("Corrupt embed cache entry for %s", file_path.name)
+
+    return None
+
+
+def _cache_write(file_path: Path, mtime: float, content: str) -> None:
+    """Write to persistent embed cache.
+
+    Writes atomically (temp file + rename) and populates in-memory cache.
+
+    Args:
+        file_path: Absolute path to the source binary file.
+        mtime: Source file's st_mtime at processing time.
+        content: Extracted text/transcript/description string.
+    """
+    cache_dir = Path(config.VAULT_PATH) / _EMBED_CACHE_DIR
+    try:
+        cache_dir.mkdir(exist_ok=True)
+        cache_file = cache_dir / f"{_cache_key(file_path)}.json"
+        data = json.dumps({"mtime": mtime, "content": content})
+        fd = tempfile.NamedTemporaryFile(
+            mode="w", dir=cache_dir, suffix=".tmp", delete=False, encoding="utf-8",
+        )
+        try:
+            fd.write(data)
+            fd.close()
+            os.replace(fd.name, cache_file)
+        except BaseException:
+            fd.close()
+            try:
+                os.unlink(fd.name)
+            except OSError:
+                pass
+            raise
+    except (OSError, ValueError):
+        logger.warning("Failed to write embed cache for %s", file_path.name)
+
+    # Populate in-memory cache (with eviction)
+    if len(_embed_cache) >= _EMBED_CACHE_MAX:
+        oldest = next(iter(_embed_cache))
+        del _embed_cache[oldest]
+    _embed_cache[(str(file_path), mtime)] = content
+
+
+def _read_binary(file_path: Path, ext: str) -> str:
+    """Read a binary file with persistent cache support.
+
+    Checks cache first, calls appropriate handler on miss,
+    writes result to cache, and returns ok() JSON with the correct key.
+
+    Args:
+        file_path: Resolved absolute path to the binary file.
+        ext: Lowercase file extension (e.g. ".m4a").
+
+    Returns:
+        JSON string via ok() with the appropriate response key.
+    """
+    # Check persistent cache (in-memory then disk)
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        mtime = None
+
+    if mtime is not None:
+        cache_key = (str(file_path), mtime)
+        if cache_key in _embed_cache:
+            content = _embed_cache[cache_key]
+            return ok(**{_BINARY_RESPONSE_KEYS[ext]: content})
+
+        disk_hit = _cache_read(file_path)
+        if disk_hit is not None:
+            return ok(**{_BINARY_RESPONSE_KEYS[ext]: disk_hit})
+
+    # Cache miss — call handler
+    if ext in AUDIO_EXTENSIONS:
+        raw = handle_audio(file_path)
+    elif ext in IMAGE_EXTENSIONS:
+        raw = handle_image(file_path)
+    elif ext in OFFICE_EXTENSIONS:
+        raw = handle_office(file_path)
+    elif ext in PDF_EXTENSIONS:
+        raw = handle_pdf(file_path)
+    else:
+        return err(f"Unsupported binary type: {ext}")
+
+    # Extract content and cache on success
+    result = json.loads(raw)
+    if result.get("success") and mtime is not None:
+        content = (
+            result.get("transcript")
+            or result.get("description")
+            or result.get("content")
+            or ""
+        )
+        _cache_write(file_path, mtime, content)
+
+    return raw
 
 
 def _expand_embeds(content: str, source_path: Path) -> str:
@@ -211,7 +359,7 @@ def _resolve_embed_file(lookup_name: str, ext: str) -> Path | None:
 
 
 def _expand_binary(file_path: Path, reference: str) -> str:
-    """Expand a binary embed (audio/image/office) with caching."""
+    """Expand a binary embed (audio/image/office/pdf) with caching."""
     path_str = str(file_path)
     try:
         mtime = file_path.stat().st_mtime
@@ -221,40 +369,43 @@ def _expand_binary(file_path: Path, reference: str) -> str:
     cache_key = (path_str, mtime)
     if cache_key in _embed_cache:
         logger.debug("Cache hit: %s", file_path.name)
-        expanded = _embed_cache[cache_key]
+        return _format_embed(reference, _embed_cache[cache_key])
+
+    # Check persistent disk cache
+    disk_hit = _cache_read(file_path)
+    if disk_hit is not None:
+        logger.debug("Disk cache hit: %s", file_path.name)
+        return _format_embed(reference, disk_hit)
+
+    # Full miss — call handler
+    ext = file_path.suffix.lower()
+    if ext in AUDIO_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling audio handler", file_path.name)
+        raw = handle_audio(file_path)
+    elif ext in IMAGE_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling image handler", file_path.name)
+        raw = handle_image(file_path)
+    elif ext in OFFICE_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling office handler", file_path.name)
+        raw = handle_office(file_path)
+    elif ext in PDF_EXTENSIONS:
+        logger.debug("Cache miss: %s — calling pdf handler", file_path.name)
+        raw = handle_pdf(file_path)
     else:
-        ext = file_path.suffix.lower()
-        if ext in AUDIO_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling audio handler", file_path.name)
-            raw = handle_audio(file_path)
-        elif ext in IMAGE_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling image handler", file_path.name)
-            raw = handle_image(file_path)
-        elif ext in OFFICE_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling office handler", file_path.name)
-            raw = handle_office(file_path)
-        elif ext in PDF_EXTENSIONS:
-            logger.debug("Cache miss: %s — calling pdf handler", file_path.name)
-            raw = handle_pdf(file_path)
-        else:
-            return f"> [Embed error: {reference} — Unsupported binary type]"
+        return f"> [Embed error: {reference} — Unsupported binary type]"
 
-        result = json.loads(raw)
-        if not result.get("success"):
-            return f"> [Embed error: {reference} — {result.get('error', 'Unknown error')}]"
+    result = json.loads(raw)
+    if not result.get("success"):
+        return f"> [Embed error: {reference} — {result.get('error', 'Unknown error')}]"
 
-        expanded = (
-            result.get("transcript")
-            or result.get("description")
-            or result.get("content")
-            or ""
-        )
-        # Evict oldest entries if cache is full
-        if len(_embed_cache) >= _EMBED_CACHE_MAX:
-            oldest = next(iter(_embed_cache))
-            del _embed_cache[oldest]
-        _embed_cache[cache_key] = expanded
+    expanded = (
+        result.get("transcript")
+        or result.get("description")
+        or result.get("content")
+        or ""
+    )
 
+    _cache_write(file_path, mtime, expanded)
     return _format_embed(reference, expanded)
 
 
@@ -374,19 +525,10 @@ def read_file(path: str, offset: int = 0, length: int = 30000) -> str:
         else:
             return err(error)
 
-    # Extension-based dispatch for non-text files
+    # Extension-based dispatch for non-text files (with persistent cache)
     ext = file_path.suffix.lower()
-    if ext in AUDIO_EXTENSIONS:
-        return handle_audio(file_path)
-
-    if ext in IMAGE_EXTENSIONS:
-        return handle_image(file_path)
-
-    if ext in OFFICE_EXTENSIONS:
-        return handle_office(file_path)
-
-    if ext in PDF_EXTENSIONS:
-        return handle_pdf(file_path)
+    if ext in _BINARY_EXTENSIONS:
+        return _read_binary(file_path, ext)
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -456,13 +598,28 @@ def transcribe_to_file(path: str, output_path: str) -> str:
     if out_resolved.exists():
         return err(f"Output file already exists: {output_path}")
 
-    # Transcribe
-    raw = handle_audio(file_path)
-    result = json.loads(raw)
-    if not result.get("success"):
-        return err(result.get("error", "Transcription failed"))
+    # Check cache first, then transcribe on miss
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        mtime = None
 
-    transcript = result["transcript"]
+    transcript = None
+    if mtime is not None:
+        cache_key = (str(file_path), mtime)
+        if cache_key in _embed_cache:
+            transcript = _embed_cache[cache_key]
+        else:
+            transcript = _cache_read(file_path)
+
+    if transcript is None:
+        raw = handle_audio(file_path)
+        result = json.loads(raw)
+        if not result.get("success"):
+            return err(result.get("error", "Transcription failed"))
+        transcript = result["transcript"]
+        if mtime is not None:
+            _cache_write(file_path, mtime, transcript)
 
     # Write via create_file
     create_result = json.loads(create_file(output_path, transcript))
