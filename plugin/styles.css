@@ -58,12 +58,6 @@
 	font-size: 0.9em;
 }
 
-.chat-loading .chat-message-content {
-	color: var(--text-muted);
-	font-style: italic;
-	transition: opacity 0.15s ease;
-}
-
 .chat-input-container {
 	display: flex;
 	gap: 8px;
@@ -177,4 +171,68 @@
 .chat-confirmation-preview .preview-cancel:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
+}
+
+/* --- Tool progress indicator --- */
+
+@keyframes dots {
+	0%   { content: ""; }
+	25%  { content: "."; }
+	50%  { content: ".."; }
+	75%  { content: "..."; }
+}
+
+.chat-loading .chat-message-content {
+	color: var(--text-muted);
+}
+
+.tool-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.tool-step {
+	font-size: 0.85em;
+	color: var(--text-muted);
+	display: flex;
+	align-items: baseline;
+	gap: 4px;
+}
+
+.tool-step-icon {
+	display: inline-block;
+	width: 1.2em;
+	text-align: center;
+	flex-shrink: 0;
+}
+
+.tool-step-success {
+	color: var(--text-muted);
+}
+
+.tool-step-failure {
+	color: var(--text-error);
+}
+
+.tool-step-detail {
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tool-current {
+	color: var(--text-muted);
+	font-style: italic;
+	margin-top: 2px;
+}
+
+.tool-current-detail {
+	color: var(--text-faint);
+}
+
+.tool-dots::after {
+	content: "";
+	animation: dots 1.2s steps(1) infinite;
 }
