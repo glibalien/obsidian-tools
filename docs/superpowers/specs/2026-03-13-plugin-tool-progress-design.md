@@ -106,7 +106,8 @@ Update `formatToolStatus()`:
 
 2. **Accept optional `args` parameter**. Extract the single most relevant arg per tool and append as a muted suffix:
    - `find_notes`, `web_search` → `query`
-   - `read_file`, `create_file`, `move_file`, `edit_file`, `get_note_info`, `find_links`, `summarize_file`, `transcribe_to_file` → `path`
+   - `read_file`, `create_file`, `edit_file`, `get_note_info`, `find_links`, `summarize_file`, `transcribe_to_file` → `path`
+   - `move_file` → `source`
    - `update_frontmatter`, `batch_update_frontmatter` → `field`
    - `research` → `path` or `topic`
    - Others → no suffix
