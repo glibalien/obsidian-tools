@@ -89,13 +89,55 @@ export class ChatView extends ItemView {
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 	}
 
-	private showLoading(): { container: HTMLElement; textEl: HTMLElement } {
+	private showLoading(): { container: HTMLElement; stepsEl: HTMLElement; currentEl: HTMLElement } {
 		const loadingEl = this.messagesContainer.createDiv({
 			cls: "chat-message chat-message-assistant chat-loading"
 		});
-		const textEl = loadingEl.createDiv({ cls: "chat-message-content", text: "Thinking..." });
+		const contentEl = loadingEl.createDiv({ cls: "chat-message-content" });
+		const stepsEl = contentEl.createDiv({ cls: "tool-steps" });
+		const currentEl = contentEl.createDiv({ cls: "tool-current" });
+		currentEl.createSpan({ cls: "tool-current-label", text: "Thinking" });
+		currentEl.createSpan({ cls: "tool-dots" });
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-		return { container: loadingEl, textEl };
+		return { container: loadingEl, stepsEl, currentEl };
+	}
+
+	private setCurrentTool(currentEl: HTMLElement, label: string, detail: string): void {
+		currentEl.empty();
+		currentEl.createSpan({ cls: "tool-current-label", text: label });
+		if (detail) {
+			currentEl.createSpan({ cls: "tool-current-detail", text: detail });
+		}
+		currentEl.createSpan({ cls: "tool-dots" });
+	}
+
+	private moveCurrentToSteps(stepsEl: HTMLElement, currentEl: HTMLElement, success: boolean | null): void {
+		// Read current label/detail before clearing
+		const labelEl = currentEl.querySelector(".tool-current-label");
+		const detailEl = currentEl.querySelector(".tool-current-detail");
+		if (!labelEl) return; // Nothing to move (still "Thinking")
+
+		const label = labelEl.textContent ?? "";
+		const detail = detailEl?.textContent ?? "";
+
+		const stepEl = stepsEl.createDiv({ cls: "tool-step" });
+		const iconEl = stepEl.createSpan({ cls: "tool-step-icon" });
+		if (success === true) {
+			iconEl.addClass("tool-step-success");
+			iconEl.setText("\u2713");
+		} else if (success === false) {
+			iconEl.addClass("tool-step-failure");
+			iconEl.setText("\u2717");
+		} else {
+			// Neutral — moved before result arrived
+			iconEl.setText("\u2022");
+		}
+		stepEl.createSpan({ cls: "tool-step-label", text: label });
+		if (detail) {
+			stepEl.createSpan({ cls: "tool-step-detail", text: detail });
+		}
+
+		currentEl.empty();
 	}
 
 	private getActiveFilePath(): string | null {
@@ -103,22 +145,64 @@ export class ChatView extends ItemView {
 		return activeFile?.path ?? null;
 	}
 
-	private formatToolStatus(toolName: string): string {
+	private formatToolStatus(toolName: string, args?: Record<string, unknown>): { label: string; detail: string } {
 		const labels: Record<string, string> = {
-			search_vault: "Searching vault...",
-			read_file: "Reading file...",
-			find_backlinks: "Finding backlinks...",
-			find_outlinks: "Finding outlinks...",
-			search_by_folder: "Listing folder...",
-			list_files_by_frontmatter: "Searching frontmatter...",
-			web_search: "Searching the web...",
-			create_file: "Creating file...",
-			move_file: "Moving file...",
-			update_frontmatter: "Updating frontmatter...",
-			log_interaction: "Logging interaction...",
-			transcribe_audio: "Transcribing audio...",
+			find_notes: "Searching vault",
+			read_file: "Reading file",
+			create_file: "Creating file",
+			move_file: "Moving file",
+			edit_file: "Editing file",
+			get_note_info: "Getting note info",
+			find_links: "Finding links",
+			update_frontmatter: "Updating frontmatter",
+			batch_update_frontmatter: "Updating frontmatter (batch)",
+			batch_move_files: "Moving files (batch)",
+			merge_files: "Merging files",
+			batch_merge_files: "Merging files (batch)",
+			manage_preferences: "Managing preferences",
+			summarize_file: "Summarizing file",
+			research: "Researching",
+			transcribe_to_file: "Transcribing audio",
+			compare_folders: "Comparing folders",
+			web_search: "Searching the web",
+			log_interaction: "Logging interaction",
 		};
-		return labels[toolName] ?? `Running ${toolName}...`;
+
+		const label = labels[toolName] ?? `Running ${toolName}`;
+
+		// Extract the most relevant arg per tool
+		const keyArgMap: Record<string, string[]> = {
+			find_notes: ["query"],
+			web_search: ["query"],
+			read_file: ["path"],
+			create_file: ["path"],
+			move_file: ["source"],
+			edit_file: ["path"],
+			get_note_info: ["path"],
+			find_links: ["path"],
+			summarize_file: ["path"],
+			transcribe_to_file: ["path"],
+			update_frontmatter: ["field"],
+			batch_update_frontmatter: ["field"],
+			research: ["path", "topic"],
+		};
+
+		let detail = "";
+		if (args) {
+			const keys = keyArgMap[toolName];
+			if (keys) {
+				for (const key of keys) {
+					const val = args[key];
+					if (val && typeof val === "string") {
+						const truncated = val.length > 50 ? val.slice(0, 50) + "\u2026" : val;
+						detail = ` \u2014 ${truncated}`;
+						break;
+					}
+				}
+			}
+		}
+
+		return { label, detail };
 	}
 
 	private disablePendingConfirmation(): void {
@@ -195,7 +279,7 @@ export class ChatView extends ItemView {
 		await this.addMessage("user", text);
 
 		// Show loading
-		const { container: loadingEl, textEl: loadingText } = this.showLoading();
+		const { container: loadingEl, stepsEl, currentEl } = this.showLoading();
 
 		try {
 			const response = await fetch("http://127.0.0.1:8000/chat/stream", {
@@ -228,12 +312,21 @@ export class ChatView extends ItemView {
 					try {
 						const event = JSON.parse(line.slice(6));
 						switch (event.type) {
-							case "tool_call":
-								loadingText.setText(this.formatToolStatus(event.tool));
+							case "tool_call": {
+								// If current shows a tool (not initial "Thinking"), move it to steps
+								if (currentEl.querySelector(".tool-current-label")?.textContent !== "Thinking") {
+									this.moveCurrentToSteps(stepsEl, currentEl, null);
+								}
+								const { label, detail } = this.formatToolStatus(event.tool, event.args);
+								this.setCurrentTool(currentEl, label, detail);
 								this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 								break;
-							case "tool_result":
+							}
+							case "tool_result": {
+								this.moveCurrentToSteps(stepsEl, currentEl, event.success);
+								this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 								break;
+							}
 							case "confirmation_preview":
 								this.addConfirmationPreview(event.message, event.files);
 								break;
