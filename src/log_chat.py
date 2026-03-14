@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Log Claude Code interactions to the daily note in Obsidian vault."""
 
+import logging
 import re
 import sys
 from datetime import datetime
@@ -8,6 +9,8 @@ from pathlib import Path
 
 from config import VAULT_PATH
 from services.vault import get_vault_note_names
+
+logger = logging.getLogger(__name__)
 
 
 # Patterns for protected zones (order matters: fenced blocks first)
@@ -165,7 +168,7 @@ def log_chat(
     content = insert_entry(content, entry)
 
     daily_note_path.write_text(content)
-    print(f"Logged to {daily_note_path}")
+    logger.info("Logged to %s", daily_note_path)
     return str(daily_note_path)
 
 
