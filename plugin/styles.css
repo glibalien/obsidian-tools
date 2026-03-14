@@ -5,6 +5,18 @@
 	padding: 0;
 }
 
+.chat-context-bar {
+	padding: 6px 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background-color: var(--background-secondary);
+	font-size: 0.85em;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex-shrink: 0;
+}
+
 .chat-messages {
 	flex: 1;
 	overflow-y: auto;

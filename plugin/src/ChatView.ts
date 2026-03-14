@@ -1,10 +1,15 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, TFile, WorkspaceLeaf } from "obsidian";
 
 export const VIEW_TYPE_CHAT = "vault-chat-view";
 
 interface ChatMessage {
 	role: "user" | "assistant";
 	content: string;
+}
+
+interface FileState {
+	sessionId: string | null;
+	messages: ChatMessage[];
 }
 
 export class ChatView extends ItemView {
@@ -15,6 +20,10 @@ export class ChatView extends ItemView {
 	private sendButton: HTMLButtonElement;
 	private isLoading = false;
 	private pendingConfirmationEl: HTMLElement | null = null;
+	private fileStates = new Map<string | null, FileState>();
+	private currentFile: string | null = null;
+	private pendingFileSwitch: string | null | undefined = undefined;
+	private contextBarName: HTMLElement;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -36,6 +45,10 @@ export class ChatView extends ItemView {
 		const container = this.containerEl.children[1];
 		container.empty();
 		container.addClass("vault-chat-container");
+
+		// Context bar
+		const contextBar = container.createDiv({ cls: "chat-context-bar" });
+		this.contextBarName = contextBar.createSpan({ cls: "chat-context-name" });
 
 		// Messages area
 		this.messagesContainer = container.createDiv({ cls: "chat-messages" });
@@ -62,6 +75,15 @@ export class ChatView extends ItemView {
 			}
 		});
 
+		// Initialize current file and context bar
+		this.currentFile = this.getActiveFilePath();
+		this.updateContextBar();
+
+		// Listen for file changes
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => this.onFileChange(file))
+		);
+
 		// Welcome message
 		await this.addMessage("assistant", "Hello! I'm your vault assistant. How can I help you today?");
 	}
@@ -70,23 +92,84 @@ export class ChatView extends ItemView {
 		// Cleanup if needed
 	}
 
-	private async addMessage(role: "user" | "assistant", content: string, sourcePath = ""): Promise<void> {
-		this.messages.push({ role, content });
-
+	private async renderMessage(msg: ChatMessage, sourcePath = ""): Promise<void> {
 		const messageEl = this.messagesContainer.createDiv({
-			cls: `chat-message chat-message-${role}`
+			cls: `chat-message chat-message-${msg.role}`
 		});
 
 		const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
 
-		if (role === "assistant") {
-			await MarkdownRenderer.render(this.app, content, contentEl, sourcePath, this);
+		if (msg.role === "assistant") {
+			await MarkdownRenderer.render(this.app, msg.content, contentEl, sourcePath, this);
 		} else {
-			contentEl.setText(content);
+			contentEl.setText(msg.content);
 		}
+	}
+
+	private async addMessage(role: "user" | "assistant", content: string, sourcePath = ""): Promise<void> {
+		const msg: ChatMessage = { role, content };
+		this.messages.push(msg);
+		await this.renderMessage(msg, sourcePath);
 
 		// Auto-scroll to bottom
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+	}
+
+	private async renderMessages(): Promise<void> {
+		this.messagesContainer.empty();
+		const sourcePath = this.currentFile ?? "";
+		for (const msg of this.messages) {
+			await this.renderMessage(msg, sourcePath);
+		}
+		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+	}
+
+	private updateContextBar(): void {
+		if (this.currentFile) {
+			// Show basename without extension
+			const basename = this.currentFile.replace(/.*\//, "").replace(/\.[^.]+$/, "");
+			this.contextBarName.setText(basename);
+		} else {
+			this.contextBarName.setText("No file open");
+		}
+	}
+
+	private onFileChange(file: TFile | null): void {
+		const newFile = file?.path ?? null;
+		if (newFile === this.currentFile) return;
+		if (this.isLoading) {
+			this.pendingFileSwitch = newFile;
+			return;
+		}
+		this.switchToFile(newFile);
+	}
+
+	private async switchToFile(newFile: string | null): Promise<void> {
+		// Save current state
+		this.fileStates.set(this.currentFile, {
+			sessionId: this.sessionId,
+			messages: [...this.messages],
+		});
+
+		// Restore or start fresh
+		const existing = this.fileStates.get(newFile);
+		if (existing) {
+			this.sessionId = existing.sessionId;
+			this.messages = [...existing.messages];
+		} else {
+			this.sessionId = null;
+			this.messages = [];
+		}
+
+		this.currentFile = newFile;
+		this.pendingConfirmationEl = null;
+		this.updateContextBar();
+		await this.renderMessages();
+
+		// Welcome message for fresh conversations
+		if (!existing) {
+			await this.addMessage("assistant", "Hello! I'm your vault assistant. How can I help you today?");
+		}
 	}
 
 	private showLoading(): { container: HTMLElement; stepsEl: HTMLElement; currentEl: HTMLElement } {
@@ -269,8 +352,8 @@ export class ChatView extends ItemView {
 		// Disable any pending confirmation buttons
 		this.disablePendingConfirmation();
 
-		// Capture active file once at request time for consistent context
-		const activeFile = this.getActiveFilePath();
+		// Use the displayed conversation's file context
+		const activeFile = this.currentFile;
 
 		this.isLoading = true;
 		this.sendButton.disabled = true;
@@ -364,6 +447,12 @@ export class ChatView extends ItemView {
 			this.isLoading = false;
 			this.sendButton.disabled = false;
 			this.inputField.focus();
+
+			if (this.pendingFileSwitch !== undefined) {
+				const pending = this.pendingFileSwitch;
+				this.pendingFileSwitch = undefined;
+				await this.switchToFile(pending);
+			}
 		}
 	}
 
