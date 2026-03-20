@@ -81,7 +81,9 @@ MAX_PAGE_CHARS = 50_000  # Safety cap for fetched web page content
 PAGE_FETCH_TIMEOUT = 10  # Seconds per web page fetch
 
 # Logging configuration
-LOG_DIR = Path(os.getenv("LOG_DIR", str(VAULT_PATH / "logs"))).expanduser()
+LOG_DIR = Path(
+    os.getenv("LOG_DIR", str(Path(__file__).resolve().parent.parent / "logs"))
+).expanduser()
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB
 LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "3"))
 

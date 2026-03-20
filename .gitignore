@@ -9,6 +9,9 @@ venv/
 # ChromaDB
 .chroma_db/
 
+# Logs
+logs/
+
 # Environment
 .env
 .mcp.json

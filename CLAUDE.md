@@ -132,7 +132,7 @@ All paths configured via `.env`:
 | `MAX_CHUNKS_PER_SOURCE` | `3` | Max chunks per source in results (0 = disabled) |
 | `HYDE_ENABLED` | `true` | Toggle HyDE for question-type queries |
 | `UPSERT_BATCH_SIZE` | `500` | Chunks per ChromaDB upsert batch |
-| `LOG_DIR` | `VAULT_PATH/logs/` | Log file directory |
+| `LOG_DIR` | `<project_root>/logs/` | Log file directory |
 | `LOG_MAX_BYTES` | `5242880` (5MB) | Max log file size before rotation |
 | `LOG_BACKUP_COUNT` | `3` | Rotated log files to keep |
 | `MAX_SESSIONS` | `20` | Max concurrent API sessions (LRU eviction) |
