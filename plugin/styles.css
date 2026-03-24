@@ -185,6 +185,17 @@
 	cursor: not-allowed;
 }
 
+/* --- Retained tool steps in message --- */
+
+.chat-tool-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding-bottom: 8px;
+	margin-bottom: 8px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
 /* --- Tool progress indicator --- */
 
 @keyframes dots {

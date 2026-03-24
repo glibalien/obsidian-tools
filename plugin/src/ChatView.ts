@@ -2,9 +2,16 @@ import { ItemView, MarkdownRenderer, TFile, WorkspaceLeaf } from "obsidian";
 
 export const VIEW_TYPE_CHAT = "vault-chat-view";
 
+interface ToolStep {
+	label: string;
+	detail: string;
+	status: "success" | "failure" | "neutral";
+}
+
 interface ChatMessage {
 	role: "user" | "assistant";
 	content: string;
+	toolSteps?: ToolStep[];
 }
 
 interface FileState {
@@ -99,6 +106,10 @@ export class ChatView extends ItemView {
 
 		const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
 
+		if (msg.toolSteps?.length) {
+			this.renderToolSteps(contentEl, msg.toolSteps);
+		}
+
 		if (msg.role === "assistant") {
 			await MarkdownRenderer.render(this.app, msg.content, contentEl, sourcePath, this);
 		} else {
@@ -106,8 +117,32 @@ export class ChatView extends ItemView {
 		}
 	}
 
-	private async addMessage(role: "user" | "assistant", content: string, sourcePath = ""): Promise<void> {
+	private renderToolSteps(parent: HTMLElement, steps: ToolStep[]): void {
+		const stepsEl = parent.createDiv({ cls: "chat-tool-steps" });
+		for (const step of steps) {
+			const stepEl = stepsEl.createDiv({ cls: "tool-step" });
+			const iconEl = stepEl.createSpan({ cls: "tool-step-icon" });
+			if (step.status === "success") {
+				iconEl.addClass("tool-step-success");
+				iconEl.setText("\u2713");
+			} else if (step.status === "failure") {
+				iconEl.addClass("tool-step-failure");
+				iconEl.setText("\u2717");
+			} else {
+				iconEl.setText("\u2022");
+			}
+			stepEl.createSpan({ cls: "tool-step-label", text: step.label });
+			if (step.detail) {
+				stepEl.createSpan({ cls: "tool-step-detail", text: step.detail });
+			}
+		}
+	}
+
+	private async addMessage(role: "user" | "assistant", content: string, sourcePath = "", toolSteps?: ToolStep[]): Promise<void> {
 		const msg: ChatMessage = { role, content };
+		if (toolSteps?.length) {
+			msg.toolSteps = toolSteps;
+		}
 		this.messages.push(msg);
 		await this.renderMessage(msg, sourcePath);
 
@@ -363,6 +398,9 @@ export class ChatView extends ItemView {
 
 		// Show loading
 		const { container: loadingEl, stepsEl, currentEl } = this.showLoading();
+		const completedSteps: ToolStep[] = [];
+		let pendingLabel = "";
+		let pendingDetail = "";
 
 		try {
 			const response = await fetch("http://127.0.0.1:8000/chat/stream", {
@@ -399,14 +437,24 @@ export class ChatView extends ItemView {
 								// If current shows a tool (not initial "Thinking"), move it to steps
 								if (currentEl.querySelector(".tool-current-label")?.textContent !== "Thinking") {
 									this.moveCurrentToSteps(stepsEl, currentEl, null);
+									if (pendingLabel) {
+										completedSteps.push({ label: pendingLabel, detail: pendingDetail, status: "neutral" });
+									}
 								}
 								const { label, detail } = this.formatToolStatus(event.tool, event.args);
+								pendingLabel = label;
+								pendingDetail = detail;
 								this.setCurrentTool(currentEl, label, detail);
 								this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 								break;
 							}
 							case "tool_result": {
 								this.moveCurrentToSteps(stepsEl, currentEl, event.success);
+								if (pendingLabel) {
+									completedSteps.push({ label: pendingLabel, detail: pendingDetail, status: event.success ? "success" : "failure" });
+									pendingLabel = "";
+									pendingDetail = "";
+								}
 								this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 								break;
 							}
@@ -414,12 +462,20 @@ export class ChatView extends ItemView {
 								this.addConfirmationPreview(event.message, event.files);
 								break;
 							case "response":
+								if (pendingLabel) {
+									completedSteps.push({ label: pendingLabel, detail: pendingDetail, status: "neutral" });
+									pendingLabel = "";
+								}
 								loadingEl.remove();
-								await this.addMessage("assistant", event.content, activeFile ?? "");
+								await this.addMessage("assistant", event.content, activeFile ?? "", completedSteps.length > 0 ? [...completedSteps] : undefined);
 								break;
 							case "error":
+								if (pendingLabel) {
+									completedSteps.push({ label: pendingLabel, detail: pendingDetail, status: "failure" });
+									pendingLabel = "";
+								}
 								loadingEl.remove();
-								await this.addMessage("assistant", `Error: ${event.error}. Is the API server running?`);
+								await this.addMessage("assistant", `Error: ${event.error}. Is the API server running?`, "", completedSteps.length > 0 ? [...completedSteps] : undefined);
 								break;
 							case "done":
 								this.sessionId = event.session_id ?? this.sessionId;
@@ -433,16 +489,22 @@ export class ChatView extends ItemView {
 
 			// If loading indicator is still showing (no response event received), remove it
 			if (loadingEl.parentElement) {
+				if (pendingLabel) {
+					completedSteps.push({ label: pendingLabel, detail: pendingDetail, status: "neutral" });
+				}
 				loadingEl.remove();
-				await this.addMessage("assistant", "No response received from server.");
+				await this.addMessage("assistant", "No response received from server.", "", completedSteps.length > 0 ? [...completedSteps] : undefined);
 			}
 
 		} catch (error) {
 			if (loadingEl.parentElement) {
+				if (pendingLabel) {
+					completedSteps.push({ label: pendingLabel, detail: pendingDetail, status: "failure" });
+				}
 				loadingEl.remove();
 			}
 			const errorMessage = error instanceof Error ? error.message : "Failed to connect to server";
-			await this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`);
+			await this.addMessage("assistant", `Error: ${errorMessage}. Is the API server running?`, "", completedSteps.length > 0 ? [...completedSteps] : undefined);
 		} finally {
 			this.isLoading = false;
 			this.sendButton.disabled = false;
