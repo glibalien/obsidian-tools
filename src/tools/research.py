@@ -787,7 +787,7 @@ def _research_adhoc(
     filename = _sanitize_filename(title)
 
     create_result = json.loads(
-        create_file(filename, synthesis, frontmatter='{"category": "note"}')
+        create_file(filename, synthesis, frontmatter='{"types": "note"}')
     )
     if not create_result.get("success"):
         return err(create_result.get("error", "Failed to create research note"))

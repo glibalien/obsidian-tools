@@ -65,7 +65,7 @@ def update_frontmatter(
         path: Path to the note (relative to vault or absolute).
         field: Frontmatter field name to update.
         value: Value to set. Required for 'set'/'append'.
-            For list-type fields (category, tags, aliases, cssclasses),
+            For list-type fields (types, tags, aliases, cssclasses),
             ALWAYS pass an array — even for a single value: ["project"].
             For scalar fields (status, project, date), pass a plain string.
             Never pass comma-separated strings like "person, actor" — that
@@ -234,7 +234,7 @@ def batch_update_frontmatter(
     Args:
         field: Frontmatter field name to update.
         value: Value to set. Required for 'set'/'append'.
-            For list-type fields (category, tags, aliases, cssclasses),
+            For list-type fields (types, tags, aliases, cssclasses),
             ALWAYS pass an array — even for a single value: ["project"].
             For scalar fields, pass a plain string.
             Prefer operation="append" to add a single value to an existing
